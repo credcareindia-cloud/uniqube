@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Element Report</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Orbitron:wght@400;500;700&display=swap" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <style>
+      :root {
+        --primary: #00e5ff;
+        --primary-dark: #00b8d4;
+        --dark: #121212;
+        --darker: #0a0a0a;
+        --light: #e0e0e0;
+        --panel-bg: rgba(18, 18, 24, 0.95);
+        --panel-border: rgba(0, 229, 255, 0.3);
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: 'Rajdhani', sans-serif;
+        background: radial-gradient(circle at center, #1a1a2e 0%, #0f0f1a 100%);
+        color: var(--light);
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .header {
+        background-color: var(--panel-bg);
+        padding: 20px;
+        border-bottom: 1px solid var(--panel-border);
+        text-align: center;
+      }
+
+      .header h1 {
+        font-family: 'Orbitron', sans-serif;
+        font-size: 1.5rem;
+        color: var(--primary);
+        text-transform: uppercase;
+        letter-spacing: 2px;
+      }
+
+      .container {
+        flex: 1;
+        max-width: 600px;
+        margin: 0 auto;
+        padding: 30px 20px;
+        width: 100%;
+      }
+
+      .info-card {
+        background: var(--panel-bg);
+        border: 1px solid var(--panel-border);
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+      }
+
+      .info-card h2 {
+        color: var(--primary);
+        font-size: 1.2rem;
+        margin-bottom: 15px;
+        border-bottom: 1px solid var(--panel-border);
+        padding-bottom: 10px;
+      }
+
+      .info-row {
+        display: flex;
+        padding: 10px 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .info-row:last-child {
+        border-bottom: none;
+      }
+
+      .info-label {
+        flex: 0 0 120px;
+        color: var(--primary);
+        font-weight: 600;
+      }
+
+      .info-value {
+        flex: 1;
+        color: var(--light);
+      }
+
+      .form-group {
+        margin-bottom: 20px;
+      }
+
+      .form-group label {
+        display: block;
+        margin-bottom: 8px;
+        color: var(--primary);
+        font-weight: 600;
+        font-size: 14px;
+      }
+
+      .form-group select,
+      .form-group textarea,
+      .form-group input {
+        width: 100%;
+        padding: 12px;
+        border: 1px solid var(--panel-border);
+        border-radius: 6px;
+        background: rgba(0, 0, 0, 0.3);
+        color: var(--light);
+        font-size: 14px;
+        font-family: 'Rajdhani', sans-serif;
+      }
+
+      .form-group select:focus,
+      .form-group textarea:focus,
+      .form-group input:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 10px rgba(0, 229, 255, 0.3);
+      }
+
+      .form-group textarea {
+        resize: vertical;
+        min-height: 100px;
+      }
+
+      .submit-btn {
+        width: 100%;
+        padding: 15px;
+        background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+        border: none;
+        border-radius: 6px;
+        color: white;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        font-family: 'Rajdhani', sans-serif;
+        transition: all 0.3s;
+      }
+
+      .submit-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 229, 255, 0.4);
+      }
+
+      .success-message {
+        background: rgba(0, 230, 118, 0.2);
+        border: 1px solid rgba(0, 230, 118, 0.4);
+        border-radius: 6px;
+        padding: 15px;
+        margin-top: 20px;
+        text-align: center;
+        color: #00e676;
+        display: none;
+      }
+
+      .success-message.show {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <h1><span style="color: white;">Element</span> Report</h1>
+    </div>
+
+    <div class="container">
+      <div class="info-card">
+        <h2>Element Information</h2>
+        <div class="info-row">
+          <div class="info-label">Name:</div>
+          <div class="info-value" id="element-name">-</div>
+        </div>
+        <div class="info-row">
+          <div class="info-label">ID:</div>
+          <div class="info-value" id="element-id">-</div>
+        </div>
+      </div>
+
+      <div class="info-card">
+        <h2>Submit Report</h2>
+        <form id="report-form">
+          <div class="form-group">
+            <label>Change Status</label>
+            <select id="status-select" required>
+              <option value="">Select a status</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Quick Note</label>
+            <textarea id="note-input" placeholder="Enter your note..." required></textarea>
+          </div>
+
+          <div class="form-group">
+            <label>Reporter Name</label>
+            <input type="text" id="reporter-input" placeholder="Enter your name..." required />
+          </div>
+
+          <button type="submit" class="submit-btn">
+            <i class="fas fa-paper-plane"></i> Submit Report
+          </button>
+        </form>
+
+        <div class="success-message" id="success-message">
+          <i class="fas fa-check-circle"></i> Report submitted successfully!
+        </div>
+      </div>
+    </div>
+
+    <script type="module">
+      // Get element ID from URL
+      const urlParams = new URLSearchParams(window.location.search);
+      const elementId = urlParams.get('id');
+
+      if (!elementId) {
+        document.querySelector('.container').innerHTML = '<div class="info-card"><h2>Error</h2><p>No element ID provided</p></div>';
+      } else {
+        // Load element data from localStorage
+        const connections = JSON.parse(localStorage.getItem('bim-element-connections') || '[]');
+        const elementConn = connections.find(c => c.elementId === parseInt(elementId));
+
+        // Get statuses
+        const statuses = JSON.parse(localStorage.getItem('bim-statuses') || '[]');
+
+        // Display element info (simplified for now)
+        document.getElementById('element-id').textContent = elementId;
+
+        // Populate status dropdown with element's assigned statuses
+        const statusSelect = document.getElementById('status-select');
+        if (elementConn && elementConn.statusIds && elementConn.statusIds.length > 0) {
+          elementConn.statusIds.forEach(statusId => {
+            const status = statuses.find(s => s.id === statusId);
+            if (status) {
+              const option = document.createElement('option');
+              option.value = status.id;
+              option.textContent = status.name;
+              statusSelect.appendChild(option);
+            }
+          });
+        } else {
+          statusSelect.innerHTML = '<option value="">No statuses assigned to this element</option>';
+        }
+
+        // Handle form submission
+        document.getElementById('report-form').addEventListener('submit', (e) => {
+          e.preventDefault();
+
+          const statusId = document.getElementById('status-select').value;
+          const note = document.getElementById('note-input').value;
+          const reporter = document.getElementById('reporter-input').value;
+
+          if (!statusId || !note || !reporter) {
+            alert('Please fill in all fields');
+            return;
+          }
+
+          // Create submission
+          const submission = {
+            id: Date.now().toString(),
+            elementId: parseInt(elementId),
+            statusId: statusId,
+            note: note,
+            reporter: reporter,
+            timestamp: new Date().toISOString()
+          };
+
+          // Save to localStorage
+          const submissions = JSON.parse(localStorage.getItem('bim-element-submissions') || '[]');
+          submissions.push(submission);
+          localStorage.setItem('bim-element-submissions', JSON.stringify(submissions));
+
+          // Update element's active status
+          const connections = JSON.parse(localStorage.getItem('bim-element-connections') || '[]');
+          const connIndex = connections.findIndex(c => c.elementId === parseInt(elementId));
+          if (connIndex !== -1) {
+            connections[connIndex].activeStatusId = statusId;
+            localStorage.setItem('bim-element-connections', JSON.stringify(connections));
+          }
+
+          // Show success message
+          document.getElementById('success-message').classList.add('show');
+          document.getElementById('report-form').reset();
+
+          setTimeout(() => {
+            document.getElementById('success-message').classList.remove('show');
+          }, 3000);
+        });
+      }
+    </script>
+  </body>
+</html>

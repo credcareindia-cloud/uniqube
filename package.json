@@ -1,0 +1,23 @@
+{
+  "name": "frag-viewer",
+  "version": "1.0.0",
+  "description": "Fragment Model Viewer using That Open Engine",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 3001",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@thatopen/components": "^3.1.0",
+    "@thatopen/ui": "^3.1.0",
+    "stats.js": "^0.17.0",
+    "three": "^0.175.0"
+  },
+  "devDependencies": {
+    "@types/qrcode": "^1.5.5",
+    "@types/three": "^0.175.0",
+    "typescript": "5.4.2",
+    "vite": "5.1.6"
+  }
+}
