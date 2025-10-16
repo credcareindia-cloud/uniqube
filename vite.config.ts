@@ -7,6 +7,7 @@ export default defineConfig({
   },
   build: {
     outDir: "dist",
+    target: "esnext",
   },
   define: {
     __DEFINES__: JSON.stringify({}),
