@@ -70,8 +70,9 @@ fragments.models.list.onItemSet.add(({ value: model }) => {
 
 // Load multiple models from outputFrag folder
 const modelFiles = [
-  { path: "https://yvt4zt8otzn0p90m.public.blob.vercel-storage.com/test%20%281%29.frag", name: "Test Model" },
-  // { path: "../outputFrag/test.frag", name: "Test Model" },
+  // { path: "https://yvt4zt8otzn0p90m.public.blob.vercel-storage.com/test%20%281%29.frag", name: "Test Model" },
+  { path: "../outputFrag/test.frag", name: "Test Model" },
+  { path: "../outputFrag/MEPRVT.frag", name: "MEP" },
   // { path: "../outputFrag/school_arq (1).frag", name: "School Architecture" },
   // Add more models here as needed
 ];
