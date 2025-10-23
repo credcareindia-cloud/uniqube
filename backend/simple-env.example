@@ -1,0 +1,46 @@
+# MINIMAL SETUP - Only Required Services
+NODE_ENV=development
+PORT=3001
+
+# JWT Configuration
+JWT_SECRET=your-super-secret-jwt-key-change-in-production
+JWT_EXPIRES_IN=24h
+JWT_REFRESH_SECRET=your-refresh-secret-key-change-in-production
+JWT_REFRESH_EXPIRES_IN=7d
+
+# PostgreSQL Database (REQUIRED)
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_USER=uniqube_user
+POSTGRES_PASSWORD=your_postgres_password
+POSTGRES_DATABASE=uniqube_3d_production
+POSTGRES_SSL=false
+
+# File Storage (REQUIRED - Choose one)
+# Option 1: AWS S3 (Recommended for production)
+AWS_ACCESS_KEY_ID=your_aws_access_key
+AWS_SECRET_ACCESS_KEY=your_aws_secret_key
+AWS_REGION=us-east-1
+AWS_S3_BUCKET=uniqube-3d-models
+
+# Option 2: Local Storage (Development only)
+# LOCAL_STORAGE_PATH=./uploads
+
+# Basic Configuration
+MAX_FILE_SIZE=5368709120
+LOG_LEVEL=info
+
+# OPTIONAL SERVICES (Comment out if not using)
+# MongoDB (Optional - for complex document queries)
+# MONGODB_URI=mongodb://localhost:27017/uniqube_3d_models
+
+# Redis (Optional - for caching and real-time features)
+# REDIS_HOST=localhost
+# REDIS_PORT=6379
+
+# Email (Optional - for notifications)
+# SMTP_HOST=smtp.gmail.com
+# SMTP_PORT=587
+# SMTP_USER=your-email@gmail.com
+# SMTP_PASSWORD=your-app-password
+# FROM_EMAIL=noreply@uniqube3d.com
