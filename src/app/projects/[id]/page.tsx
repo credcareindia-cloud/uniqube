@@ -171,6 +171,9 @@ export default function ProjectDetailPage() {
   const [groupsLoading, setGroupsLoading] = useState(false)
   const [totalPanelCount, setTotalPanelCount] = useState<number>(0)
   const [displayedPanelCount, setDisplayedPanelCount] = useState<number>(0)
+  const [panelPage, setPanelPage] = useState(1)
+  const [panelTotalPages, setPanelTotalPages] = useState(1)
+  const [panelLimit] = useState(50) // Panels per page
   
   // Group management state
   const [groupTypeFilter, setGroupTypeFilter] = useState<string>('all')
@@ -269,13 +272,13 @@ export default function ProjectDetailPage() {
     }
   }
 
-  const loadPanels = async () => {
+  const loadPanels = async (page = panelPage) => {
     if (!id) return
     
     try {
       setPanelsLoading(true)
-      // Request with pagination: 50 items per page
-      const response = await fetch(`http://localhost:4000/api/panels/${id}?page=1&limit=50`)
+      // Request with pagination
+      const response = await fetch(`http://localhost:4000/api/panels/${id}?page=${page}&limit=${panelLimit}`)
       
       if (!response.ok) {
         console.error('Failed to fetch panels:', response.status, response.statusText)
@@ -286,9 +289,12 @@ export default function ProjectDetailPage() {
       
       // Handle paginated response
       const panelsData = data.panels || data
-      console.log('✅ Panels loaded:', panelsData.length)
+      console.log('✅ Panels loaded:', panelsData.length, `(Page ${page})`)
+      
       if (data.pagination) {
         console.log('📄 Pagination:', data.pagination)
+        setPanelTotalPages(data.pagination.totalPages || 1)
+        
         // Set total panel count from metadata (actual FRAG file count)
         if (data.pagination.totalFromMetadata) {
           setTotalPanelCount(data.pagination.totalFromMetadata)
@@ -298,8 +304,10 @@ export default function ProjectDetailPage() {
       
       setPanels(panelsData)
       
-      // Calculate real-time panel status counts
-      await calculatePanelStatusCounts()
+      // Calculate real-time panel status counts (only once, not per page)
+      if (page === 1) {
+        await calculatePanelStatusCounts()
+      }
     } catch (error) {
       console.error('Error loading panels:', error)
       setPanelStatuses([])
@@ -1841,6 +1849,100 @@ export default function ProjectDetailPage() {
                 </tbody>
               </table>
             </div>
+            
+            {/* Pagination Controls */}
+            {panels.length > 0 && panelTotalPages > 1 && (
+              <div className="mt-6 flex items-center justify-between">
+                <div className="text-[#B8BCC8] text-sm">
+                  Showing {((panelPage - 1) * panelLimit) + 1} to {Math.min(panelPage * panelLimit, displayedPanelCount)} of {displayedPanelCount.toLocaleString()} panels
+                  {totalPanelCount > displayedPanelCount && (
+                    <span className="ml-2 text-[#3A7BD5]">
+                      ({totalPanelCount.toLocaleString()} total in model)
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      const newPage = 1
+                      setPanelPage(newPage)
+                      loadPanels(newPage)
+                    }}
+                    disabled={panelPage === 1}
+                    className="px-3 py-2 bg-[rgba(37,42,58,0.6)] border border-[rgba(58,123,213,0.2)] rounded-lg text-[#E8EAF0] hover:bg-[rgba(58,123,213,0.1)] transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                  >
+                    First
+                  </button>
+                  <button
+                    onClick={() => {
+                      const newPage = panelPage - 1
+                      setPanelPage(newPage)
+                      loadPanels(newPage)
+                    }}
+                    disabled={panelPage === 1}
+                    className="px-3 py-2 bg-[rgba(37,42,58,0.6)] border border-[rgba(58,123,213,0.2)] rounded-lg text-[#E8EAF0] hover:bg-[rgba(58,123,213,0.1)] transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                  >
+                    Previous
+                  </button>
+                  
+                  <div className="flex items-center gap-2">
+                    {/* Page numbers */}
+                    {Array.from({ length: Math.min(5, panelTotalPages) }, (_, i) => {
+                      let pageNum
+                      if (panelTotalPages <= 5) {
+                        pageNum = i + 1
+                      } else if (panelPage <= 3) {
+                        pageNum = i + 1
+                      } else if (panelPage >= panelTotalPages - 2) {
+                        pageNum = panelTotalPages - 4 + i
+                      } else {
+                        pageNum = panelPage - 2 + i
+                      }
+                      
+                      return (
+                        <button
+                          key={pageNum}
+                          onClick={() => {
+                            setPanelPage(pageNum)
+                            loadPanels(pageNum)
+                          }}
+                          className={`px-3 py-2 rounded-lg text-sm font-semibold transition-all ${
+                            panelPage === pageNum
+                              ? 'bg-gradient-to-r from-[#3A7BD5] to-[#00D2FF] text-white'
+                              : 'bg-[rgba(37,42,58,0.6)] border border-[rgba(58,123,213,0.2)] text-[#E8EAF0] hover:bg-[rgba(58,123,213,0.1)]'
+                          }`}
+                        >
+                          {pageNum}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  
+                  <button
+                    onClick={() => {
+                      const newPage = panelPage + 1
+                      setPanelPage(newPage)
+                      loadPanels(newPage)
+                    }}
+                    disabled={panelPage === panelTotalPages}
+                    className="px-3 py-2 bg-[rgba(37,42,58,0.6)] border border-[rgba(58,123,213,0.2)] rounded-lg text-[#E8EAF0] hover:bg-[rgba(58,123,213,0.1)] transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                  >
+                    Next
+                  </button>
+                  <button
+                    onClick={() => {
+                      const newPage = panelTotalPages
+                      setPanelPage(newPage)
+                      loadPanels(newPage)
+                    }}
+                    disabled={panelPage === panelTotalPages}
+                    className="px-3 py-2 bg-[rgba(37,42,58,0.6)] border border-[rgba(58,123,213,0.2)] rounded-lg text-[#E8EAF0] hover:bg-[rgba(58,123,213,0.1)] transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                  >
+                    Last
+                  </button>
+                </div>
+              </div>
+            )}
           </ProfessionalGamingCard>
           )}
         </div>

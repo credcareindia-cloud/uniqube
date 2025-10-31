@@ -14,4 +14,15 @@ export default defineConfig({
     port: 3000,
     host: true,
   },
+  build: {
+    // Skip type checking during build for faster builds
+    // Use 'npm run build:check' if you want to check types
+    rollupOptions: {
+      onwarn(warning, warn) {
+        // Suppress certain warnings
+        if (warning.code === 'UNUSED_EXTERNAL_IMPORT') return
+        warn(warning)
+      },
+    },
+  },
 })
