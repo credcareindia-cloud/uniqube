@@ -24,7 +24,8 @@ import {
 import { ProfessionalGamingButton } from '@/components/gaming/ProfessionalGamingButton'
 import { ProfessionalGamingCard } from '@/components/gaming/ProfessionalGamingCard'
 import { ProfessionalGamingBadge } from '@/components/gaming/ProfessionalGamingBadge'
-
+import { CreateStatusModal } from '@/components/modals/CreateStatusModal'
+import { CreateGroupModal } from '@/components/modals/CreateGroupModal'
 import type { Panel } from '@/types/panel'
 import type { Group } from '@/types/group'
 import { PanelStatus, PANEL_STATUS_CONFIG } from '@/types/panel'
@@ -69,24 +70,32 @@ interface PanelStatusSummary {
   label: string
 }
 
+interface CustomStatus {
+  id: string
+  projectId: number
+  name: string
+  icon: string
+  color: string
+  description?: string
+  order: number
+  panelCount?: number
+  createdAt: string
+  updatedAt: string
+}
+
 // Helper function to get panel status variant for badge
 const getPanelStatusVariant = (status: PanelStatus): 'neutral' | 'active' | 'warning' | 'completed' | 'error' | 'info' => {
   switch (status) {
-    case PanelStatus.COMPLETED:
-    case PanelStatus.INSTALLED:
-      return 'completed'
-    case PanelStatus.APPROVED:
-    case PanelStatus.MANUFACTURED:
-      return 'active'
-    case PanelStatus.IN_PRODUCTION:
     case PanelStatus.SHIPPED:
+      return 'completed'
+    case PanelStatus.READY_FOR_PRODUCTION:
+    case PanelStatus.PRODUCED:
+      return 'active'
+    case PanelStatus.PRE_FABRICATED:
+    case PanelStatus.READY_FOR_TRUCK_LOAD:
       return 'info'
-    case PanelStatus.ON_HOLD:
-    case PanelStatus.REJECTED:
+    case PanelStatus.EDIT:
       return 'error'
-    case PanelStatus.QUALITY_CHECK:
-    case PanelStatus.ON_SITE:
-      return 'warning'
     default:
       return 'neutral'
   }
@@ -169,13 +178,25 @@ export default function ProjectDetailPage() {
   const [groupTotalCount, setGroupTotalCount] = useState(0)
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null)
   const [showGroupDetail, setShowGroupDetail] = useState(false)
+  
+  // Status management state
+  const [selectedStatus, setSelectedStatus] = useState<PanelStatus | null>(null)
+  const [showStatusDetail, setShowStatusDetail] = useState(false)
+  const [statusPanels, setStatusPanels] = useState<Panel[]>([])
+  const [loadingStatusPanels, setLoadingStatusPanels] = useState(false)
+  const [showCreateStatusModal, setShowCreateStatusModal] = useState(false)
+  const [showCreateGroupModal, setShowCreateGroupModal] = useState(false)
+  const [customStatuses, setCustomStatuses] = useState<CustomStatus[]>([])
+  const [selectedPanels, setSelectedPanels] = useState<Set<string>>(new Set())
+  const [showBulkActions, setShowBulkActions] = useState(false)
 
 
 
   useEffect(() => {
-    if (!id) return
-    
     loadProjectData()
+    loadPanels()
+    loadGroups(1)
+    loadCustomStatuses()
   }, [id])
 
   const loadProjectData = async () => {
@@ -205,7 +226,8 @@ export default function ProjectDetailPage() {
           hasModel: data.currentModel !== null
         })
         
-        // Parse spatial structure to get total panel count and status overview
+        // Parse spatial structure to get total panel count only
+        // Status overview will be calculated in real-time from actual panel data
         if (data.currentModel && data.currentModel.spatialStructure) {
           try {
             const spatialData = JSON.parse(data.currentModel.spatialStructure)
@@ -213,32 +235,8 @@ export default function ProjectDetailPage() {
             setTotalPanelCount(spatialData.totalPanels || 0)
             setDisplayedPanelCount(spatialData.displayedPanels || 0)
             
-            // Load status overview from pre-calculated filter metadata
-            if (spatialData.filters && spatialData.filters.statusCounts) {
-              const statusOverview = Object.entries(spatialData.filters.statusCounts).map(([status, count]) => {
-                // Map FRAG statuses to database statuses for display
-                const statusMap: Record<string, string> = {
-                  'READY_FOR_PRODUCTION': 'APPROVED',
-                  'EDIT': 'DESIGNED',
-                  'PRODUCED': 'MANUFACTURED',
-                  'SHIPPED': 'SHIPPED'
-                };
-                
-                const dbStatus = statusMap[status] || status;
-                const statusConfig = PANEL_STATUS_CONFIG[dbStatus as PanelStatus] || PANEL_STATUS_CONFIG.PLANNING;
-                
-                return {
-                  status: dbStatus as PanelStatus,
-                  count: count as number,
-                  percentage: Math.round((count as number / spatialData.totalPanels) * 100),
-                  color: statusConfig.color,
-                  label: statusConfig.label
-                };
-              });
-              
-              console.log('📊 Status overview from metadata:', statusOverview);
-              setPanelStatuses(statusOverview);
-            }
+            // Don't load status overview from cached metadata
+            // It will be calculated in real-time by calculatePanelStatusCounts()
           } catch (error) {
             console.error('Failed to parse spatial structure:', error)
           }
@@ -295,13 +293,56 @@ export default function ProjectDetailPage() {
       
       setPanels(panelsData)
       
-      // Don't calculate from paginated data - we'll use metadata from spatial structure instead
-      // The status overview will be loaded from the project's spatial structure metadata
+      // Calculate real-time panel status counts
+      await calculatePanelStatusCounts()
     } catch (error) {
       console.error('Error loading panels:', error)
       setPanelStatuses([])
     } finally {
       setPanelsLoading(false)
+    }
+  }
+
+  // Calculate panel status counts from statistics endpoint (efficient!)
+  const calculatePanelStatusCounts = async () => {
+    if (!id) {
+      console.log('⚠️ No project ID, skipping status calculation')
+      return
+    }
+    
+    console.log('🔄 Fetching panel statistics for project:', id)
+    
+    try {
+      // Use the efficient statistics endpoint instead of fetching all panels
+      const response = await fetch(`http://localhost:4000/api/panels/${id}/statistics`)
+      
+      if (!response.ok) {
+        console.error('❌ Failed to fetch panel statistics:', response.status)
+        return
+      }
+      
+      const data = await response.json()
+      const { totalPanels, statusDistribution } = data
+      
+      console.log('✅ Panel statistics:', { totalPanels, statusDistribution })
+      
+      // Convert to status summary format
+      const statusOverview = Object.entries(statusDistribution).map(([status, count]) => {
+        const statusConfig = PANEL_STATUS_CONFIG[status as PanelStatus] || PANEL_STATUS_CONFIG.EDIT
+        
+        return {
+          status: status as PanelStatus,
+          count: count as number,
+          percentage: totalPanels > 0 ? Math.round((count as number / totalPanels) * 100) : 0,
+          color: statusConfig.color,
+          label: statusConfig.label
+        }
+      })
+      
+      console.log('📊 Real-time status overview:', statusOverview)
+      setPanelStatuses(statusOverview)
+    } catch (error) {
+      console.error('❌ Error fetching panel statistics:', error)
     }
   }
 
@@ -349,7 +390,7 @@ export default function ProjectDetailPage() {
         const panels = data.panels || []
         if (panels.length === 0) return 0
         
-        const completedStatuses = ['COMPLETED', 'SHIPPED', 'INSTALLED']
+        const completedStatuses = ['SHIPPED']
         const completedCount = panels.filter((p: Panel) => completedStatuses.includes(p.status)).length
         return Math.round((completedCount / panels.length) * 100)
       }
@@ -376,6 +417,243 @@ export default function ProjectDetailPage() {
   const handleGroupPageChange = (newPage: number) => {
     setGroupPage(newPage)
     loadGroups(newPage)
+  }
+
+  // Load panels by status
+  const loadPanelsByStatus = async (status: PanelStatus) => {
+    if (!id) return
+    
+    try {
+      setLoadingStatusPanels(true)
+      const response = await fetch(`http://localhost:4000/api/panels/${id}?status=${status}&limit=100`)
+      if (response.ok) {
+        const data = await response.json()
+        setStatusPanels(data.panels || [])
+      }
+    } catch (error) {
+      console.error('Error loading panels by status:', error)
+      setStatusPanels([])
+    } finally {
+      setLoadingStatusPanels(false)
+    }
+  }
+
+  // Handle status card click
+  const handleStatusClick = async (status: PanelStatus) => {
+    setSelectedStatus(status)
+    setShowStatusDetail(true)
+    await loadPanelsByStatus(status)
+  }
+
+  // Handle custom status card click
+  const handleCustomStatusClick = async (customStatusId: string) => {
+    if (!id) return
+    
+    try {
+      setLoadingStatusPanels(true)
+      setShowStatusDetail(true)
+      
+      // Fetch panels with this custom status
+      const response = await fetch(`http://localhost:4000/api/panels/${id}?customStatusId=${customStatusId}&limit=100`)
+      if (response.ok) {
+        const data = await response.json()
+        setStatusPanels(data.panels || [])
+        
+        // Find the custom status name for display
+        const customStatus = customStatuses.find(s => s.id === customStatusId)
+        setSelectedStatus(customStatus?.name as any || 'Custom Status')
+      }
+    } catch (error) {
+      console.error('Error loading panels by custom status:', error)
+      setStatusPanels([])
+    } finally {
+      setLoadingStatusPanels(false)
+    }
+  }
+
+  // Bulk update panel status
+  const handleBulkStatusUpdate = async (panelIds: string[], newStatus: PanelStatus) => {
+    if (!id) return
+    
+    try {
+      const response = await fetch(`http://localhost:4000/api/panels/bulk-update-status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ panelIds, status: newStatus })
+      })
+      
+      if (response.ok) {
+        // Reload panels and status overview
+        await loadPanels()
+        await loadProjectData()
+        setShowStatusDetail(false)
+      }
+    } catch (error) {
+      console.error('Error updating panel statuses:', error)
+    }
+  }
+
+  // Load custom statuses
+  const loadCustomStatuses = async () => {
+    if (!id) return
+    
+    try {
+      const response = await fetch(`http://localhost:4000/api/status-management/${id}`)
+      if (response.ok) {
+        const data = await response.json()
+        setCustomStatuses(data.statuses || [])
+      }
+    } catch (error) {
+      console.error('Error loading custom statuses:', error)
+    }
+  }
+
+  // Create custom status
+  const handleCreateStatus = async (statusData: {
+    name: string
+    icon: string
+    color: string
+    description?: string
+  }) => {
+    if (!id) return
+    
+    try {
+      const response = await fetch(`http://localhost:4000/api/status-management/${id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(statusData)
+      })
+      
+      if (!response.ok) {
+        throw new Error('Failed to create status')
+      }
+      
+      // Reload custom statuses
+      await loadCustomStatuses()
+    } catch (error) {
+      console.error('Error creating status:', error)
+      throw error
+    }
+  }
+
+  // Create group
+  const handleCreateGroup = async (groupData: {
+    name: string
+    description: string
+    type: string
+  }) => {
+    if (!id) return
+    
+    try {
+      const response = await fetch(`http://localhost:4000/api/group-management/${id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(groupData)
+      })
+      
+      if (!response.ok) {
+        throw new Error('Failed to create group')
+      }
+      
+      // Reload groups
+      await loadGroups(groupPage)
+    } catch (error) {
+      console.error('Error creating group:', error)
+      throw error
+    }
+  }
+
+  // Panel selection handlers
+  const togglePanelSelection = (panelId: string) => {
+    setSelectedPanels(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(panelId)) {
+        newSet.delete(panelId)
+      } else {
+        newSet.add(panelId)
+      }
+      return newSet
+    })
+  }
+
+  const selectAllPanels = () => {
+    const filteredPanelIds = panels
+      .filter(panel => {
+        const matchesSearch = panel.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                            (panel.tag && panel.tag.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                            (panel.location && panel.location.toLowerCase().includes(searchTerm.toLowerCase()))
+        const matchesStatus = statusFilter === 'all' || panel.status === statusFilter
+        return matchesSearch && matchesStatus
+      })
+      .map(p => String(p.id))
+    setSelectedPanels(new Set(filteredPanelIds))
+  }
+
+  const clearPanelSelection = () => {
+    setSelectedPanels(new Set())
+  }
+
+  // Bulk operations
+  const handleBulkAssignStatus = async (statusId: string) => {
+    if (!id || selectedPanels.size === 0) return
+    
+    try {
+      const response = await fetch(`http://localhost:4000/api/status-management/assign-to-panels`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: parseInt(id),
+          statusId,
+          panelIds: Array.from(selectedPanels)
+        })
+      })
+      
+      if (!response.ok) {
+        throw new Error('Failed to assign status')
+      }
+      
+      // Reload panels
+      await loadPanels()
+      clearPanelSelection()
+    } catch (error) {
+      console.error('Error assigning status:', error)
+      throw error
+    }
+  }
+
+  const handleBulkAddToGroup = async (groupId: string) => {
+    if (!id || selectedPanels.size === 0) return
+    
+    try {
+      console.log(`🔄 Assigning ${selectedPanels.size} panels to group ${groupId}`)
+      
+      // Update each panel individually with the new groupId
+      const updatePromises = Array.from(selectedPanels).map(async (panelId) => {
+        const response = await fetch(`http://localhost:4000/api/panels/${id}/${panelId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ groupId })
+        })
+        
+        if (!response.ok) {
+          throw new Error(`Failed to update panel ${panelId}`)
+        }
+        
+        return response.json()
+      })
+      
+      await Promise.all(updatePromises)
+      
+      console.log(`✅ Successfully assigned ${selectedPanels.size} panels to group`)
+      
+      // Reload panels and groups
+      await loadPanels()
+      await loadGroups(groupPage)
+      clearPanelSelection()
+    } catch (error) {
+      console.error('❌ Error adding panels to group:', error)
+      alert('Failed to assign panels to group. Please try again.')
+    }
   }
 
   const handleCreatePanel = async (panelData: any) => {
@@ -816,45 +1094,44 @@ export default function ProjectDetailPage() {
           <ProfessionalGamingCard variant="panel" className="p-6">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl font-bold text-[#E8EAF0] uppercase tracking-wider">STATUS MANAGEMENT</h3>
-              <div className="flex items-center gap-4">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-[#B8BCC8] h-4 w-4" />
-                  <input
-                    type="text"
-                    placeholder="Search panels..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10 pr-4 py-2 bg-[rgba(37,42,58,0.6)] border border-[rgba(58,123,213,0.2)] rounded-lg text-[#E8EAF0] placeholder-[#B8BCC8] focus:border-[#3A7BD5] focus:outline-none"
-                  />
-                </div>
-                <select 
-                  value={statusFilter} 
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="px-3 py-2 bg-[rgba(58,123,213,0.1)] border border-[rgba(58,123,213,0.2)] rounded-lg text-[#E8EAF0] text-sm"
+              <div className="flex items-center gap-2">
+                <ProfessionalGamingButton 
+                  variant="primary" 
+                  size="sm"
+                  onClick={() => setShowCreateStatusModal(true)}
                 >
-                  <option value="all">All Status</option>
-                  {Object.values(PanelStatus).map(status => (
-                    <option key={status} value={status}>{PANEL_STATUS_CONFIG[status]?.label || status}</option>
-                  ))}
-                </select>
+                  + CREATE NEW STATUS
+                </ProfessionalGamingButton>
+                <ProfessionalGamingButton variant="secondary" size="sm">
+                  <Download className="h-4 w-4 mr-2" />
+                  EXPORT REPORT
+                </ProfessionalGamingButton>
               </div>
             </div>
+            
+            {/* Status Overview Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {/* Default Panel Statuses */}
               {panelStatuses.length > 0 ? panelStatuses.map((status) => {
                 return (
-                  <div key={status.status} className="p-4 bg-[rgba(37,42,58,0.6)] rounded-lg border border-[rgba(58,123,213,0.1)] hover:border-[rgba(58,123,213,0.3)] transition-all">
+                  <div 
+                    key={status.status} 
+                    className="p-4 bg-[rgba(37,42,58,0.6)] rounded-lg border border-[rgba(58,123,213,0.1)] hover:border-[rgba(58,123,213,0.3)] transition-all cursor-pointer"
+                    onClick={() => handleStatusClick(status.status)}
+                  >
                     <div className="flex items-center gap-3 mb-3">
                       <div className="p-2 rounded-lg" style={{ backgroundColor: `${status.color}20`, border: `1px solid ${status.color}40` }}>
                         <Package className="w-4 h-4" style={{ color: status.color }} />
                       </div>
-                      <div>
+                      <div className="flex-1">
                         <h4 className="font-semibold text-[#E8EAF0] text-sm uppercase">{status.label}</h4>
                         <p className="text-[#B8BCC8] text-xs">{status.count} panels</p>
                       </div>
+                      <Eye className="h-4 w-4 text-[#B8BCC8]" />
                     </div>
                     <div className="space-y-2">
                       <div className="flex justify-between text-sm">
-                        <span className="text-[#B8BCC8]">Progress</span>
+                        <span className="text-[#B8BCC8]">Percentage</span>
                         <span className="text-[#E8EAF0] font-medium">{status.percentage}%</span>
                       </div>
                       <div className="w-full bg-[rgba(26,31,46,0.6)] rounded-full h-2">
@@ -863,15 +1140,195 @@ export default function ProjectDetailPage() {
                     </div>
                   </div>
                 )
-              }) : (
+              }) : null}
+              
+              {/* Custom Statuses */}
+              {customStatuses.map((customStatus) => {
+                // Map icon name to Lucide component
+                const iconMap: any = {
+                  'Circle': Package,
+                  'Check': CheckCircle,
+                  'Clock': Clock,
+                  'Truck': Package,
+                  'Package': Package,
+                  'Star': Package,
+                  'Bell': Package,
+                  'Box': Package,
+                }
+                const IconComponent = iconMap[customStatus.icon] || Package
+                const panelCount = customStatus.panelCount || 0
+                const totalPanels = panels?.length || 1
+                const percentage = Math.round((panelCount / totalPanels) * 100)
+                
+                return (
+                  <div 
+                    key={customStatus.id} 
+                    className="p-4 bg-[rgba(37,42,58,0.6)] rounded-lg border border-[rgba(58,123,213,0.1)] hover:border-[rgba(58,123,213,0.3)] transition-all cursor-pointer"
+                    onClick={() => handleCustomStatusClick(customStatus.id)}
+                  >
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="p-2 rounded-lg" style={{ backgroundColor: `${customStatus.color}20`, border: `1px solid ${customStatus.color}40` }}>
+                        <IconComponent className="w-4 h-4" style={{ color: customStatus.color }} />
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="font-semibold text-[#E8EAF0] text-sm uppercase">{customStatus.name}</h4>
+                        <p className="text-[#B8BCC8] text-xs">{panelCount} panels</p>
+                      </div>
+                      <Eye className="h-4 w-4 text-[#B8BCC8]" />
+                    </div>
+                    {customStatus.description && (
+                      <p className="text-[#B8BCC8] text-xs mb-3">{customStatus.description}</p>
+                    )}
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-[#B8BCC8]">Percentage</span>
+                        <span className="text-[#E8EAF0] font-medium">{percentage}%</span>
+                      </div>
+                      <div className="w-full bg-[rgba(26,31,46,0.6)] rounded-full h-2">
+                        <div className="h-2 rounded-full transition-all duration-300" style={{ backgroundColor: customStatus.color, width: `${percentage}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+              
+              {panelStatuses.length === 0 && customStatuses.length === 0 && (
                 <div className="col-span-full text-center py-12">
                   <Package className="h-12 w-12 text-[#B8BCC8] mx-auto mb-4" />
-                  <h4 className="text-lg font-semibold text-[#E8EAF0] mb-2">No Panel Data Available</h4>
-                  <p className="text-[#B8BCC8]">Upload a FRAG model to see panel status information.</p>
+                  <h4 className="text-lg font-semibold text-[#E8EAF0] mb-2">No Status Data Available</h4>
+                  <p className="text-[#B8BCC8]">Upload a FRAG model or create custom statuses.</p>
                 </div>
               )}
             </div>
+            
+            {/* Status Workflow Visualization */}
+            {panelStatuses.length > 0 && (
+              <div className="mt-8 p-6 bg-[rgba(37,42,58,0.6)] rounded-lg border border-[rgba(58,123,213,0.1)]">
+                <h4 className="text-lg font-semibold text-[#E8EAF0] mb-4 uppercase tracking-wider">Production Workflow</h4>
+                <div className="grid grid-cols-6 gap-4">
+                  {[
+                    { key: 'READY_FOR_PRODUCTION', label: 'Ready For Production' },
+                    { key: 'PRODUCED', label: 'Produced' },
+                    { key: 'PRE_FABRICATED', label: 'Pre Fabricated' },
+                    { key: 'READY_FOR_TRUCK_LOAD', label: 'Ready For Truck Load' },
+                    { key: 'SHIPPED', label: 'Shipped' },
+                    { key: 'EDIT', label: 'Edit' }
+                  ].map((statusInfo, index) => {
+                    const statusData = panelStatuses.find(s => s.status === statusInfo.key)
+                    const count = statusData?.count || 0
+                    const color = statusData?.color || '#6B7280'
+                    
+                    return (
+                      <div key={statusInfo.key} className="flex flex-col items-center">
+                        <div 
+                          className="w-16 h-16 rounded-lg flex items-center justify-center border-2 transition-all cursor-pointer hover:scale-105"
+                          style={{ 
+                            backgroundColor: count > 0 ? `${color}20` : 'rgba(37,42,58,0.6)',
+                            borderColor: count > 0 ? color : 'rgba(58,123,213,0.2)'
+                          }}
+                          onClick={() => count > 0 && handleStatusClick(statusInfo.key as PanelStatus)}
+                        >
+                          <div className="text-center">
+                            <span className="text-lg font-bold block" style={{ color: count > 0 ? color : '#B8BCC8' }}>
+                              {count}
+                            </span>
+                            <span className="text-xs text-[#B8BCC8]">panels</span>
+                          </div>
+                        </div>
+                        <span className="text-xs text-[#B8BCC8] mt-2 text-center max-w-[80px]">
+                          {statusInfo.label}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
           </ProfessionalGamingCard>
+          )}
+          
+          {/* Create Status Modal */}
+          <CreateStatusModal
+            isOpen={showCreateStatusModal}
+            onClose={() => setShowCreateStatusModal(false)}
+            onSubmit={handleCreateStatus}
+            projectId={parseInt(id!)}
+          />
+          
+          {/* Create Group Modal */}
+          <CreateGroupModal
+            isOpen={showCreateGroupModal}
+            onClose={() => setShowCreateGroupModal(false)}
+            onSubmit={handleCreateGroup}
+          />
+          
+          {/* Status Detail Modal */}
+          {showStatusDetail && selectedStatus && (
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setShowStatusDetail(false)}>
+              <div className="bg-[#1A1F2E] border border-[rgba(58,123,213,0.3)] rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg" style={{ backgroundColor: `${PANEL_STATUS_CONFIG[selectedStatus]?.color}20`, border: `1px solid ${PANEL_STATUS_CONFIG[selectedStatus]?.color}40` }}>
+                      <Package className="w-6 h-6" style={{ color: PANEL_STATUS_CONFIG[selectedStatus]?.color }} />
+                    </div>
+                    <div>
+                      <h3 className="text-2xl font-bold text-[#E8EAF0] uppercase">{PANEL_STATUS_CONFIG[selectedStatus]?.label}</h3>
+                      <p className="text-[#B8BCC8]">{statusPanels.length} panels with this status</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setShowStatusDetail(false)}
+                    className="text-[#B8BCC8] hover:text-[#E8EAF0] transition-colors"
+                  >
+                    <X className="h-6 w-6" />
+                  </button>
+                </div>
+                
+                {loadingStatusPanels ? (
+                  <div className="text-center py-12">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#3A7BD5] mx-auto"></div>
+                    <p className="text-[#B8BCC8] mt-4">Loading panels...</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {/* Panel List */}
+                    <div className="max-h-96 overflow-y-auto space-y-2">
+                      {statusPanels.map(panel => (
+                        <div key={panel.id} className="p-3 bg-[rgba(37,42,58,0.6)] rounded-lg border border-[rgba(58,123,213,0.1)] hover:border-[rgba(58,123,213,0.3)] transition-all">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <input type="checkbox" className="w-4 h-4 rounded border-[rgba(58,123,213,0.3)]" />
+                              <div>
+                                <p className="text-[#E8EAF0] font-semibold">{panel.name}</p>
+                                <p className="text-[#B8BCC8] text-sm">{panel.objectType} • {panel.location}</p>
+                              </div>
+                            </div>
+                            <ProfessionalGamingButton variant="secondary" size="sm">
+                              <Eye className="h-4 w-4" />
+                            </ProfessionalGamingButton>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    
+                    {/* Bulk Actions */}
+                    <div className="flex items-center justify-between pt-4 border-t border-[rgba(58,123,213,0.2)]">
+                      <div className="text-sm text-[#B8BCC8]">
+                        Select panels to perform bulk actions
+                      </div>
+                      <div className="flex gap-2">
+                        <ProfessionalGamingButton variant="secondary" size="sm" onClick={() => setShowStatusDetail(false)}>
+                          Close
+                        </ProfessionalGamingButton>
+                        <ProfessionalGamingButton variant="primary" size="sm">
+                          Update Status
+                        </ProfessionalGamingButton>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           )}
 
           {activeTab === 'groups' && (
@@ -879,6 +1336,13 @@ export default function ProjectDetailPage() {
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl font-bold text-[#E8EAF0] uppercase tracking-wider">GROUP MANAGEMENT</h3>
               <div className="flex items-center gap-2">
+                <ProfessionalGamingButton 
+                  variant="primary" 
+                  size="sm"
+                  onClick={() => setShowCreateGroupModal(true)}
+                >
+                  + CREATE NEW GROUP
+                </ProfessionalGamingButton>
                 <select
                   value={groupTypeFilter}
                   onChange={(e) => setGroupTypeFilter(e.target.value)}
@@ -1011,10 +1475,10 @@ export default function ProjectDetailPage() {
                     </div>
                     <div className="p-4 bg-[rgba(37,42,58,0.6)] rounded-lg border border-[rgba(58,123,213,0.1)]">
                       <p className="text-[#B8BCC8] text-sm mb-1">Panel Count</p>
-                      <p className="text-[#E8EAF0] font-semibold">{selectedGroup.metadata?.panelCount || 0}</p>
+                      <p className="text-[#E8EAF0] font-semibold">{(selectedGroup as any)._count?.panels || selectedGroup.metadata?.panelCount || 0}</p>
                     </div>
                     <div className="p-4 bg-[rgba(37,42,58,0.6)] rounded-lg border border-[rgba(58,123,213,0.1)]">
-                      <p className="text-[#B8BCC8] text-sm mb-1">Elements</p>
+                      <p className="text-[#B8BCC8] text-sm mb-1">Unassigned</p>
                       <p className="text-[#E8EAF0] font-semibold">{selectedGroup.elementIds?.length || 0}</p>
                     </div>
                   </div>
@@ -1064,10 +1528,81 @@ export default function ProjectDetailPage() {
                 </ProfessionalGamingButton>
               </div>
             </div>
+            
+            {/* Bulk Actions Toolbar */}
+            {selectedPanels.size > 0 && (
+              <div className="mb-4 p-4 bg-[rgba(58,123,213,0.1)] border border-[rgba(58,123,213,0.3)] rounded-lg flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <p className="text-[#E8EAF0] font-semibold">
+                    {selectedPanels.size} panel{selectedPanels.size !== 1 ? 's' : ''} selected
+                  </p>
+                  <button
+                    onClick={clearPanelSelection}
+                    className="text-[#B8BCC8] hover:text-[#E8EAF0] text-sm underline"
+                  >
+                    Clear selection
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        handleBulkAssignStatus(e.target.value)
+                        e.target.value = ''
+                      }
+                    }}
+                    className="px-3 py-2 bg-[rgba(26,31,46,0.6)] border border-[rgba(58,123,213,0.3)] rounded-lg text-[#E8EAF0] text-sm focus:outline-none focus:border-[#3A7BD5]"
+                  >
+                    <option value="">Assign Status...</option>
+                    {Object.entries(PANEL_STATUS_CONFIG).map(([key, config]) => (
+                      <option key={key} value={key}>{config.label}</option>
+                    ))}
+                    {customStatuses.map((status) => (
+                      <option key={status.id} value={status.id}>{status.name}</option>
+                    ))}
+                  </select>
+                  <select
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        handleBulkAddToGroup(e.target.value)
+                        e.target.value = ''
+                      }
+                    }}
+                    className="px-3 py-2 bg-[rgba(26,31,46,0.6)] border border-[rgba(58,123,213,0.3)] rounded-lg text-[#E8EAF0] text-sm focus:outline-none focus:border-[#3A7BD5]"
+                  >
+                    <option value="">Add to Group...</option>
+                    {groups.map((group) => (
+                      <option key={group.id} value={group.id}>{group.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+            
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-[rgba(58,123,213,0.2)]">
+                    <th className="text-left py-3 px-4 text-[#B8BCC8] font-medium uppercase tracking-wider w-12">
+                      <input
+                        type="checkbox"
+                        checked={selectedPanels.size > 0 && selectedPanels.size === panels.filter(panel => {
+                          const matchesSearch = panel.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                                              (panel.tag && panel.tag.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                                              (panel.location && panel.location.toLowerCase().includes(searchTerm.toLowerCase()))
+                          const matchesStatus = statusFilter === 'all' || panel.status === statusFilter
+                          return matchesSearch && matchesStatus
+                        }).length}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            selectAllPanels()
+                          } else {
+                            clearPanelSelection()
+                          }
+                        }}
+                        className="w-4 h-4 rounded border-[rgba(58,123,213,0.3)] bg-[rgba(26,31,46,0.6)] checked:bg-[#3A7BD5] focus:ring-2 focus:ring-[#3A7BD5] focus:ring-offset-0"
+                      />
+                    </th>
                     <th className="text-left py-3 px-4 text-[#B8BCC8] font-medium uppercase tracking-wider">Panel</th>
                     <th className="text-left py-3 px-4 text-[#B8BCC8] font-medium uppercase tracking-wider">Type</th>
                     <th className="text-left py-3 px-4 text-[#B8BCC8] font-medium uppercase tracking-wider">Group</th>
@@ -1083,36 +1618,47 @@ export default function ProjectDetailPage() {
                                         (panel.location && panel.location.toLowerCase().includes(searchTerm.toLowerCase()))
                     const matchesStatus = statusFilter === 'all' || panel.status === statusFilter
                     return matchesSearch && matchesStatus
-                  }).map((panel) => (
-                    <tr key={panel.id} className="border-b border-[rgba(58,123,213,0.1)] hover:bg-[rgba(58,123,213,0.05)] transition-all">
-                      <td className="py-3 px-4">
-                        <div>
-                          <p className="font-medium text-[#E8EAF0]">{panel.name}</p>
-                          <p className="text-sm text-[#B8BCC8]">{panel.tag || 'No tag'}</p>
-                        </div>
-                      </td>
-                      <td className="py-3 px-4 text-[#E8EAF0]">{panel.objectType || 'Unknown'}</td>
-                      <td className="py-3 px-4 text-[#E8EAF0]">{panel.group?.name || 'No group'}</td>
-                      <td className="py-3 px-4 text-[#B8BCC8]">{panel.location || 'Unknown'}</td>
-                      <td className="py-3 px-4">
-                        <ProfessionalGamingBadge variant={getPanelStatusVariant(panel.status)}>
-                          <span className="uppercase">{PANEL_STATUS_CONFIG[panel.status]?.label || panel.status}</span>
-                        </ProfessionalGamingBadge>
-                      </td>
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-2">
-                          <ProfessionalGamingButton variant="secondary" size="sm">
-                            <Eye className="h-4 w-4" />
-                          </ProfessionalGamingButton>
-                          <ProfessionalGamingButton variant="secondary" size="sm">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </ProfessionalGamingButton>
-                        </div>
-                      </td>
-                    </tr>
-                  )) : (
+                  }).map((panel) => {
+                    const panelId = String(panel.id)
+                    return (
+                      <tr key={panel.id} className="border-b border-[rgba(58,123,213,0.1)] hover:bg-[rgba(58,123,213,0.05)] transition-all">
+                        <td className="py-3 px-4">
+                          <input
+                            type="checkbox"
+                            checked={selectedPanels.has(panelId)}
+                            onChange={() => togglePanelSelection(panelId)}
+                            className="w-4 h-4 rounded border-[rgba(58,123,213,0.3)] bg-[rgba(26,31,46,0.6)] checked:bg-[#3A7BD5] focus:ring-2 focus:ring-[#3A7BD5] focus:ring-offset-0"
+                          />
+                        </td>
+                        <td className="py-3 px-4">
+                          <div>
+                            <p className="font-medium text-[#E8EAF0]">{panel.name}</p>
+                            <p className="text-sm text-[#B8BCC8]">{panel.tag || 'No tag'}</p>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 text-[#E8EAF0]">{panel.objectType || 'Unknown'}</td>
+                        <td className="py-3 px-4 text-[#E8EAF0]">{panel.group?.name || 'No group'}</td>
+                        <td className="py-3 px-4 text-[#B8BCC8]">{panel.location || 'Unknown'}</td>
+                        <td className="py-3 px-4">
+                          <ProfessionalGamingBadge variant={getPanelStatusVariant(panel.status)}>
+                            <span className="uppercase">{PANEL_STATUS_CONFIG[panel.status]?.label || panel.status}</span>
+                          </ProfessionalGamingBadge>
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-2">
+                            <ProfessionalGamingButton variant="secondary" size="sm">
+                              <Eye className="h-4 w-4" />
+                            </ProfessionalGamingButton>
+                            <ProfessionalGamingButton variant="secondary" size="sm">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </ProfessionalGamingButton>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  }) : (
                     <tr>
-                      <td colSpan={6} className="py-12 text-center">
+                      <td colSpan={7} className="py-12 text-center">
                         <Box className="h-12 w-12 text-[#B8BCC8] mx-auto mb-4" />
                         <h4 className="text-lg font-semibold text-[#E8EAF0] mb-2">No Panels Available</h4>
                         <p className="text-[#B8BCC8]">Upload a FRAG model to see detailed panel information.</p>

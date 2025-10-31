@@ -1,16 +1,10 @@
 export enum PanelStatus {
-  PLANNING = 'PLANNING',
-  DESIGNED = 'DESIGNED',
-  APPROVED = 'APPROVED',
-  IN_PRODUCTION = 'IN_PRODUCTION',
-  MANUFACTURED = 'MANUFACTURED',
-  QUALITY_CHECK = 'QUALITY_CHECK',
+  READY_FOR_PRODUCTION = 'READY_FOR_PRODUCTION',
+  PRODUCED = 'PRODUCED',
+  PRE_FABRICATED = 'PRE_FABRICATED',
+  READY_FOR_TRUCK_LOAD = 'READY_FOR_TRUCK_LOAD',
   SHIPPED = 'SHIPPED',
-  ON_SITE = 'ON_SITE',
-  INSTALLED = 'INSTALLED',
-  COMPLETED = 'COMPLETED',
-  ON_HOLD = 'ON_HOLD',
-  REJECTED = 'REJECTED',
+  EDIT = 'EDIT',
 }
 
 export interface PanelStatusHistory {
@@ -119,41 +113,29 @@ export interface PanelStatistics {
 
 // Status configuration for UI
 export const PANEL_STATUS_CONFIG = {
-  [PanelStatus.PLANNING]: {
-    label: 'Planning',
-    color: '#6B7280',
-    bgColor: '#F3F4F6',
-    description: 'Panel is in planning phase',
-  },
-  [PanelStatus.DESIGNED]: {
-    label: 'Designed',
-    color: '#3B82F6',
-    bgColor: '#EBF8FF',
-    description: 'Panel design is complete',
-  },
-  [PanelStatus.APPROVED]: {
-    label: 'Approved',
+  [PanelStatus.READY_FOR_PRODUCTION]: {
+    label: 'Ready For Production',
     color: '#10B981',
     bgColor: '#ECFDF5',
-    description: 'Panel design is approved',
+    description: 'Panel is ready for production',
   },
-  [PanelStatus.IN_PRODUCTION]: {
-    label: 'In Production',
-    color: '#F59E0B',
-    bgColor: '#FFFBEB',
-    description: 'Panel is being manufactured',
-  },
-  [PanelStatus.MANUFACTURED]: {
-    label: 'Manufactured',
+  [PanelStatus.PRODUCED]: {
+    label: 'Produced',
     color: '#8B5CF6',
     bgColor: '#F5F3FF',
-    description: 'Panel manufacturing is complete',
+    description: 'Panel has been produced',
   },
-  [PanelStatus.QUALITY_CHECK]: {
-    label: 'Quality Check',
-    color: '#06B6D4',
-    bgColor: '#CFFAFE',
-    description: 'Panel is undergoing quality inspection',
+  [PanelStatus.PRE_FABRICATED]: {
+    label: 'Pre Fabricated',
+    color: '#3B82F6',
+    bgColor: '#EBF8FF',
+    description: 'Panel has been pre-fabricated',
+  },
+  [PanelStatus.READY_FOR_TRUCK_LOAD]: {
+    label: 'Ready For Truck Load',
+    color: '#F59E0B',
+    bgColor: '#FFFBEB',
+    description: 'Panel is ready for truck loading',
   },
   [PanelStatus.SHIPPED]: {
     label: 'Shipped',
@@ -161,34 +143,10 @@ export const PANEL_STATUS_CONFIG = {
     bgColor: '#F7FEE7',
     description: 'Panel has been shipped',
   },
-  [PanelStatus.ON_SITE]: {
-    label: 'On Site',
-    color: '#EAB308',
-    bgColor: '#FEFCE8',
-    description: 'Panel has arrived on site',
-  },
-  [PanelStatus.INSTALLED]: {
-    label: 'Installed',
-    color: '#22C55E',
-    bgColor: '#F0FDF4',
-    description: 'Panel has been installed',
-  },
-  [PanelStatus.COMPLETED]: {
-    label: 'Completed',
-    color: '#059669',
-    bgColor: '#ECFDF5',
-    description: 'Panel installation is complete',
-  },
-  [PanelStatus.ON_HOLD]: {
-    label: 'On Hold',
+  [PanelStatus.EDIT]: {
+    label: 'Edit',
     color: '#DC2626',
     bgColor: '#FEF2F2',
-    description: 'Panel work is on hold',
-  },
-  [PanelStatus.REJECTED]: {
-    label: 'Rejected',
-    color: '#991B1B',
-    bgColor: '#FEF2F2',
-    description: 'Panel has been rejected',
+    description: 'Panel needs editing or revision',
   },
 } as const;
