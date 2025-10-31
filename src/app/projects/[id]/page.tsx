@@ -26,6 +26,8 @@ import { ProfessionalGamingCard } from '@/components/gaming/ProfessionalGamingCa
 import { ProfessionalGamingBadge } from '@/components/gaming/ProfessionalGamingBadge'
 import { CreateStatusModal } from '@/components/modals/CreateStatusModal'
 import { CreateGroupModal } from '@/components/modals/CreateGroupModal'
+import { EditPanelModal } from '@/components/modals/EditPanelModal'
+import { PanelDetailModal } from '@/components/modals/PanelDetailModal'
 import type { Panel } from '@/types/panel'
 import type { Group } from '@/types/group'
 import { PanelStatus, PANEL_STATUS_CONFIG } from '@/types/panel'
@@ -189,6 +191,9 @@ export default function ProjectDetailPage() {
   const [customStatuses, setCustomStatuses] = useState<CustomStatus[]>([])
   const [selectedPanels, setSelectedPanels] = useState<Set<string>>(new Set())
   const [showBulkActions, setShowBulkActions] = useState(false)
+  const [selectedPanel, setSelectedPanel] = useState<Panel | null>(null)
+  const [showPanelDetail, setShowPanelDetail] = useState(false)
+  const [showEditPanel, setShowEditPanel] = useState(false)
 
 
 
@@ -656,6 +661,146 @@ export default function ProjectDetailPage() {
     }
   }
 
+  // Panel detail and edit handlers
+  const handlePanelClick = (panel: Panel) => {
+    setSelectedPanel(panel)
+    setShowPanelDetail(true)
+  }
+
+  const handleEditPanel = () => {
+    setShowPanelDetail(false)
+    setShowEditPanel(true)
+  }
+
+  const handleUpdatePanel = async (panelId: string, updates: {
+    description?: string
+    status?: PanelStatus
+    customStatusIds?: string[]
+    groupIds?: string[]
+    assemblyInstructions?: any[]
+  }) => {
+    if (!id) return
+
+    try {
+      console.log('🔄 Updating panel:', panelId, updates)
+
+      // Update panel via API
+      const response = await fetch(`http://localhost:4000/api/panels/${id}/${panelId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          notes: updates.description,
+          status: updates.status,
+          groupId: updates.groupIds?.[0], // Currently single group
+          metadata: {
+            assemblyInstructions: updates.assemblyInstructions
+          }
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to update panel')
+      }
+
+      // Update custom statuses if provided
+      if (updates.customStatusIds && updates.customStatusIds.length > 0) {
+        for (const statusId of updates.customStatusIds) {
+          await fetch(`http://localhost:4000/api/status-management/assign-to-panels`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              projectId: parseInt(id),
+              statusId,
+              panelIds: [panelId]
+            })
+          })
+        }
+      }
+
+      console.log('✅ Panel updated successfully')
+
+      // Reload panels
+      await loadPanels()
+
+      // Close modal
+      setShowEditPanel(false)
+      setSelectedPanel(null)
+    } catch (error) {
+      console.error('❌ Error updating panel:', error)
+      throw error
+    }
+  }
+
+  const handleDeletePanel = async (panelId: string) => {
+    if (!id) return
+
+    try {
+      const response = await fetch(`http://localhost:4000/api/panels/${id}/${panelId}`, {
+        method: 'DELETE'
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to delete panel')
+      }
+
+      console.log('✅ Panel deleted successfully')
+
+      // Reload panels
+      await loadPanels()
+
+      // Close modals
+      setShowPanelDetail(false)
+      setSelectedPanel(null)
+    } catch (error) {
+      console.error('❌ Error deleting panel:', error)
+      throw error
+    }
+  }
+
+  const handleDuplicatePanel = async (panelId: string) => {
+    if (!id) return
+
+    try {
+      const panel = panels.find(p => p.id === panelId)
+      if (!panel) return
+
+      const response = await fetch(`http://localhost:4000/api/panels/${id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: `${panel.name} (Copy)`,
+          tag: panel.tag,
+          objectType: panel.objectType,
+          dimensions: panel.dimensions,
+          location: panel.location,
+          material: panel.material,
+          weight: panel.weight,
+          area: panel.area,
+          status: panel.status,
+          groupId: panel.groupId,
+          notes: panel.notes,
+          metadata: panel.metadata
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to duplicate panel')
+      }
+
+      console.log('✅ Panel duplicated successfully')
+
+      // Reload panels
+      await loadPanels()
+
+      // Close modals
+      setShowPanelDetail(false)
+      setSelectedPanel(null)
+    } catch (error) {
+      console.error('❌ Error duplicating panel:', error)
+      throw error
+    }
+  }
+
   const handleCreatePanel = async (panelData: any) => {
     if (!id) return
     
@@ -691,21 +836,6 @@ export default function ProjectDetailPage() {
       }
     } catch (err) {
       console.error('Error updating panel status:', err)
-    }
-  }
-
-  const handleDeletePanel = async (panelId: string) => {
-    if (!id) return
-    
-    try {
-      const response = await fetch(`http://localhost:4000/api/panels/${id}/${panelId}`, {
-        method: 'DELETE'
-      })
-      if (response.ok) {
-        await loadPanels() // Refresh panels
-      }
-    } catch (err) {
-      console.error('Error deleting panel:', err)
     }
   }
 
@@ -1262,6 +1392,37 @@ export default function ProjectDetailPage() {
             onSubmit={handleCreateGroup}
           />
           
+          {/* Panel Detail Modal */}
+          {showPanelDetail && selectedPanel && (
+            <PanelDetailModal
+              isOpen={showPanelDetail}
+              onClose={() => {
+                setShowPanelDetail(false)
+                setSelectedPanel(null)
+              }}
+              panel={selectedPanel}
+              onEdit={handleEditPanel}
+              onDelete={handleDeletePanel}
+              onDuplicate={handleDuplicatePanel}
+            />
+          )}
+          
+          {/* Edit Panel Modal */}
+          {showEditPanel && selectedPanel && (
+            <EditPanelModal
+              isOpen={showEditPanel}
+              onClose={() => {
+                setShowEditPanel(false)
+                setSelectedPanel(null)
+              }}
+              panel={selectedPanel}
+              projectId={id!}
+              availableStatuses={customStatuses}
+              availableGroups={groups}
+              onUpdate={handleUpdatePanel}
+            />
+          )}
+          
           {/* Status Detail Modal */}
           {showStatusDetail && selectedStatus && (
             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setShowStatusDetail(false)}>
@@ -1621,8 +1782,16 @@ export default function ProjectDetailPage() {
                   }).map((panel) => {
                     const panelId = String(panel.id)
                     return (
-                      <tr key={panel.id} className="border-b border-[rgba(58,123,213,0.1)] hover:bg-[rgba(58,123,213,0.05)] transition-all">
-                        <td className="py-3 px-4">
+                      <tr 
+                        key={panel.id} 
+                        className="border-b border-[rgba(58,123,213,0.1)] hover:bg-[rgba(58,123,213,0.05)] transition-all cursor-pointer"
+                        onClick={(e) => {
+                          // Don't trigger if clicking checkbox or action buttons
+                          if ((e.target as HTMLElement).closest('input, button')) return
+                          handlePanelClick(panel)
+                        }}
+                      >
+                        <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
                           <input
                             type="checkbox"
                             checked={selectedPanels.has(panelId)}
@@ -1644,9 +1813,13 @@ export default function ProjectDetailPage() {
                             <span className="uppercase">{PANEL_STATUS_CONFIG[panel.status]?.label || panel.status}</span>
                           </ProfessionalGamingBadge>
                         </td>
-                        <td className="py-3 px-4">
+                        <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center gap-2">
-                            <ProfessionalGamingButton variant="secondary" size="sm">
+                            <ProfessionalGamingButton 
+                              variant="secondary" 
+                              size="sm"
+                              onClick={() => handlePanelClick(panel)}
+                            >
                               <Eye className="h-4 w-4" />
                             </ProfessionalGamingButton>
                             <ProfessionalGamingButton variant="secondary" size="sm">
