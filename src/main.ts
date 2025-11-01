@@ -31,10 +31,8 @@ world.camera.controls.setLookAt(50, 30, 50, 0, 0, 0);
 
 components.init();
 
-const grids = components.get(OBC.Grids);
-const grid = grids.create(world);
-// Position grid at y = 0
-grid.three.position.set(0, 0, 0);
+// const grids = components.get(OBC.Grids);
+// const grid = grids.create(world);
 
 /* MD
   ### 🛠️ Setting Up Fragments
@@ -72,7 +70,8 @@ fragments.models.list.onItemSet.add(({ value: model }) => {
 const modelFiles = [
   // { path: "https://yvt4zt8otzn0p90m.public.blob.vercel-storage.com/test%20%281%29.frag", name: "Test Model" },
   { path: "../outputFrag/test.frag", name: "Test Model" },
-  { path: "../outputFrag/MEPRVT.frag", name: "MEP" },
+  // { path: "../outputFrag/MEPRVT.frag", name: "MEP" },
+   { path: "../outputFrag/arch.frag", name: "arch Model" },
   // { path: "../outputFrag/school_arq (1).frag", name: "School Architecture" },
   // Add more models here as needed
 ];
@@ -114,10 +113,6 @@ const loadModels = async () => {
       console.log("Combined bounding box min:", combinedBbox.min);
       console.log("Combined bounding box max:", combinedBbox.max);
 
-      // Position grid below all models
-      const gridOffset = combinedBbox.min.y - 0.5;
-      grid.three.position.y = gridOffset;
-      console.log("Positioning grid at y:", gridOffset);
 
       // Calculate camera position for all models
       const center = new THREE.Vector3();
@@ -206,46 +201,19 @@ const isStoreyChild = (parentCategory: string | null): boolean => {
   return !!(parentCategory && parentCategory.toUpperCase().includes("STOREY"));
 };
 
-// Build tree structure from spatial data for a specific model - Show only floors and their direct children
+// Build tree structure from spatial data for a specific model - Show complete hierarchy
 const buildTreeStructureForModel = async (model: FRAGS.FragmentsModel, spatialData: any): Promise<TreeNodeData[]> => {
-  const processNode = async (
-    node: any,
-    depth: number = 0,
-    parentCategory: string | null = null
-  ): Promise<TreeNodeData[]> => {
+  const processNode = async (node: any): Promise<TreeNodeData[]> => {
     try {
       const { localId, category, children } = node;
-
-      // Check if this is a storey node
-      const isStorey = category && category.toUpperCase().includes("STOREY");
-      const isDirectStoreyChild = isStoreyChild(parentCategory);
-
-      // If we're at depth 0 (searching for storeys) and this node contains storeys,
-      // skip this node and process children
-      if (depth === 0 && !isStorey && !isDirectStoreyChild && containsStoreys(node)) {
-        const childResults: TreeNodeData[] = [];
-        if (children && Array.isArray(children)) {
-          for (const child of children) {
-            const childNodes = await processNode(child, 0, category);
-            childResults.push(...childNodes);
-          }
-        }
-        return childResults;
-      }
 
       // If no localId, just flatten and process children
       if (localId === null || localId === undefined) {
         const childResults: TreeNodeData[] = [];
         if (children && Array.isArray(children)) {
-          // Determine next depth based on whether we're under a storey
-          const nextDepth = isStorey ? 0 : (isDirectStoreyChild ? 1 : depth);
-
-          // Don't go deeper than depth 1
-          if (depth <= 1) {
-            for (const child of children) {
-              const childNodes = await processNode(child, nextDepth, category);
-              childResults.push(...childNodes);
-            }
+          for (const child of children) {
+            const childNodes = await processNode(child);
+            childResults.push(...childNodes);
           }
         }
         return childResults;
@@ -278,18 +246,12 @@ const buildTreeStructureForModel = async (model: FRAGS.FragmentsModel, spatialDa
         model: model,
       };
 
-      // Process children based on whether this is a direct storey child:
-      // - If this is a direct child of IFCBUILDINGSTOREY (depth 0): process its children at depth 1
-      // - At depth 1: DON'T process children (stop here)
+      // Process all children recursively (no depth limit)
       if (children && Array.isArray(children)) {
-        if (isDirectStoreyChild && depth === 0) {
-          // At storey child level - process direct children only (depth 1)
-          for (const child of children) {
-            const childNodes = await processNode(child, 1, category);
-            treeNode.children.push(...childNodes);
-          }
+        for (const child of children) {
+          const childNodes = await processNode(child);
+          treeNode.children.push(...childNodes);
         }
-        // At depth 1 - don't process children, stop here
       }
 
       return [treeNode];
@@ -302,11 +264,11 @@ const buildTreeStructureForModel = async (model: FRAGS.FragmentsModel, spatialDa
   const rootNodes: TreeNodeData[] = [];
   if (Array.isArray(spatialData)) {
     for (const rootNode of spatialData) {
-      const processed = await processNode(rootNode, 0, null);
+      const processed = await processNode(rootNode);
       rootNodes.push(...processed);
     }
   } else if (spatialData) {
-    const processed = await processNode(spatialData, 0, null);
+    const processed = await processNode(spatialData);
     rootNodes.push(...processed);
   }
 
@@ -337,7 +299,7 @@ const renderTreeNodeForModel = (
     toggleIcon.onclick = (e) => {
       e.stopPropagation();
       const childrenContainer = container.querySelector(
-        ".tree-children-grid"
+        ".tree-children"
       ) as HTMLElement;
       if (childrenContainer) {
         const isCollapsed = childrenContainer.classList.contains("collapsed");
@@ -384,44 +346,77 @@ const renderTreeNodeForModel = (
 
       // Get all IDs for this node and its children
       const targetIds = collectAllLocalIds(nodeData);
-      console.log("Focusing on:", nodeData.name, "with", targetIds.length, "elements");
+      console.log("Focusing on:", nodeData.name, "with", targetIds.length, "elements", "IDs:", targetIds);
 
-      // Reset highlights and visibility
-      await model.resetHighlight(undefined);
-      await model.setVisible(undefined, true);
-      await fragments.update(true);
-
-      // Highlight target elements in red
-      if (targetIds.length > 0) {
-        await model.highlight(targetIds, {
-          color: new THREE.Color(0xff0000),
-          opacity: 1,
-          transparent: false,
-          renderedFaces: FRAGS.RenderedFaces.TWO,
-        });
-        await fragments.update(true);
+      // Reset all highlights first
+      for (const [_, m] of models.entries()) {
+        await m.resetHighlight(undefined);
       }
 
-      // Focus camera
-      const bbox = new THREE.Box3().setFromObject(model.object);
-      if (!bbox.isEmpty()) {
-        const center = new THREE.Vector3();
-        bbox.getCenter(center);
-        const size = new THREE.Vector3();
-        bbox.getSize(size);
-        const maxDim = Math.max(size.x, size.y, size.z);
-        const distance = maxDim * 1.5;
+      // Make all elements semi-transparent (ghost mode) from ALL models
+      for (const [_, m] of models.entries()) {
+        await m.setVisible(undefined, true); // Keep everything visible
+        await m.highlight(undefined, {
+          color: new THREE.Color(0xcccccc), // Light gray tint
+          opacity: 0.2, // Very transparent - ghost-like
+          transparent: true,
+          renderedFaces: FRAGS.RenderedFaces.TWO,
+        });
+      }
 
+      // Highlight selected elements with full opacity and color
+      if (targetIds.length > 0) {
+        try {
+          await model.highlight(targetIds, {
+            color: new THREE.Color('gold'), 
+            opacity: 1, // Full opacity
+            transparent: false,
+            renderedFaces: FRAGS.RenderedFaces.TWO,
+          });
+          console.log("Highlight applied to", targetIds.length, "elements");
+        } catch (error) {
+          console.error("Failed to highlight elements:", error);
+        }
+      }
+      await fragments.update(true);
+
+      // Focus camera on the selected elements - calculate bounding box from selected IDs
+      const selectedBbox = new THREE.Box3();
+
+      // Calculate bounding box specifically for the selected elements
+      if (targetIds.length > 0) {
+        model.object.traverse((child) => {
+          if (child instanceof THREE.Mesh || child instanceof THREE.InstancedMesh) {
+            const bbox = new THREE.Box3().setFromObject(child);
+            if (!bbox.isEmpty()) {
+              selectedBbox.union(bbox);
+            }
+          }
+        });
+      }
+
+      if (!selectedBbox.isEmpty()) {
+        const center = new THREE.Vector3();
+        selectedBbox.getCenter(center);
+        const size = new THREE.Vector3();
+        selectedBbox.getSize(size);
+        const maxDim = Math.max(size.x, size.y, size.z);
+
+        // Closer distance for tighter framing - 1.2x instead of 1.5x
+        const distance = Math.max(maxDim * 1.2, 5); // Minimum distance of 5 units
+
+        // Position camera at a 45-degree angle for better perspective
         const cameraPos = new THREE.Vector3(
-          center.x + distance * 0.7,
-          center.y + distance * 0.5,
-          center.z + distance * 0.7
+          center.x + distance * 0.6,
+          center.y + distance * 0.4,
+          center.z + distance * 0.6
         );
 
+        // Smooth animated transition (true parameter enables smooth animation)
         world.camera.controls.setLookAt(
           cameraPos.x, cameraPos.y, cameraPos.z,
           center.x, center.y, center.z,
-          true
+          true // Enable smooth animation
         );
       }
 
@@ -434,43 +429,18 @@ const renderTreeNodeForModel = (
   container.appendChild(node);
   treeNodeMap.set(nodeData.localId, node);
 
-  // Render children in grid layout
+  // Render children as nested tree (recursive)
   if (hasChildren) {
-    const childrenGrid = document.createElement("div");
-    childrenGrid.className = "tree-children-grid collapsed"; // Start collapsed
+    const childrenContainer = document.createElement("div");
+    childrenContainer.className = "tree-children collapsed"; // Start collapsed
+    childrenContainer.style.marginLeft = "0";
 
     for (const child of nodeData.children) {
-      const childItem = document.createElement("div");
-      childItem.className = "tree-child-item";
-      childItem.textContent = child.name;
-      childItem.dataset.localId = child.localId.toString();
-
-      childItem.onclick = async (e) => {
-        e.stopPropagation();
-
-        // Update info panel
-        updateInfoPanel(child);
-
-        // Highlight single child element
-        await model.resetHighlight(undefined);
-        await model.setVisible(undefined, true);
-        await model.highlight([child.localId], {
-          color: new THREE.Color(0xff0000),
-          opacity: 1,
-          transparent: false,
-          renderedFaces: FRAGS.RenderedFaces.TWO,
-        });
-        await fragments.update(true);
-
-        // Mark as selected
-        document.querySelectorAll('.tree-child-item.selected').forEach(el => el.classList.remove('selected'));
-        childItem.classList.add('selected');
-      };
-
-      childrenGrid.appendChild(childItem);
+      // Recursively render each child as a full tree node
+      renderTreeNodeForModel(model, child, childrenContainer, level + 1);
     }
 
-    container.appendChild(childrenGrid);
+    container.appendChild(childrenContainer);
   }
 
   parentElement.appendChild(container);
@@ -633,6 +603,37 @@ const initializeObjectTree = async () => {
         count.className = "tree-count";
         count.textContent = treeData.length.toString();
         modelNode.appendChild(count);
+
+        // Visibility toggle icon (eye icon)
+        const visibilityIcon = document.createElement("span");
+        visibilityIcon.className = "model-visibility-icon";
+        visibilityIcon.innerHTML = '<i class="fas fa-eye"></i>';
+        visibilityIcon.title = "Toggle model visibility";
+        visibilityIcon.style.marginLeft = "auto";
+        visibilityIcon.style.cursor = "pointer";
+        visibilityIcon.style.padding = "4px 8px";
+        visibilityIcon.dataset.visible = "true";
+
+        visibilityIcon.onclick = async (e) => {
+          e.stopPropagation();
+          const isVisible = visibilityIcon.dataset.visible === "true";
+
+          // Toggle visibility
+          await model.setVisible(undefined, !isVisible);
+          await fragments.update(true);
+
+          // Update icon and data attribute
+          visibilityIcon.dataset.visible = (!isVisible).toString();
+          if (!isVisible) {
+            visibilityIcon.innerHTML = '<i class="fas fa-eye"></i>';
+            visibilityIcon.style.opacity = "1";
+          } else {
+            visibilityIcon.innerHTML = '<i class="fas fa-eye-slash"></i>';
+            visibilityIcon.style.opacity = "0.5";
+          }
+        };
+
+        modelNode.appendChild(visibilityIcon);
 
         modelContainer.appendChild(modelNode);
 
@@ -2336,4 +2337,3 @@ if (submissionsModal) {
     }
   });
 }
-
