@@ -9,6 +9,7 @@ import { PanelDetailModal } from '@/components/modals/PanelDetailModal'
 import { EditPanelModal } from '@/components/modals/EditPanelModal'
 import { EditStatusModal } from '@/components/modals/EditStatusModal'
 import { ConfirmDeleteModal } from '@/components/modals/ConfirmDeleteModal'
+import { toast } from '@/components/ui/use-toast'
 
 interface CustomStatus {
   id: string
@@ -212,9 +213,17 @@ export function StatusManagementTab({
       await loadPanelCount()
       setShowEditModal(false)
       setEditingStatus(null)
+      toast({
+        title: "Success",
+        description: "Status updated successfully",
+      })
     } catch (error) {
       console.error('Error updating status:', error)
-      alert(`Failed to update status: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      toast({
+        title: "Error",
+        description: `Failed to update status: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        variant: "destructive",
+      })
       throw error
     }
   }
@@ -248,12 +257,24 @@ export function StatusManagementTab({
         console.log('Status deleted and list refreshed')
         setShowDeleteModal(false)
         setDeletingStatus(null)
+        toast({
+          title: "Success",
+          description: "Status deleted successfully",
+        })
       } else {
-        alert(`❌ Failed to delete status: ${data.error || 'Unknown error'}`)
+        toast({
+          title: "Error",
+          description: `Failed to delete status: ${data.error || 'Unknown error'}`,
+          variant: "destructive",
+        })
       }
     } catch (error) {
       console.error('Error deleting status:', error)
-      alert(`❌ Error deleting status: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      toast({
+        title: "Error",
+        description: `Error deleting status: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        variant: "destructive",
+      })
     } finally {
       setIsDeleting(false)
     }

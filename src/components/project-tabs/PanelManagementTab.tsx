@@ -8,6 +8,7 @@ import { RemoveStatusModal } from '@/components/modals/RemoveStatusModal'
 import { RemoveGroupModal } from '@/components/modals/RemoveGroupModal'
 import { PanelDetailModal } from '@/components/modals/PanelDetailModal'
 import { EditPanelModal } from '@/components/modals/EditPanelModal'
+import { toast } from '@/components/ui/use-toast'
 
 // Icon name mapping from database names to Lucide React names
 // const ICON_NAME_MAP: Record<string, string> = {
@@ -364,13 +365,24 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
       if (response.ok) {
         await loadPanels()
         clearSelection()
-        alert(`✅ Successfully assigned status to ${panelIds.length} panel(s)`)
+        toast({
+          title: "Success",
+          description: `Successfully assigned status to ${panelIds.length} panel(s)`,
+        })
       } else {
-        alert('❌ Failed to assign status')
+        toast({
+          title: "Error",
+          description: "Failed to assign status",
+          variant: "destructive",
+        })
       }
     } catch (error) {
       console.error('Error assigning status:', error)
-      alert('❌ Error assigning status')
+      toast({
+        title: "Error",
+        description: "Error assigning status",
+        variant: "destructive",
+      })
     }
   }
 
@@ -388,13 +400,24 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
       if (response.ok) {
         await loadPanels()
         clearSelection()
-        alert(`✅ Successfully added ${panelIds.length} panel(s) to group`)
+        toast({
+          title: "Success",
+          description: `Successfully added ${panelIds.length} panel(s) to group`,
+        })
       } else {
-        alert('❌ Failed to add panels to group')
+        toast({
+          title: "Error",
+          description: "Failed to add panels to group",
+          variant: "destructive",
+        })
       }
     } catch (error) {
       console.error('Error adding to group:', error)
-      alert('❌ Error adding panels to group')
+      toast({
+        title: "Error",
+        description: "Error adding panels to group",
+        variant: "destructive",
+      })
     }
   }
 
@@ -420,10 +443,17 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
       await loadPanels()
       clearSelection()
       setShowRemoveStatusModal(false)
-      alert(`✅ Successfully removed ${statusIds.length} status(es) from ${panelIds.length} panel(s)`)
+      toast({
+        title: "Success",
+        description: `Successfully removed ${statusIds.length} status(es) from ${panelIds.length} panel(s)`,
+      })
     } catch (error) {
       console.error('Error removing status:', error)
-      alert('❌ Error removing status')
+      toast({
+        title: "Error",
+        description: "Error removing status",
+        variant: "destructive",
+      })
     }
   }
 
@@ -445,10 +475,17 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
       await loadPanels()
       clearSelection()
       setShowRemoveGroupModal(false)
-      alert(`✅ Successfully removed ${panelIds.length} panel(s) from ${groupIds.length} group(s)`)
+      toast({
+        title: "Success",
+        description: `Successfully removed ${panelIds.length} panel(s) from ${groupIds.length} group(s)`,
+      })
     } catch (error) {
       console.error('Error removing from group:', error)
-      alert('❌ Error removing panels from group')
+      toast({
+        title: "Error",
+        description: "Error removing panels from group",
+        variant: "destructive",
+      })
     }
   }
 

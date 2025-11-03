@@ -38,6 +38,92 @@ export function PanelDetailModal({
     })
   }
 
+  // Get icon component (matching StatusDetailModal)
+  const getIconComponent = (iconName: string) => {
+    const iconNameMap: Record<string, string> = {
+      'angle-double-down': 'ChevronsDown',
+      'angle-double-left': 'ChevronsLeft',
+      'angle-double-right': 'ChevronsRight',
+      'angle-double-up': 'ChevronsUp',
+      'angle-down': 'ChevronDown',
+      'angle-left': 'ChevronLeft',
+      'angle-right': 'ChevronRight',
+      'angle-up': 'ChevronUp',
+      'bell': 'Bell',
+      'bookmark': 'Bookmark',
+      'box': 'Box',
+      'check': 'Check',
+      'circle': 'Circle',
+      'clock': 'Clock',
+      'code': 'Code',
+      'exclamation': 'AlertTriangle',
+      'eye': 'Eye',
+      'file': 'File',
+      'folder': 'Folder',
+      'forward': 'Forward',
+      'hashtag': 'Hash',
+      'info': 'Info',
+      'lightbulb': 'Lightbulb',
+      'lock': 'Lock',
+      'lock-open': 'LockOpen',
+      'map-marker': 'MapPin',
+      'minus': 'Minus',
+      'pause': 'Pause',
+      'pen-to-square': 'Edit',
+      'phone': 'Phone',
+      'play': 'Play',
+      'plus': 'Plus',
+      'reply': 'Reply',
+      'save': 'Save',
+      'search': 'Search',
+      'send': 'Send',
+      'server': 'Server',
+      'share-alt': 'Share2',
+      'shield': 'Shield',
+      'shop': 'ShoppingBag',
+      'sign-in': 'LogIn',
+      'sign-out': 'LogOut',
+      'sliders-h': 'SlidersHorizontal',
+      'sort': 'ArrowUpDown',
+      'spinner': 'Loader',
+      'star': 'Star',
+      'stop-circle': 'StopCircle',
+      'stopwatch': 'Timer',
+      'tag': 'Tag',
+      'thumbs-down': 'ThumbsDown',
+      'thumbs-up': 'ThumbsUp',
+      'thumbtack': 'Pin',
+      'th-large': 'Grid3x3',
+      'ticket': 'Ticket',
+      'times': 'X',
+      'times-circle': 'XCircle',
+      'trash': 'Trash2',
+      'undo': 'Undo',
+      'unlock': 'Unlock',
+      'user': 'User',
+      'users': 'Users',
+      'verified': 'BadgeCheck',
+      'warehouse': 'Warehouse',
+      'maximize': 'Maximize',
+      'minimize': 'Minimize',
+      'wrench': 'Wrench',
+      'package': 'Package',
+    }
+    
+    // Map the icon name from database format to Lucide format
+    const mappedName = iconNameMap[iconName] || iconName
+    
+    // Try to get the icon
+    const IconComponent = (LucideIcons as any)[mappedName]
+    
+    if (IconComponent) {
+      return IconComponent
+    }
+    
+    // Fallback to Circle
+    return Circle
+  }
+
   if (!isOpen) return null
 
   const modalContent = (
@@ -112,7 +198,7 @@ export function PanelDetailModal({
               <h3 className="text-sm font-medium text-slate-600 mb-2">Statuses</h3>
               <div className="flex flex-wrap gap-2">
                 {(panel as any).statuses.map((ps: any) => {
-                  const IconComponent = (LucideIcons as any)[ps.status.icon] || Circle
+                  const IconComponent = getIconComponent(ps.status.icon)
                   return (
                     <div
                       key={ps.id}

@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { authenticatedFetch } from '@/utils/authenticatedFetch'
+import { toast } from '@/components/ui/use-toast'
 
 interface User {
   id: string
@@ -98,12 +99,24 @@ export default function AdminPage() {
 
       if (response.ok) {
         await loadUsers()
+        toast({
+          title: "Success",
+          description: "User deleted successfully",
+        })
       } else {
-        alert('Failed to delete user')
+        toast({
+          title: "Error",
+          description: "Failed to delete user",
+          variant: "destructive",
+        })
       }
     } catch (error) {
       console.error('Error deleting user:', error)
-      alert('Error deleting user')
+      toast({
+        title: "Error",
+        description: "Error deleting user",
+        variant: "destructive",
+      })
     }
   }
 

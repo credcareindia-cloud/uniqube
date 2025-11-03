@@ -6,6 +6,7 @@ import { Plus, Building2, Eye, MoreVertical, Edit, Trash2 } from 'lucide-react'
 import { GroupDetailModal } from '@/components/modals/GroupDetailModal'
 import { EditGroupModal } from '@/components/modals/EditGroupModal'
 import { ConfirmDeleteModal } from '@/components/modals/ConfirmDeleteModal'
+import { toast } from '@/components/ui/use-toast'
 
 interface Group {
   id: string
@@ -104,13 +105,25 @@ export function GroupManagementTab({ projectId, onCreateGroup, onViewGroup }: Gr
         await loadGroups()
         setShowDeleteModal(false)
         setDeletingGroup(null)
+        toast({
+          title: "Success",
+          description: "Group deleted successfully",
+        })
       } else {
         const data = await response.json()
-        alert(`Failed to delete group: ${data.error || 'Unknown error'}`)
+        toast({
+          title: "Error",
+          description: `Failed to delete group: ${data.error || 'Unknown error'}`,
+          variant: "destructive",
+        })
       }
     } catch (error) {
       console.error('Error deleting group:', error)
-      alert('Error deleting group')
+      toast({
+        title: "Error",
+        description: "Error deleting group",
+        variant: "destructive",
+      })
     }
   }
 

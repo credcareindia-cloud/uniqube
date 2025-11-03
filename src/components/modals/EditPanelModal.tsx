@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { X } from 'lucide-react'
+import { X, Circle } from 'lucide-react'
+import * as LucideIcons from 'lucide-react'
 import type { Panel } from '@/types/panel'
 import type { Group } from '@/types/group'
 import { PanelStatus, PANEL_STATUS_CONFIG } from '@/types/panel'
@@ -107,6 +108,88 @@ export function EditPanelModal({
     )
   }
 
+  // Get icon component for status icons
+  const getIconComponent = (iconName: string) => {
+    const iconNameMap: Record<string, string> = {
+      'angle-double-down': 'ChevronsDown',
+      'angle-double-left': 'ChevronsLeft',
+      'angle-double-right': 'ChevronsRight',
+      'angle-double-up': 'ChevronsUp',
+      'angle-down': 'ChevronDown',
+      'angle-left': 'ChevronLeft',
+      'angle-right': 'ChevronRight',
+      'angle-up': 'ChevronUp',
+      'bell': 'Bell',
+      'bookmark': 'Bookmark',
+      'box': 'Box',
+      'check': 'Check',
+      'circle': 'Circle',
+      'clock': 'Clock',
+      'code': 'Code',
+      'exclamation': 'AlertTriangle',
+      'eye': 'Eye',
+      'file': 'File',
+      'folder': 'Folder',
+      'forward': 'Forward',
+      'hashtag': 'Hash',
+      'info': 'Info',
+      'lightbulb': 'Lightbulb',
+      'lock': 'Lock',
+      'lock-open': 'LockOpen',
+      'map-marker': 'MapPin',
+      'minus': 'Minus',
+      'pause': 'Pause',
+      'pen-to-square': 'Edit',
+      'phone': 'Phone',
+      'play': 'Play',
+      'plus': 'Plus',
+      'reply': 'Reply',
+      'save': 'Save',
+      'search': 'Search',
+      'send': 'Send',
+      'server': 'Server',
+      'share-alt': 'Share2',
+      'shield': 'Shield',
+      'shop': 'ShoppingBag',
+      'sign-in': 'LogIn',
+      'sign-out': 'LogOut',
+      'sliders-h': 'SlidersHorizontal',
+      'sort': 'ArrowUpDown',
+      'spinner': 'Loader',
+      'star': 'Star',
+      'stop-circle': 'StopCircle',
+      'stopwatch': 'Timer',
+      'tag': 'Tag',
+      'thumbs-down': 'ThumbsDown',
+      'thumbs-up': 'ThumbsUp',
+      'thumbtack': 'Pin',
+      'th-large': 'Grid3x3',
+      'ticket': 'Ticket',
+      'times': 'X',
+      'times-circle': 'XCircle',
+      'trash': 'Trash2',
+      'undo': 'Undo',
+      'unlock': 'Unlock',
+      'user': 'User',
+      'users': 'Users',
+      'verified': 'BadgeCheck',
+      'warehouse': 'Warehouse',
+      'maximize': 'Maximize',
+      'minimize': 'Minimize',
+      'wrench': 'Wrench',
+      'package': 'Package',
+    }
+    
+    const mappedName = iconNameMap[iconName] || iconName
+    const IconComponent = (LucideIcons as any)[mappedName]
+    
+    if (IconComponent) {
+      return IconComponent
+    }
+    
+    return Circle
+  }
+
   if (!isOpen) return null
 
   const modalContent = (
@@ -181,27 +264,30 @@ export function EditPanelModal({
                   Statuses (Multi-select)
                 </label>
                 <div className="grid grid-cols-2 gap-2">
-                  {availableStatuses.map((status) => (
-                    <button
-                      key={status.id}
-                      type="button"
-                      onClick={() => toggleCustomStatus(status.id)}
-                      disabled={isSubmitting}
-                      className={`px-4 py-2 rounded-lg border transition-all text-sm font-medium ${
-                        selectedCustomStatuses.includes(status.id)
-                          ? 'border-[#3A7BD5] bg-[rgba(58,123,213,0.2)] text-slate-900'
-                          : 'border-slate-300 bg-white text-slate-600 hover:border-[rgba(58,123,213,0.4)]'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <div
-                          className="w-3 h-3 rounded-full"
-                          style={{ backgroundColor: status.color }}
-                        />
-                        {status.name}
-                      </div>
-                    </button>
-                  ))}
+                  {availableStatuses.map((status) => {
+                    const StatusIcon = getIconComponent((status as any).icon || 'circle')
+                    return (
+                      <button
+                        key={status.id}
+                        type="button"
+                        onClick={() => toggleCustomStatus(status.id)}
+                        disabled={isSubmitting}
+                        className={`px-4 py-2 rounded-lg border transition-all text-sm font-medium ${
+                          selectedCustomStatuses.includes(status.id)
+                            ? 'border-[#3A7BD5] bg-[rgba(58,123,213,0.2)] text-slate-900'
+                            : 'border-slate-300 bg-white text-slate-600 hover:border-[rgba(58,123,213,0.4)]'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <StatusIcon
+                            className="w-4 h-4"
+                            style={{ color: status.color }}
+                          />
+                          {status.name}
+                        </div>
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
             )}
