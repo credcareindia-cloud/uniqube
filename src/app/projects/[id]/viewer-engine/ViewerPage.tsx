@@ -212,7 +212,7 @@ export default function ViewerPage() {
           left: 0,
           width: '100%',
           height: '100%',
-          background: 'rgba(10, 10, 10, 0.95)',
+          background: 'rgba(255, 255, 255, 0.95)',
           display: 'flex',
           justifyContent: 'center',
           alignItems: 'center',
@@ -221,7 +221,7 @@ export default function ViewerPage() {
         }}>
           <div className="loading-spinner" style={{ width: '60px', height: '60px', marginBottom: '20px' }}></div>
           <p style={{ fontSize: '1.5rem', marginBottom: '10px', color: '#ffffff' }}>Loading 3D Viewer...</p>
-          <p style={{ color: '#00ffff' }}>Initializing That Open Engine</p>
+          <p style={{ color: '#000000ff' }}>Initializing Uniqube Engine</p>
         </div>
       )}
 

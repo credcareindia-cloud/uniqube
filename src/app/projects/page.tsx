@@ -106,7 +106,7 @@ export default function ProjectsPage() {
               Projects
             </h1>
             <p className="text-slate-600 mt-1">
-              Manage your 3D IFC projects
+              Projects Assigned to You
             </p>
           </div>
         </div>

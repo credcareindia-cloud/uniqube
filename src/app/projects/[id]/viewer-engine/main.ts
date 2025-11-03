@@ -168,70 +168,59 @@ const fetchProjectModels = async (projectId: string) => {
 
 const loadModels = async () => {
   console.log("=== LOADING MODELS ===");
-  
-  // Try to fetch models from backend first
-  let projectModels = await fetchProjectModels(projectIdFromUrl);
-  
-  // Fallback: If no models from backend, try to load local test models
-  if (projectModels.length === 0) {
-    console.warn('⚠️  No models found from backend, trying local fallback models...');
-    
-    // Try loading local test models as fallback
-    const localModels = [
-      { path: "/test.frag", name: "Test Model" },
-      { path: "/arch.frag", name: "Architecture Model" },
-    ];
-    
-    for (const localModel of localModels) {
-      try {
-        console.log(`📥 Attempting to load local model: ${localModel.name}`);
-        const file = await fetch(localModel.path);
-        if (file.ok) {
-          const buffer = await file.arrayBuffer();
-          const model = await fragments.load(buffer, { modelId: localModel.name });
-          models.set(localModel.name, model);
-          console.log(`✅ Loaded local model: ${localModel.name}`);
-        }
-      } catch (error) {
-        console.warn(`⚠️  Could not load local model ${localModel.name}:`, error);
-      }
-    }
-    
-    if (models.size === 0) {
-      console.warn('⚠️  No models loaded from backend or local fallback');
-      allModelsLoaded = true;
-      return; // Continue initialization even without models
-    }
-  } else {
-    // Load models from backend
-    for (const modelInfo of projectModels) {
-      try {
-        console.log(`📥 Loading model: ${modelInfo.name} (${modelInfo.id})`);
-        
-        // Fetch model file from backend storage with authentication
-        const fileUrl = `http://localhost:4000/api/models/${modelInfo.id}/download`;
-        const token = localStorage.getItem('auth_token');
-        const headers: Record<string, string> = {};
-        
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
-        }
-        
-        const file = await fetch(fileUrl, { headers });
-        
-        if (!file.ok) {
-          throw new Error(`Failed to download model: ${file.statusText}`);
-        }
-        
-        const buffer = await file.arrayBuffer();
-        const model = await fragments.load(buffer, { modelId: modelInfo.id });
 
-        models.set(modelInfo.name, model);
-        console.log(`✅ Loaded: ${modelInfo.name}`);
-        
-      } catch (error) {
-        console.warn(`❌ Could not load ${modelInfo.name}:`, error);
+  // Fetch models from database
+  let projectModels = await fetchProjectModels(projectIdFromUrl);
+
+  // Check if models exist in database
+  if (projectModels.length === 0) {
+    console.warn('⚠️  No models found in database for this project');
+    console.log('📝 Please upload models via the Project Dashboard');
+    allModelsLoaded = true;
+
+    // Show message in UI
+    const treeContainer = document.getElementById("treeContainer");
+    if (treeContainer) {
+      treeContainer.innerHTML = `
+        <div style="padding: 20px; text-align: center; color: #64748b;">
+          <div style="font-size: 48px; margin-bottom: 16px;">📦</div>
+          <div style="font-weight: 600; margin-bottom: 8px;">No Models Available</div>
+          <div style="font-size: 14px;">Please upload models via the Project Dashboard</div>
+        </div>
+      `;
+    }
+
+    return;
+  }
+
+  // Load models from database
+  for (const modelInfo of projectModels) {
+    try {
+      console.log(`📥 Loading model: ${modelInfo.name} (${modelInfo.id})`);
+
+      // Fetch model file from backend storage with authentication
+      const fileUrl = `http://localhost:4000/api/models/${modelInfo.id}/download`;
+      const token = localStorage.getItem('auth_token');
+      const headers: Record<string, string> = {};
+
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
       }
+
+      const file = await fetch(fileUrl, { headers });
+
+      if (!file.ok) {
+        throw new Error(`Failed to download model: ${file.statusText}`);
+      }
+
+      const buffer = await file.arrayBuffer();
+      const model = await fragments.load(buffer, { modelId: modelInfo.id });
+
+      models.set(modelInfo.name, model);
+      console.log(`✅ Loaded: ${modelInfo.name}`);
+
+    } catch (error) {
+      console.warn(`❌ Could not load ${modelInfo.name}:`, error);
     }
   }
 
@@ -1000,173 +989,139 @@ updateObjectCount();
 
 /* MD
   ### ⏱️ Measuring the performance
+  Performance monitoring disabled
 */
-
-const stats = new Stats();
-stats.showPanel(2);
-document.body.append(stats.dom);
-stats.dom.style.left = "0px";
-stats.dom.style.zIndex = "unset";
-world.renderer.onBeforeUpdate.add(() => stats.begin());
-world.renderer.onAfterUpdate.add(() => stats.end());
 
 console.log("=== Fragment Viewer Ready ===");
 console.log("Model loaded successfully! Click elements to explore their data.");
 
 /* MD
   ### 📊 Status Management System
-  Manage custom statuses with icons and colors, stored in localStorage
+  Display custom statuses from database (read-only)
 */
 
-interface Status {
+interface DatabaseStatus {
   id: string;
+  projectId: number;
   name: string;
   icon: string;
   color: string;
+  description?: string;
+  order: number;
+  panelCount?: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
-// Font Awesome icon list for the dropdown
-const fontAwesomeIcons = [
-  { name: "Angle Double Down", class: "fa-angles-down" },
-  { name: "Angle Double Left", class: "fa-angles-left" },
-  { name: "Angle Double Right", class: "fa-angles-right" },
-  { name: "Angle Double Up", class: "fa-angles-up" },
-  { name: "Angle Down", class: "fa-angle-down" },
-  { name: "Angle Left", class: "fa-angle-left" },
-  { name: "Angle Right", class: "fa-angle-right" },
-  { name: "Angle Up", class: "fa-angle-up" },
-  { name: "Check", class: "fa-check" },
-  { name: "Check Circle", class: "fa-circle-check" },
-  { name: "Times", class: "fa-times" },
-  { name: "Times Circle", class: "fa-circle-xmark" },
-  { name: "Exclamation", class: "fa-exclamation" },
-  { name: "Exclamation Triangle", class: "fa-triangle-exclamation" },
-  { name: "Info Circle", class: "fa-circle-info" },
-  { name: "Question Circle", class: "fa-circle-question" },
-  { name: "Star", class: "fa-star" },
-  { name: "Heart", class: "fa-heart" },
-  { name: "Flag", class: "fa-flag" },
-  { name: "Bookmark", class: "fa-bookmark" },
-  { name: "Tag", class: "fa-tag" },
-  { name: "Tags", class: "fa-tags" },
-  { name: "Thumbs Up", class: "fa-thumbs-up" },
-  { name: "Thumbs Down", class: "fa-thumbs-down" },
-  { name: "Play", class: "fa-play" },
-  { name: "Pause", class: "fa-pause" },
-  { name: "Stop", class: "fa-stop" },
-  { name: "Clock", class: "fa-clock" },
-  { name: "Calendar", class: "fa-calendar" },
-  { name: "Wrench", class: "fa-wrench" },
-  { name: "Cog", class: "fa-cog" },
-  { name: "Hammer", class: "fa-hammer" },
-  { name: "Screwdriver", class: "fa-screwdriver" },
-  { name: "Hard Hat", class: "fa-hard-hat" },
-  { name: "Truck", class: "fa-truck" },
-  { name: "Box", class: "fa-box" },
-  { name: "Archive", class: "fa-box-archive" },
-];
+let elementStatuses: DatabaseStatus[] = [];
 
-// Status storage functions
-const STORAGE_KEY = "bim-statuses";
-
-const loadStatuses = (): Status[] => {
+// Fetch statuses from database
+const fetchStatusesFromDatabase = async (projectId: string): Promise<void> => {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
+    console.log(`Fetching statuses for project ${projectId}...`);
+
+    // Get authentication token
+    const token = localStorage.getItem('auth_token');
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`${API_BASE_URL}/status-management/${projectId}`, {
+      method: 'GET',
+      headers: headers,
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    elementStatuses = data.statuses || [];
+    console.log(`Loaded ${elementStatuses.length} statuses from database`);
+
+    // Render the status list after fetching
+    renderStatusList();
   } catch (error) {
-    console.error("Error loading statuses:", error);
-    return [];
+    console.error("Error fetching statuses from database:", error);
+    elementStatuses = [];
+    renderStatusList();
   }
 };
 
-const saveStatuses = (statuses: Status[]): void => {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(statuses));
-  } catch (error) {
-    console.error("Error saving statuses:", error);
-  }
+// Map icon names to FontAwesome classes
+const getIconClass = (iconName: string): string => {
+  const iconMap: Record<string, string> = {
+    'angle-double-down': 'fa-angles-down',
+    'angle-double-left': 'fa-angles-left',
+    'angle-double-right': 'fa-angles-right',
+    'angle-double-up': 'fa-angles-up',
+    'angle-down': 'fa-angle-down',
+    'angle-left': 'fa-angle-left',
+    'angle-right': 'fa-angle-right',
+    'angle-up': 'fa-angle-up',
+    'bell': 'fa-bell',
+    'bookmark': 'fa-bookmark',
+    'box': 'fa-box',
+    'check': 'fa-check',
+    'circle': 'fa-circle',
+    'clock': 'fa-clock',
+    'exclamation': 'fa-exclamation',
+    'flag': 'fa-flag',
+    'heart': 'fa-heart',
+    'info': 'fa-info',
+    'pause': 'fa-pause',
+    'play': 'fa-play',
+    'star': 'fa-star',
+    'tag': 'fa-tag',
+    'thumbs-down': 'fa-thumbs-down',
+    'thumbs-up': 'fa-thumbs-up',
+    'wrench': 'fa-wrench',
+    'package': 'fa-box',
+  };
+
+  return iconMap[iconName.toLowerCase()] || 'fa-tag';
 };
 
-let statuses: Status[] = loadStatuses();
-let selectedIcon: string = "";
-
-// Render status list
+// Render status list (read-only)
 const renderStatusList = () => {
   const statusListContent = document.getElementById("statusListContent");
   if (!statusListContent) return;
 
-  if (statuses.length === 0) {
+  if (elementStatuses.length === 0) {
     statusListContent.innerHTML = `
-      <div style="text-align: center; padding: 40px 20px; color: rgba(255,255,255,0.4);">
+      <div class="empty-state">
         <i class="fas fa-tags" style="font-size: 48px; margin-bottom: 16px; opacity: 0.3;"></i>
-        <p>No statuses created yet</p>
-        <p style="font-size: 13px; margin-top: 8px;">Click "Add New Status" to create one</p>
+        <p>No statuses found</p>
+        <p style="font-size: 13px; margin-top: 8px;">Statuses are managed from the Project Dashboard</p>
       </div>
     `;
     return;
   }
 
   statusListContent.innerHTML = "";
-  statuses.forEach((status) => {
+  elementStatuses.forEach((status) => {
     const statusItem = document.createElement("div");
     statusItem.className = "status-item";
     statusItem.style.borderLeftColor = status.color;
 
+    const iconClass = getIconClass(status.icon);
+    const panelCount = status.panelCount || 0;
+
     statusItem.innerHTML = `
-      <i class="fas ${status.icon} status-item-icon" style="color: ${status.color};"></i>
+      <i class="fas ${iconClass} status-item-icon" style="color: ${status.color};"></i>
       <span class="status-item-name">${status.name}</span>
-      <button class="status-item-delete" data-id="${status.id}">
-        <i class="fas fa-trash"></i>
-      </button>
+      <span class="status-item-count" style="font-size: 11px; color: var(--slate-500); margin-left: auto;">${panelCount} panel${panelCount !== 1 ? 's' : ''}</span>
     `;
 
     statusListContent.appendChild(statusItem);
   });
-
-  // Attach delete handlers
-  statusListContent.querySelectorAll(".status-item-delete").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      const id = (e.currentTarget as HTMLElement).dataset.id;
-      deleteStatus(id!);
-    });
-  });
 };
 
-// Render icon list
-const renderIconList = (searchTerm: string = "") => {
-  const iconList = document.getElementById("icon-list");
-  if (!iconList) return;
-
-  iconList.innerHTML = "";
-  const filtered = fontAwesomeIcons.filter((icon) =>
-    icon.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  filtered.forEach((icon) => {
-    const option = document.createElement("div");
-    option.className = "icon-option";
-    option.innerHTML = `<i class="fas ${icon.class}"></i><span>${icon.name}</span>`;
-    option.addEventListener("click", () => {
-      selectedIcon = icon.class;
-      const selectedIconDisplay = document.getElementById("selected-icon-display");
-      if (selectedIconDisplay) {
-        selectedIconDisplay.innerHTML = `<i class="fas ${icon.class}"></i> ${icon.name}`;
-      }
-      const iconDropdown = document.getElementById("icon-dropdown");
-      if (iconDropdown) {
-        iconDropdown.classList.remove("show");
-      }
-    });
-    iconList.appendChild(option);
-  });
-};
-
-// Delete status
-const deleteStatus = (id: string) => {
-  statuses = statuses.filter((s) => s.id !== id);
-  saveStatuses(statuses);
-  renderStatusList();
-};
+// Status management - Read only, editing done in dashboard
 
 // Status panel toggle
 const statusPanel = document.getElementById("statusPanel");
@@ -1199,173 +1154,97 @@ if (statusCloseBtn && statusPanel) {
   });
 }
 
-// Modal controls
-const statusModal = document.getElementById("statusModal");
+// Hide "Add New Status" button (statuses are managed in dashboard)
 const addStatusBtn = document.getElementById("add-status-btn");
-const modalCloseBtn = document.getElementById("modal-close-btn");
-const cancelStatusBtn = document.getElementById("cancel-status-btn");
-const createStatusBtn = document.getElementById("create-status-btn");
-const iconSelectBtn = document.getElementById("icon-select-btn");
-const iconDropdown = document.getElementById("icon-dropdown");
-const iconSearchInput = document.getElementById("icon-search") as HTMLInputElement;
-const statusNameInput = document.getElementById("status-name-input") as HTMLInputElement;
-const statusColorInput = document.getElementById("status-color-input") as HTMLInputElement;
-const statusColorText = document.getElementById("status-color-text") as HTMLInputElement;
-
-// Open modal
-console.log("Status modal elements:", { addStatusBtn, statusModal });
-if (addStatusBtn && statusModal) {
-  addStatusBtn.addEventListener("click", () => {
-    console.log("Add status button clicked! Opening modal...");
-    statusModal.classList.add("show");
-    console.log("Modal classes:", statusModal.className);
-    selectedIcon = "";
-    if (statusNameInput) statusNameInput.value = "";
-    if (statusColorInput) statusColorInput.value = "#3B82F6";
-    if (statusColorText) statusColorText.value = "#3B82F6";
-    const selectedIconDisplay = document.getElementById("selected-icon-display");
-    if (selectedIconDisplay) selectedIconDisplay.textContent = "Select an icon";
-    renderIconList();
-  });
-  console.log("✅ Add status button event listener attached");
-} else {
-  console.error("❌ Add status button or modal not found!", { addStatusBtn, statusModal });
+if (addStatusBtn) {
+  addStatusBtn.style.display = "none";
 }
-
-// Close modal
-const closeModal = () => {
-  if (statusModal) {
-    statusModal.classList.remove("show");
-  }
-  if (iconDropdown) {
-    iconDropdown.classList.remove("show");
-  }
-};
-
-if (modalCloseBtn) {
-  modalCloseBtn.addEventListener("click", closeModal);
-}
-
-if (cancelStatusBtn) {
-  cancelStatusBtn.addEventListener("click", closeModal);
-}
-
-// Close modal on outside click
-if (statusModal) {
-  statusModal.addEventListener("click", (e) => {
-    if (e.target === statusModal) {
-      closeModal();
-    }
-  });
-}
-
-// Icon dropdown toggle
-if (iconSelectBtn && iconDropdown) {
-  iconSelectBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    iconDropdown.classList.toggle("show");
-  });
-}
-
-// Icon search
-if (iconSearchInput) {
-  iconSearchInput.addEventListener("input", (e) => {
-    const searchTerm = (e.target as HTMLInputElement).value;
-    renderIconList(searchTerm);
-  });
-}
-
-// Color picker sync
-if (statusColorInput && statusColorText) {
-  statusColorInput.addEventListener("input", (e) => {
-    const color = (e.target as HTMLInputElement).value;
-    statusColorText.value = color.toUpperCase();
-  });
-}
-
-// Close dropdown when clicking outside
-document.addEventListener("click", (e) => {
-  if (iconDropdown && !iconDropdown.contains(e.target as Node) && e.target !== iconSelectBtn) {
-    iconDropdown.classList.remove("show");
-  }
-});
-
-// Create status
-if (createStatusBtn) {
-  createStatusBtn.addEventListener("click", () => {
-    const name = statusNameInput?.value.trim();
-    const color = statusColorInput?.value;
-
-    if (!name) {
-      alert("Please enter a status name");
-      return;
-    }
-
-    if (!selectedIcon) {
-      alert("Please select an icon");
-      return;
-    }
-
-    const newStatus: Status = {
-      id: Date.now().toString(),
-      name,
-      icon: selectedIcon,
-      color: color || "#3B82F6",
-    };
-
-    statuses.push(newStatus);
-    saveStatuses(statuses);
-    renderStatusList();
-    closeModal();
-  });
-}
-
-// Initialize status list
-renderStatusList();
 
 /* MD
   ### 👥 Groups Management System
-  Manage groups with members from storey children, stored in localStorage
+  Display groups from database (read-only)
 */
 
-interface GroupMember {
-  localId: number;
-  name: string;
-  storeyName: string;
-}
+// API Configuration
+const API_BASE_URL = 'http://localhost:4000/api';
 
-interface Group {
+interface DatabaseGroup {
   id: string;
+  projectId: number;
   name: string;
-  description: string;
-  members: GroupMember[];
+  description?: string;
+  status: string;
+  type: string;
+  elementIds?: string[];
+  metadata?: {
+    type?: string;
+    panelCount?: number;
+  };
+  panels?: Array<{
+    id: string;
+    name: string;
+    tag?: string;
+    status: string;
+  }>;
+  panelGroups?: Array<{
+    id: string;
+    panelId: string;
+    groupId: string;
+    assignedAt: string;
+    assignedBy?: string | null;
+    panel: {
+      id: string;
+      name: string;
+      tag?: string;
+      objectType: string;
+    };
+  }>;
+  _count?: {
+    panels?: number;
+    panelGroups?: number;
+  };
+  createdAt: string;
+  updatedAt: string;
 }
 
-// Groups storage functions
-const GROUPS_STORAGE_KEY = "bim-groups";
+let groups: DatabaseGroup[] = [];
 
-const loadGroups = (): Group[] => {
+// Fetch groups from database
+const fetchGroupsFromDatabase = async (projectId: string): Promise<void> => {
   try {
-    const stored = localStorage.getItem(GROUPS_STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
+    console.log(`Fetching groups for project ${projectId}...`);
+
+    // Get authentication token
+    const token = localStorage.getItem('auth_token');
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`${API_BASE_URL}/groups/${projectId}`, {
+      method: 'GET',
+      headers: headers,
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    groups = data.groups || [];
+    console.log(`Loaded ${groups.length} groups from database`);
+
+    // Render the groups list after fetching
+    renderGroupsList();
   } catch (error) {
-    console.error("Error loading groups:", error);
-    return [];
+    console.error("Error fetching groups from database:", error);
+    groups = [];
+    renderGroupsList();
   }
 };
-
-const saveGroups = (groups: Group[]): void => {
-  try {
-    localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(groups));
-  } catch (error) {
-    console.error("Error saving groups:", error);
-  }
-};
-
-let groups: Group[] = loadGroups();
-let currentGroup: Group | null = null;
-let editingGroupId: string | null = null;
-let selectedMembers: GroupMember[] = [];
 
 // Collect all storey children from all models
 const collectAllStoreyChildren = (): { storeyName: string; children: TreeNodeData[] }[] => {
@@ -1418,17 +1297,17 @@ const collectAllStoreyChildren = (): { storeyName: string; children: TreeNodeDat
   return storeyChildren;
 };
 
-// Render groups list
+// Render groups list (read-only)
 const renderGroupsList = () => {
   const groupsListContent = document.getElementById("groupsListContent");
   if (!groupsListContent) return;
 
   if (groups.length === 0) {
     groupsListContent.innerHTML = `
-      <div style="text-align: center; padding: 40px 20px; color: rgba(255,255,255,0.4);">
+      <div class="empty-state">
         <i class="fas fa-layer-group" style="font-size: 48px; margin-bottom: 16px; opacity: 0.3;"></i>
-        <p>No groups created yet</p>
-        <p style="font-size: 13px; margin-top: 8px;">Click "Add New Group" to create one</p>
+        <p>No groups found</p>
+        <p style="font-size: 13px; margin-top: 8px;">Groups are managed from the Project Dashboard</p>
       </div>
     `;
     return;
@@ -1439,230 +1318,148 @@ const renderGroupsList = () => {
     const groupItem = document.createElement("div");
     groupItem.className = "group-item";
 
+    const panelCount = group._count?.panelGroups || group._count?.panels || group.metadata?.panelCount || 0;
+    const statusConfig = getGroupStatusDisplay(group.status);
+
     groupItem.innerHTML = `
       <div class="group-item-header">
         <span class="group-item-name">${group.name}</span>
-        <div class="group-item-actions">
-          <button class="group-item-edit" data-id="${group.id}">
-            <i class="fas fa-edit"></i>
-          </button>
-          <button class="group-item-delete" data-id="${group.id}">
-            <i class="fas fa-trash"></i>
-          </button>
-        </div>
+        <span class="status-badge" style="background: ${statusConfig.bgColor}; color: ${statusConfig.color}; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">
+          ${statusConfig.label}
+        </span>
       </div>
       <div class="group-item-description">${group.description || "No description"}</div>
       <div class="group-item-members">
-        <i class="fas fa-users"></i>
-        <span>${group.members.length} member${group.members.length !== 1 ? "s" : ""}</span>
+        <i class="fas fa-cube"></i>
+        <span>${panelCount} panel${panelCount !== 1 ? "s" : ""}</span>
       </div>
     `;
+
+    // Add click handler to highlight group panels
+    groupItem.addEventListener("click", () => highlightGroupPanels(group));
 
     groupsListContent.appendChild(groupItem);
   });
-
-  // Attach edit and delete handlers
-  groupsListContent.querySelectorAll(".group-item-edit").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      const id = (e.currentTarget as HTMLElement).dataset.id;
-      editGroup(id!);
-    });
-  });
-
-  groupsListContent.querySelectorAll(".group-item-delete").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      const id = (e.currentTarget as HTMLElement).dataset.id;
-      deleteGroup(id!);
-    });
-  });
 };
 
-// Delete group
-const deleteGroup = (id: string) => {
-  if (confirm("Are you sure you want to delete this group?")) {
-    // Find the group to get its members
-    const group = groups.find(g => g.id === id);
+// Highlight panels in a group and make others transparent
+const highlightGroupPanels = async (group: DatabaseGroup) => {
+  try {
+    console.log(`Highlighting panels for group: ${group.name}`);
 
-    // Remove element connections for all members of this group
-    if (group) {
-      group.members.forEach(member => {
-        const conn = getElementConnections(member.localId);
-        conn.groupIds = conn.groupIds.filter(gId => gId !== id);
+    // Get panel tags from the group (using tag as the identifier)
+    const panelTags: string[] = [];
+
+    // First try panelGroups (new structure)
+    if (group.panelGroups && group.panelGroups.length > 0) {
+      group.panelGroups.forEach(pg => {
+        if (pg.panel && pg.panel.tag) {
+          panelTags.push(pg.panel.tag.trim());
+        }
       });
-      saveConnections(elementConnections);
+    }
+    // Fallback to panels (old structure)
+    else if (group.panels && group.panels.length > 0) {
+      group.panels.forEach(panel => {
+        if (panel.tag) {
+          panelTags.push(panel.tag.trim());
+        }
+      });
     }
 
-    // Remove the group
-    groups = groups.filter((g) => g.id !== id);
-    saveGroups(groups);
-    renderGroupsList();
-  }
-};
+    if (panelTags.length === 0) {
+      console.log("No panels found in this group");
+      return;
+    }
 
-// Edit group
-const editGroup = (id: string) => {
-  const group = groups.find((g) => g.id === id);
-  if (!group) return;
+    console.log(`Found ${panelTags.length} panels in group:`, panelTags);
 
-  editingGroupId = id;
-  selectedMembers = [...group.members];
+    // Find all tree nodes that match the panel tags
+    const localIds: number[] = [];
+    const treeContainer = document.getElementById("tree-container");
 
-  const groupModal = document.getElementById("groupModal");
-  const groupModalTitle = document.getElementById("groupModalTitle");
-  const saveGroupText = document.getElementById("save-group-text");
-  const groupNameInput = document.getElementById("group-name-input") as HTMLInputElement;
-  const groupDescriptionInput = document.getElementById("group-description-input") as HTMLTextAreaElement;
-
-  if (groupModalTitle) groupModalTitle.textContent = "Edit Group";
-  if (saveGroupText) saveGroupText.textContent = "Update";
-  if (groupNameInput) groupNameInput.value = group.name;
-  if (groupDescriptionInput) groupDescriptionInput.value = group.description;
-
-  updateSelectedMembersDisplay();
-  if (groupModal) groupModal.classList.add("show");
-};
-
-// Render members list in Add Members modal
-const renderMembersList = (searchTerm: string = "") => {
-  const membersListContainer = document.getElementById("members-list-container");
-  if (!membersListContainer) return;
-
-  membersListContainer.innerHTML = "";
-  const storeyChildren = collectAllStoreyChildren();
-
-  if (storeyChildren.length === 0) {
-    membersListContainer.innerHTML = `
-      <div style="text-align: center; padding: 30px; color: rgba(255,255,255,0.5);">
-        <p>No members available</p>
-      </div>
-    `;
-    return;
-  }
-
-  storeyChildren.forEach(({ storeyName, children }) => {
-    const storeySection = document.createElement("div");
-    storeySection.className = "storey-section";
-
-    const storeyHeader = document.createElement("div");
-    storeyHeader.className = "storey-header";
-    storeyHeader.innerHTML = `<i class="fas fa-building"></i><span>${storeyName}</span>`;
-    storeySection.appendChild(storeyHeader);
-
-    let visibleCount = 0;
-
-    children.forEach((child) => {
-      const isSelected = selectedMembers.some((m) => m.localId === child.localId);
-      const matchesSearch = child.name.toLowerCase().includes(searchTerm.toLowerCase());
-
-      if (matchesSearch) {
-        visibleCount++;
-        const memberItem = document.createElement("div");
-        memberItem.className = "member-checkbox-item";
-
-        const checkbox = document.createElement("input");
-        checkbox.type = "checkbox";
-        checkbox.checked = isSelected;
-        checkbox.dataset.localId = child.localId.toString();
-        checkbox.dataset.name = child.name;
-        checkbox.dataset.storey = storeyName;
-
-        const label = document.createElement("label");
-        label.className = "member-checkbox-label";
-        label.textContent = child.name;
-
-        memberItem.appendChild(checkbox);
-        memberItem.appendChild(label);
-
-        // Toggle on click anywhere in the item
-        memberItem.addEventListener("click", (e) => {
-          if (e.target !== checkbox) {
-            checkbox.checked = !checkbox.checked;
+    if (treeContainer) {
+      // Search through all tree nodes to find matching tags
+      const allTreeNodes = treeContainer.querySelectorAll(".tree-node");
+      allTreeNodes.forEach((node) => {
+        const label = node.querySelector(".tree-label");
+        if (label) {
+          const nodeName = label.textContent?.trim() || "";
+          // Check if this node's name matches any of the panel tags
+          if (panelTags.some(tag => nodeName === tag || nodeName.includes(tag))) {
+            const localIdStr = (node as HTMLElement).dataset.localId;
+            if (localIdStr) {
+              const localId = parseInt(localIdStr);
+              if (!isNaN(localId)) {
+                localIds.push(localId);
+              }
+            }
           }
-          handleMemberSelection(checkbox);
-        });
+        }
+      });
+    }
 
-        checkbox.addEventListener("change", () => {
-          handleMemberSelection(checkbox);
-        });
+    if (localIds.length === 0) {
+      console.log("Could not find any matching elements in the tree");
+      return;
+    }
 
-        storeySection.appendChild(memberItem);
+    console.log(`Found ${localIds.length} matching elements with IDs:`, localIds);
+
+    // Reset all highlights first
+    const highlightPromises = [];
+    for (const [_, m] of models.entries()) {
+      highlightPromises.push(m.resetHighlight(undefined));
+    }
+    await Promise.all(highlightPromises);
+    highlightPromises.length = 0;
+
+    // Make all elements semi-transparent (ghost mode)
+    for (const [_, m] of models.entries()) {
+      highlightPromises.push(
+        m.highlight(undefined, {
+          color: new THREE.Color(0xcccccc),
+          opacity: 0.2,
+          transparent: true,
+          renderedFaces: FRAGS.RenderedFaces.TWO,
+        })
+      );
+    }
+    await Promise.all(highlightPromises);
+
+    // Highlight the group's panels in all models
+    for (const [_, model] of models.entries()) {
+      try {
+        await model.highlight(localIds, {
+          color: new THREE.Color('gold'),
+          opacity: 1,
+          transparent: false,
+          renderedFaces: FRAGS.RenderedFaces.TWO,
+        });
+        console.log(`Highlighted ${localIds.length} panels in model`);
+      } catch (error) {
+        console.warn("Could not highlight panels in this model:", error);
       }
-    });
-
-    // Only add the storey section if it has visible members
-    if (visibleCount > 0) {
-      membersListContainer.appendChild(storeySection);
     }
-  });
 
-  updateSelectedCount();
-};
-
-// Handle member selection
-const handleMemberSelection = (checkbox: HTMLInputElement) => {
-  const localId = parseInt(checkbox.dataset.localId || "0");
-  const name = checkbox.dataset.name || "";
-  const storeyName = checkbox.dataset.storey || "";
-
-  if (checkbox.checked) {
-    // Add to selected members
-    if (!selectedMembers.some((m) => m.localId === localId)) {
-      selectedMembers.push({ localId, name, storeyName });
-    }
-  } else {
-    // Remove from selected members
-    selectedMembers = selectedMembers.filter((m) => m.localId !== localId);
-  }
-
-  updateSelectedCount();
-};
-
-// Update selected count display
-const updateSelectedCount = () => {
-  const selectedCount = document.getElementById("selected-count");
-  if (selectedCount) {
-    selectedCount.textContent = selectedMembers.length.toString();
+    console.log("Group panels highlighted successfully");
+  } catch (error) {
+    console.error("Error highlighting group panels:", error);
   }
 };
 
-// Update selected members display in group modal
-const updateSelectedMembersDisplay = () => {
-  const selectedMembersDisplay = document.getElementById("selected-members-display");
-  const memberCount = document.getElementById("member-count");
-
-  if (memberCount) {
-    memberCount.textContent = selectedMembers.length.toString();
-  }
-
-  if (!selectedMembersDisplay) return;
-
-  if (selectedMembers.length === 0) {
-    selectedMembersDisplay.innerHTML = `
-      <div style="text-align: center; padding: 20px; color: rgba(255,255,255,0.4); font-size: 13px;">
-        No members added yet
-      </div>
-    `;
-    return;
-  }
-
-  selectedMembersDisplay.innerHTML = "";
-  selectedMembers.forEach((member) => {
-    const chip = document.createElement("div");
-    chip.className = "selected-member-chip";
-    chip.innerHTML = `
-      <span>${member.name}</span>
-      <button data-id="${member.localId}"><i class="fas fa-times"></i></button>
-    `;
-
-    const removeBtn = chip.querySelector("button");
-    removeBtn?.addEventListener("click", () => {
-      selectedMembers = selectedMembers.filter((m) => m.localId !== member.localId);
-      updateSelectedMembersDisplay();
-    });
-
-    selectedMembersDisplay.appendChild(chip);
-  });
+// Get group status display config
+const getGroupStatusDisplay = (status: string) => {
+  const configs: Record<string, { label: string; color: string; bgColor: string }> = {
+    'PENDING': { label: 'Pending', color: '#6B7280', bgColor: '#F3F4F6' },
+    'IN_PROGRESS': { label: 'In Progress', color: '#F59E0B', bgColor: '#FFFBEB' },
+    'COMPLETED': { label: 'Completed', color: '#059669', bgColor: '#ECFDF5' },
+    'ON_HOLD': { label: 'On Hold', color: '#DC2626', bgColor: '#FEF2F2' }
+  };
+  return configs[status] || configs['PENDING'];
 };
+
+// Groups panel management - Read only, editing done in dashboard
 
 // Groups panel toggle
 const groupsPanel = document.getElementById("groupsPanel");
@@ -1689,187 +1486,11 @@ if (groupsCloseBtn && groupsPanel) {
   });
 }
 
-// Group modal controls
-const groupModal = document.getElementById("groupModal");
+// Hide "Add New Group" button (groups are managed in dashboard)
 const addGroupBtn = document.getElementById("add-group-btn");
-const groupModalCloseBtn = document.getElementById("group-modal-close-btn");
-const cancelGroupBtn = document.getElementById("cancel-group-btn");
-const saveGroupBtn = document.getElementById("save-group-btn");
-const groupNameInput = document.getElementById("group-name-input") as HTMLInputElement;
-const groupDescriptionInput = document.getElementById("group-description-input") as HTMLTextAreaElement;
-const addMembersBtn = document.getElementById("add-members-btn");
-
-// Members modal controls
-const membersModal = document.getElementById("membersModal");
-const membersModalCloseBtn = document.getElementById("members-modal-close-btn");
-const cancelMembersBtn = document.getElementById("cancel-members-btn");
-const doneMembersBtn = document.getElementById("done-members-btn");
-const membersSearchInput = document.getElementById("members-search-input") as HTMLInputElement;
-
-// Open group modal (Create new)
-if (addGroupBtn && groupModal) {
-  addGroupBtn.addEventListener("click", () => {
-    editingGroupId = null;
-    selectedMembers = [];
-
-    const groupModalTitle = document.getElementById("groupModalTitle");
-    const saveGroupText = document.getElementById("save-group-text");
-
-    if (groupModalTitle) groupModalTitle.textContent = "Create New Group";
-    if (saveGroupText) saveGroupText.textContent = "Create";
-    if (groupNameInput) groupNameInput.value = "";
-    if (groupDescriptionInput) groupDescriptionInput.value = "";
-
-    updateSelectedMembersDisplay();
-    groupModal.classList.add("show");
-  });
+if (addGroupBtn) {
+  addGroupBtn.style.display = "none";
 }
-
-// Close group modal
-const closeGroupModal = () => {
-  if (groupModal) {
-    groupModal.classList.remove("show");
-  }
-};
-
-if (groupModalCloseBtn) {
-  groupModalCloseBtn.addEventListener("click", closeGroupModal);
-}
-
-if (cancelGroupBtn) {
-  cancelGroupBtn.addEventListener("click", closeGroupModal);
-}
-
-if (groupModal) {
-  groupModal.addEventListener("click", (e) => {
-    if (e.target === groupModal) {
-      closeGroupModal();
-    }
-  });
-}
-
-// Save group
-if (saveGroupBtn) {
-  saveGroupBtn.addEventListener("click", () => {
-    const name = groupNameInput?.value.trim();
-    const description = groupDescriptionInput?.value.trim();
-
-    if (!name) {
-      alert("Please enter a group name");
-      return;
-    }
-
-    let groupId: string;
-
-    if (editingGroupId) {
-      // Update existing group
-      groupId = editingGroupId;
-      const groupIndex = groups.findIndex((g) => g.id === editingGroupId);
-      if (groupIndex !== -1) {
-        const oldMembers = groups[groupIndex].members;
-
-        groups[groupIndex] = {
-          ...groups[groupIndex],
-          name,
-          description,
-          members: selectedMembers,
-        };
-
-        // Update element connections: remove old members, add new members
-        // Remove connections for members no longer in the group
-        oldMembers.forEach(oldMember => {
-          if (!selectedMembers.some(m => m.localId === oldMember.localId)) {
-            const conn = getElementConnections(oldMember.localId);
-            conn.groupIds = conn.groupIds.filter(id => id !== groupId);
-          }
-        });
-
-        // Add connections for new members
-        selectedMembers.forEach(member => {
-          if (!oldMembers.some(m => m.localId === member.localId)) {
-            const conn = getElementConnections(member.localId);
-            if (!conn.groupIds.includes(groupId)) {
-              conn.groupIds.push(groupId);
-            }
-          }
-        });
-      }
-    } else {
-      // Create new group
-      groupId = Date.now().toString();
-      const newGroup: Group = {
-        id: groupId,
-        name,
-        description,
-        members: selectedMembers,
-      };
-      groups.push(newGroup);
-
-      // Add element connections for all members
-      selectedMembers.forEach(member => {
-        const conn = getElementConnections(member.localId);
-        if (!conn.groupIds.includes(groupId)) {
-          conn.groupIds.push(groupId);
-        }
-      });
-    }
-
-    saveGroups(groups);
-    saveConnections(elementConnections);
-    renderGroupsList();
-    closeGroupModal();
-  });
-}
-
-// Open members modal
-if (addMembersBtn && membersModal) {
-  addMembersBtn.addEventListener("click", () => {
-    renderMembersList();
-    membersModal.classList.add("show");
-  });
-}
-
-// Close members modal
-const closeMembersModal = () => {
-  if (membersModal) {
-    membersModal.classList.remove("show");
-  }
-};
-
-if (membersModalCloseBtn) {
-  membersModalCloseBtn.addEventListener("click", closeMembersModal);
-}
-
-if (cancelMembersBtn) {
-  cancelMembersBtn.addEventListener("click", closeMembersModal);
-}
-
-if (membersModal) {
-  membersModal.addEventListener("click", (e) => {
-    if (e.target === membersModal) {
-      closeMembersModal();
-    }
-  });
-}
-
-// Done selecting members
-if (doneMembersBtn) {
-  doneMembersBtn.addEventListener("click", () => {
-    updateSelectedMembersDisplay();
-    closeMembersModal();
-  });
-}
-
-// Members search
-if (membersSearchInput) {
-  membersSearchInput.addEventListener("input", (e) => {
-    const searchTerm = (e.target as HTMLInputElement).value;
-    renderMembersList(searchTerm);
-  });
-}
-
-// Initialize groups list
-renderGroupsList();
 
 /* MD
   ### 🔗 Element Connections System
@@ -1956,16 +1577,34 @@ const renderElementGroups = (connections: ElementConnections) => {
 
   groupsList.innerHTML = "";
 
-  const elementGroups = groups.filter(g => connections.groupIds.includes(g.id));
+  // Find groups that contain this element (checking by panel IDs from database)
+  const elementGroups = groups.filter(g => {
+    // Check if element is in the group's panelGroups (new structure)
+    if (g.panelGroups) {
+      return g.panelGroups.some(pg => pg.panel.id === connections.elementId.toString());
+    }
+    // Check if element is in the group's panels (old structure)
+    if (g.panels) {
+      return g.panels.some(panel => panel.id === connections.elementId.toString());
+    }
+    // Fallback to elementIds if available
+    if (g.elementIds) {
+      return g.elementIds.includes(connections.elementId.toString());
+    }
+    return false;
+  });
 
   if (elementGroups.length === 0) {
-    const addBtn = document.createElement("button");
-    addBtn.className = "add-element-btn";
-    addBtn.innerHTML = '<i class="fas fa-plus"></i> Add to Group';
-    addBtn.onclick = () => openSelectGroupsModal(connections.elementId);
-    groupsList.appendChild(addBtn);
+    groupsList.innerHTML = `
+      <div class="empty-state" style="padding: 20px; text-align: center;">
+        <i class="fas fa-layer-group" style="font-size: 32px; opacity: 0.3; margin-bottom: 8px;"></i>
+        <p style="font-size: 13px; color: var(--slate-500);">Not assigned to any groups</p>
+        <p style="font-size: 12px; color: var(--slate-400); margin-top: 4px;">Manage groups from the Project Dashboard</p>
+      </div>
+    `;
   } else {
     elementGroups.forEach(group => {
+      const statusConfig = getGroupStatusDisplay(group.status);
       const tag = document.createElement("div");
       tag.className = "element-group-tag";
       tag.innerHTML = `
@@ -1973,25 +1612,13 @@ const renderElementGroups = (connections: ElementConnections) => {
           <i class="fas fa-layer-group element-tag-icon"></i>
           <span>${group.name}</span>
         </div>
-        <button class="element-tag-remove" data-group-id="${group.id}">
-          <i class="fas fa-times"></i>
-        </button>
+        <span class="status-badge" style="background: ${statusConfig.bgColor}; color: ${statusConfig.color}; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600;">
+          ${statusConfig.label}
+        </span>
       `;
-
-      const removeBtn = tag.querySelector(".element-tag-remove");
-      removeBtn?.addEventListener("click", () => {
-        removeGroupFromElement(connections.elementId, group.id);
-      });
 
       groupsList.appendChild(tag);
     });
-
-    // Add button at the end
-    const addBtn = document.createElement("button");
-    addBtn.className = "add-element-btn";
-    addBtn.innerHTML = '<i class="fas fa-plus"></i> Add to Another Group';
-    addBtn.onclick = () => openSelectGroupsModal(connections.elementId);
-    groupsList.appendChild(addBtn);
   }
 };
 
@@ -2002,22 +1629,24 @@ const renderElementStatus = (connections: ElementConnections) => {
 
   statusList.innerHTML = "";
 
-  const elementStatuses = statuses.filter(s => connections.statusIds.includes(s.id));
+  const assignedStatuses = elementStatuses.filter(s => connections.statusIds.includes(s.id));
 
-  if (elementStatuses.length === 0) {
+  if (assignedStatuses.length === 0) {
     const addBtn = document.createElement("button");
     addBtn.className = "add-element-btn";
     addBtn.innerHTML = '<i class="fas fa-plus"></i> Assign Status';
     addBtn.onclick = () => openSelectStatusModal(connections.elementId);
     statusList.appendChild(addBtn);
   } else {
-    elementStatuses.forEach(status => {
+    assignedStatuses.forEach(status => {
       const tag = document.createElement("div");
       tag.className = "element-status-tag";
       tag.style.borderLeftColor = status.color;
+
+      const iconClass = getIconClass(status.icon);
       tag.innerHTML = `
         <div class="element-tag-content">
-          <i class="fas ${status.icon} element-tag-icon" style="color: ${status.color};"></i>
+          <i class="fas ${iconClass} element-tag-icon" style="color: ${status.color};"></i>
           <span>${status.name}</span>
         </div>
         <button class="element-tag-remove" data-status-id="${status.id}">
@@ -2043,21 +1672,7 @@ const renderElementStatus = (connections: ElementConnections) => {
 };
 
 // Remove group from element
-const removeGroupFromElement = (elementId: number, groupId: string) => {
-  const connections = getElementConnections(elementId);
-  connections.groupIds = connections.groupIds.filter(id => id !== groupId);
-
-  // Also remove the element from the group's members list
-  const group = groups.find(g => g.id === groupId);
-  if (group) {
-    group.members = group.members.filter(m => m.localId !== elementId);
-    saveGroups(groups);
-    renderGroupsList(); // Update groups UI in real-time
-  }
-
-  saveConnections(elementConnections);
-  updateElementInfoPanel({ localId: elementId } as TreeNodeData);
-};
+// Groups are now managed in dashboard (read-only in viewer)
 
 // Remove status from element
 const removeStatusFromElement = (elementId: number, statusId: string) => {
@@ -2073,166 +1688,7 @@ const removeStatusFromElement = (elementId: number, statusId: string) => {
   updateElementInfoPanel({ localId: elementId } as TreeNodeData);
 };
 
-// Select Groups Modal
-const selectGroupsModal = document.getElementById("selectGroupsModal");
-const selectGroupsModalCloseBtn = document.getElementById("select-groups-modal-close-btn");
-const cancelSelectGroupsBtn = document.getElementById("cancel-select-groups-btn");
-const doneSelectGroupsBtn = document.getElementById("done-select-groups-btn");
-const selectGroupsList = document.getElementById("select-groups-list");
-
-let tempSelectedGroupIds: string[] = [];
-
-const openSelectGroupsModal = (elementId: number) => {
-  if (!selectGroupsModal || !selectGroupsList) return;
-
-  const connections = getElementConnections(elementId);
-  tempSelectedGroupIds = [...connections.groupIds];
-
-  // Render groups list
-  selectGroupsList.innerHTML = "";
-
-  if (groups.length === 0) {
-    selectGroupsList.innerHTML = `
-      <div class="empty-state">
-        <p>No groups available</p>
-        <p style="margin-top: 8px;">Create groups first to assign elements to them.</p>
-      </div>
-    `;
-  } else {
-    groups.forEach(group => {
-      const item = document.createElement("div");
-      item.className = "select-item";
-
-      const checkbox = document.createElement("input");
-      checkbox.type = "checkbox";
-      checkbox.checked = tempSelectedGroupIds.includes(group.id);
-      checkbox.dataset.groupId = group.id;
-
-      const content = document.createElement("div");
-      content.className = "select-item-content";
-      content.innerHTML = `
-        <div class="select-item-name">${group.name}</div>
-        <div class="select-item-desc">${group.members.length} member${group.members.length !== 1 ? "s" : ""}</div>
-      `;
-
-      const icon = document.createElement("i");
-      icon.className = "fas fa-layer-group select-item-icon";
-
-      item.appendChild(checkbox);
-      item.appendChild(content);
-      item.appendChild(icon);
-
-      // Toggle checkbox on click
-      item.onclick = (e) => {
-        if (e.target !== checkbox) {
-          checkbox.checked = !checkbox.checked;
-        }
-        const groupId = checkbox.dataset.groupId!;
-        if (checkbox.checked) {
-          if (!tempSelectedGroupIds.includes(groupId)) {
-            tempSelectedGroupIds.push(groupId);
-          }
-        } else {
-          tempSelectedGroupIds = tempSelectedGroupIds.filter(id => id !== groupId);
-        }
-      };
-
-      selectGroupsList.appendChild(item);
-    });
-  }
-
-  selectGroupsModal.classList.add("show");
-};
-
-const closeSelectGroupsModal = () => {
-  if (selectGroupsModal) {
-    selectGroupsModal.classList.remove("show");
-  }
-};
-
-if (selectGroupsModalCloseBtn) {
-  selectGroupsModalCloseBtn.addEventListener("click", closeSelectGroupsModal);
-}
-
-if (cancelSelectGroupsBtn) {
-  cancelSelectGroupsBtn.addEventListener("click", closeSelectGroupsModal);
-}
-
-if (selectGroupsModal) {
-  selectGroupsModal.addEventListener("click", (e) => {
-    if (e.target === selectGroupsModal) {
-      closeSelectGroupsModal();
-    }
-  });
-}
-
-if (doneSelectGroupsBtn) {
-  doneSelectGroupsBtn.addEventListener("click", () => {
-    if (currentElementId !== null) {
-      const connections = getElementConnections(currentElementId);
-      const oldGroupIds = [...connections.groupIds];
-      connections.groupIds = tempSelectedGroupIds;
-
-      // Get element details from the tree
-      const treeContainer = document.getElementById("tree-container");
-      let elementName = "Unknown Element";
-      let storeyName = "Unknown Storey";
-
-      if (treeContainer) {
-        // Find the element in the tree to get its name and storey
-        const childItem = treeContainer.querySelector(`[data-local-id="${currentElementId}"]`);
-        if (childItem) {
-          elementName = childItem.textContent?.trim() || elementName;
-
-          // Find parent storey
-          const parentStoreyNode = childItem.closest(".tree-node-container")?.previousElementSibling;
-          if (parentStoreyNode) {
-            const storeyLabel = parentStoreyNode.querySelector(".tree-label");
-            storeyName = storeyLabel?.textContent?.trim() || storeyName;
-          }
-        }
-      }
-
-      // Update group members: add this element to newly selected groups
-      const elementId = currentElementId; // Type narrowing
-      tempSelectedGroupIds.forEach(groupId => {
-        if (!oldGroupIds.includes(groupId)) {
-          // Element was added to this group
-          const group = groups.find(g => g.id === groupId);
-          if (group && elementId !== null) {
-            // Check if element is not already in the group
-            if (!group.members.some(m => m.localId === elementId)) {
-              group.members.push({
-                localId: elementId,
-                name: elementName,
-                storeyName: storeyName
-              });
-            }
-          }
-        }
-      });
-
-      // Remove this element from groups that were unselected
-      oldGroupIds.forEach(groupId => {
-        if (!tempSelectedGroupIds.includes(groupId)) {
-          // Element was removed from this group
-          const group = groups.find(g => g.id === groupId);
-          if (group && elementId !== null) {
-            group.members = group.members.filter(m => m.localId !== elementId);
-          }
-        }
-      });
-
-      saveConnections(elementConnections);
-      saveGroups(groups);
-      renderGroupsList(); // Update groups UI in real-time
-      if (elementId !== null) {
-        updateElementInfoPanel({ localId: elementId } as TreeNodeData);
-      }
-    }
-    closeSelectGroupsModal();
-  });
-}
+// Group assignment removed - groups are managed in dashboard only
 
 // Select Status Modal
 const selectStatusModal = document.getElementById("selectStatusModal");
@@ -2252,15 +1708,15 @@ const openSelectStatusModal = (elementId: number) => {
   // Render status list
   selectStatusList.innerHTML = "";
 
-  if (statuses.length === 0) {
+  if (elementStatuses.length === 0) {
     selectStatusList.innerHTML = `
       <div class="empty-state">
         <p>No statuses available</p>
-        <p style="margin-top: 8px;">Create statuses first to assign them to elements.</p>
+        <p style="margin-top: 8px;">Statuses are managed from the Project Dashboard</p>
       </div>
     `;
   } else {
-    statuses.forEach(status => {
+    elementStatuses.forEach(status => {
       const item = document.createElement("div");
       item.className = "select-item";
 
@@ -2275,8 +1731,9 @@ const openSelectStatusModal = (elementId: number) => {
         <div class="select-item-name">${status.name}</div>
       `;
 
+      const iconClass = getIconClass(status.icon);
       const icon = document.createElement("i");
-      icon.className = `fas ${status.icon} select-item-icon`;
+      icon.className = `fas ${iconClass} select-item-icon`;
       icon.style.color = status.color;
 
       item.appendChild(checkbox);
@@ -2369,14 +1826,14 @@ const updateActiveStatusDropdown = (connections: ElementConnections) => {
 
   console.log("Updating active status dropdown for element:", connections.elementId);
   console.log("Assigned status IDs:", connections.statusIds);
-  console.log("All statuses:", statuses);
+  console.log("All statuses:", elementStatuses);
 
   activeStatusSelect.innerHTML = '<option value="">No status assigned</option>';
 
-  const elementStatuses = statuses.filter(s => connections.statusIds.includes(s.id));
-  console.log("Filtered element statuses:", elementStatuses);
+  const assignedStatuses = elementStatuses.filter(s => connections.statusIds.includes(s.id));
+  console.log("Filtered element statuses:", assignedStatuses);
 
-  elementStatuses.forEach(status => {
+  assignedStatuses.forEach(status => {
     const option = document.createElement("option");
     option.value = status.id;
     option.textContent = status.name;
@@ -2499,8 +1956,9 @@ const renderSubmissions = (elementId: number) => {
   elementSubs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
   elementSubs.forEach(sub => {
-    const status = statuses.find(s => s.id === sub.statusId);
+    const status = elementStatuses.find(s => s.id === sub.statusId);
     const timestamp = new Date(sub.timestamp).toLocaleString();
+    const iconClass = status ? getIconClass(status.icon) : 'fa-circle';
 
     const subItem = document.createElement("div");
     subItem.className = "submission-item";
@@ -2508,7 +1966,7 @@ const renderSubmissions = (elementId: number) => {
     subItem.innerHTML = `
       <div class="submission-header">
         <div class="submission-status">
-          <i class="fas ${status?.icon || 'fa-circle'}" style="color: ${status?.color || '#00e5ff'};"></i>
+          <i class="fas ${iconClass}" style="color: ${status?.color || '#00e5ff'};"></i>
           <span>${status?.name || 'Unknown Status'}</span>
         </div>
         <div class="submission-timestamp">${timestamp}</div>
@@ -2563,6 +2021,12 @@ if (submissionsModal) {
     }
   });
 }
+
+  // Fetch groups and statuses from database
+  if (projectIdFromUrl) {
+    fetchGroupsFromDatabase(projectIdFromUrl);
+    fetchStatusesFromDatabase(projectIdFromUrl);
+  }
 
   console.log('🎉 That Open Engine viewer initialized successfully!');
   return { components, world, fragments };
