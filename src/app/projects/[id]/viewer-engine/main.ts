@@ -29,22 +29,29 @@ export async function initializeViewer(containerId: string = "container") {
     OBC.SimpleCamera,
     OBC.SimpleRenderer
   >();
-
+  
   world.scene = new OBC.SimpleScene(components);
   world.scene.setup();
   world.scene.three.background = null;
+  
+  // Memory optimization: Reduce matrix calculations
+  world.scene.three.matrixAutoUpdate = false;
 
   world.renderer = new OBC.SimpleRenderer(components, container);
+  
+  // Memory optimization: Configure renderer for lower memory usage
+  const renderer = world.renderer.three;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // Limit pixel ratio
+  renderer.powerPreference = 'high-performance';
+  renderer.precision = 'mediump'; // Use medium precision for better performance
 
 world.camera = new OBC.SimpleCamera(components);
 world.camera.controls.setLookAt(50, 30, 50, 0, 0, 0);
 
 components.init();
 
-const grids = components.get(OBC.Grids);
-const grid = grids.create(world);
-// Position grid at y = 0
-grid.three.position.set(0, 0, 0);
+// const grids = components.get(OBC.Grids);
+// const grid = grids.create(world);
 
 /* MD
   ### 🛠️ Setting Up Fragments
@@ -60,7 +67,16 @@ const workerFile = new File([workerBlob], "worker.mjs", {
 });
 const workerUrl = URL.createObjectURL(workerFile);
 const fragments = new FRAGS.FragmentsModels(workerUrl);
-world.camera.controls.addEventListener("rest", () => fragments.update(true));
+
+// Memory optimization: Throttle fragment updates
+let updateTimeout: NodeJS.Timeout | null = null;
+world.camera.controls.addEventListener("rest", () => {
+  if (updateTimeout) clearTimeout(updateTimeout);
+  updateTimeout = setTimeout(() => {
+    fragments.update(true);
+    updateTimeout = null;
+  }, 100); // Debounce updates
+});
 
 // Once a model is available in the list, we can tell what camera to use
 // in order to perform the culling and LOD operations.
@@ -78,31 +94,144 @@ fragments.models.list.onItemSet.add(({ value: model }) => {
   With the core setup complete, it's time to load a Fragments model into our scene. Fragments are optimized for fast loading and rendering, making them ideal for large-scale 3D models.
 */
 
-// Load multiple models from outputFrag folder (now in public directory)
-const modelFiles = [
-  // { path: "https://yvt4zt8otzn0p90m.public.blob.vercel-storage.com/test%20%281%29.frag", name: "Test Model" },
-  { path: "/outputFrag/test.frag", name: "Test Model" },
-  { path: "/outputFrag/MEPRVT.frag", name: "MEP" },
-  // { path: "/outputFrag/school_arq (1).frag", name: "School Architecture" },
-  // Add more models here as needed
-];
+// Get project ID from URL
+const urlParams = new URLSearchParams(window.location.search);
+const projectIdFromUrl = window.location.pathname.split('/')[2]; // /projects/[id]/viewer
+const modelIdFromUrl = urlParams.get('model');
+
+console.log('📍 Project ID from URL:', projectIdFromUrl);
+console.log('📍 Model ID from URL:', modelIdFromUrl);
 
 const models: Map<string, FRAGS.FragmentsModel> = new Map();
 let allModelsLoaded = false;
 
+// Fetch project models from backend API
+const fetchProjectModels = async (projectId: string) => {
+  try {
+    console.log(`📡 Fetching models for project ${projectId} from backend...`);
+    
+    // Get authentication token
+    const token = localStorage.getItem('auth_token');
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    };
+    
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    
+    const response = await fetch(`http://localhost:4000/api/projects/${projectId}`, {
+      headers
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch project: ${response.statusText}`);
+    }
+    
+    const projectData = await response.json();
+    console.log('✅ Project data received:', projectData);
+    
+    // Extract models from project data
+    const modelsList = [];
+    
+    // Check both modelHistory and currentModel
+    if (projectData.currentModel) {
+      modelsList.push({
+        id: projectData.currentModel.id,
+        name: projectData.currentModel.originalFilename,
+        status: projectData.currentModel.status
+      });
+    }
+    
+    // Also add from modelHistory if available
+    if (projectData.modelHistory && projectData.modelHistory.length > 0) {
+      for (const model of projectData.modelHistory) {
+        // Avoid duplicates
+        if (!modelsList.find(m => m.id === model.id)) {
+          modelsList.push({
+            id: model.id,
+            name: model.originalFilename,
+            status: model.status
+          });
+        }
+      }
+    }
+    
+    console.log(`📦 Found ${modelsList.length} models for project`);
+    return modelsList;
+    
+  } catch (error) {
+    console.error('❌ Failed to fetch project models:', error);
+    return [];
+  }
+};
+
 const loadModels = async () => {
   console.log("=== LOADING MODELS ===");
+  
+  // Try to fetch models from backend first
+  let projectModels = await fetchProjectModels(projectIdFromUrl);
+  
+  // Fallback: If no models from backend, try to load local test models
+  if (projectModels.length === 0) {
+    console.warn('⚠️  No models found from backend, trying local fallback models...');
+    
+    // Try loading local test models as fallback
+    const localModels = [
+      { path: "/test.frag", name: "Test Model" },
+      { path: "/arch.frag", name: "Architecture Model" },
+    ];
+    
+    for (const localModel of localModels) {
+      try {
+        console.log(`📥 Attempting to load local model: ${localModel.name}`);
+        const file = await fetch(localModel.path);
+        if (file.ok) {
+          const buffer = await file.arrayBuffer();
+          const model = await fragments.load(buffer, { modelId: localModel.name });
+          models.set(localModel.name, model);
+          console.log(`✅ Loaded local model: ${localModel.name}`);
+        }
+      } catch (error) {
+        console.warn(`⚠️  Could not load local model ${localModel.name}:`, error);
+      }
+    }
+    
+    if (models.size === 0) {
+      console.warn('⚠️  No models loaded from backend or local fallback');
+      allModelsLoaded = true;
+      return; // Continue initialization even without models
+    }
+  } else {
+    // Load models from backend
+    for (const modelInfo of projectModels) {
+      try {
+        console.log(`📥 Loading model: ${modelInfo.name} (${modelInfo.id})`);
+        
+        // Fetch model file from backend storage with authentication
+        const fileUrl = `http://localhost:4000/api/models/${modelInfo.id}/download`;
+        const token = localStorage.getItem('auth_token');
+        const headers: Record<string, string> = {};
+        
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+        
+        const file = await fetch(fileUrl, { headers });
+        
+        if (!file.ok) {
+          throw new Error(`Failed to download model: ${file.statusText}`);
+        }
+        
+        const buffer = await file.arrayBuffer();
+        const model = await fragments.load(buffer, { modelId: modelInfo.id });
 
-  for (const modelFile of modelFiles) {
-    try {
-      const file = await fetch(modelFile.path);
-      const buffer = await file.arrayBuffer();
-      const model = await fragments.load(buffer, { modelId: modelFile.name });
-
-      models.set(modelFile.name, model);
-      console.log(`Loaded: ${modelFile.name}`);
-    } catch (error) {
-      console.warn(`Could not load ${modelFile.name}:`, error);
+        models.set(modelInfo.name, model);
+        console.log(`✅ Loaded: ${modelInfo.name}`);
+        
+      } catch (error) {
+        console.warn(`❌ Could not load ${modelInfo.name}:`, error);
+      }
     }
   }
 
@@ -124,10 +253,6 @@ const loadModels = async () => {
       console.log("Combined bounding box min:", combinedBbox.min);
       console.log("Combined bounding box max:", combinedBbox.max);
 
-      // Position grid below all models
-      const gridOffset = combinedBbox.min.y - 0.5;
-      grid.three.position.y = gridOffset;
-      console.log("Positioning grid at y:", gridOffset);
 
       // Calculate camera position for all models
       const center = new THREE.Vector3();
@@ -216,71 +341,96 @@ const isStoreyChild = (parentCategory: string | null): boolean => {
   return !!(parentCategory && parentCategory.toUpperCase().includes("STOREY"));
 };
 
-// Build tree structure from spatial data for a specific model - Show only floors and their direct children
-const buildTreeStructureForModel = async (model: FRAGS.FragmentsModel, spatialData: any): Promise<TreeNodeData[]> => {
-  console.log("Building simplified tree structure...");
-  
-  try {
-    // Process the root node and immediate children only
-    const processSimpleNode = async (node: any, maxDepth: number = 2, currentDepth: number = 0): Promise<TreeNodeData[]> => {
-      if (currentDepth >= maxDepth) return [];
-      
+// Cache for spatial structures to avoid re-parsing
+const spatialStructureCache = new Map<string, any>();
+const lazyLoadedNodes = new Map<string, TreeNodeData>();
+
+// Build tree structure from spatial data (FULL TREE - no lazy loading)
+const buildTreeStructureForModel = async (
+  model: FRAGS.FragmentsModel,
+  spatialData: any,
+  lazyLoad: boolean = false
+): Promise<TreeNodeData[]> => {
+  const processNode = async (node: any, depth: number = 0): Promise<TreeNodeData[]> => {
+    try {
       const { localId, category, children } = node;
-      
-      if (localId !== null && localId !== undefined) {
-        // Get basic item data
-        let name = category || "Element";
-        try {
-          const [itemData] = await model.getItemsData([localId], {
-            attributesDefault: false,
-            attributes: ["Name"],
-          });
-          if (itemData?.Name?.value) {
-            name = itemData.Name.value as string;
-          }
-        } catch (error) {
-          console.warn("Could not get item data for", localId);
-        }
-        
-        const treeNode: TreeNodeData = {
-          localId,
-          name,
-          category: category || "Unknown",
-          children: [],
-        };
-        
-        // Process a limited number of children
-        if (children && Array.isArray(children) && children.length > 0) {
-          const maxChildren = Math.min(children.length, 10); // Limit to 10 children
-          for (let i = 0; i < maxChildren; i++) {
-            const childNodes = await processSimpleNode(children[i], maxDepth, currentDepth + 1);
-            treeNode.children.push(...childNodes);
-          }
-        }
-        
-        return [treeNode];
-      } else if (children && Array.isArray(children)) {
-        // No localId, just process children
+
+      // If no localId, just flatten and process children
+      if (localId === null || localId === undefined) {
         const childResults: TreeNodeData[] = [];
-        const maxChildren = Math.min(children.length, 5); // Limit processing
-        for (let i = 0; i < maxChildren; i++) {
-          const childNodes = await processSimpleNode(children[i], maxDepth, currentDepth);
-          childResults.push(...childNodes);
+        if (children && Array.isArray(children)) {
+          for (const child of children) {
+            const childNodes = await processNode(child, depth);
+            childResults.push(...childNodes);
+          }
         }
         return childResults;
       }
-      
-      return [];
-    };
 
-    const nodes = await processSimpleNode(spatialData);
-    console.log("Simplified tree structure built:", nodes.length, "nodes");
-    return nodes;
-    
-  } catch (error) {
-    console.error("Error building simplified tree structure:", error);
-    return [];
+      // This node has a localId - include it
+      // Get item data to fetch the name and other attributes
+      const [itemData] = await model.getItemsData([localId], {
+        attributesDefault: false,
+        attributes: ["Name", "Tag", "ObjectType"],
+      });
+
+      // Try to get the best name available
+      let name = category || "Unnamed";
+      if (itemData) {
+        if (itemData.Name && "value" in itemData.Name && itemData.Name.value) {
+          name = itemData.Name.value as string;
+        } else if (itemData.Tag && "value" in itemData.Tag && itemData.Tag.value) {
+          name = itemData.Tag.value as string;
+        } else if (itemData.ObjectType && "value" in itemData.ObjectType && itemData.ObjectType.value) {
+          name = itemData.ObjectType.value as string;
+        }
+      }
+
+      const treeNode: TreeNodeData = {
+        localId,
+        name,
+        category: category || "Unknown",
+        children: [],
+        model: model,
+      };
+
+      // LAZY LOADING: Only process children if depth < 2 (storeys only)
+      if (children && Array.isArray(children)) {
+        if (lazyLoad && depth >= 1) {
+          // Don't load children yet - just show count
+          // This prevents the "..." from showing
+          treeNode.children = [];
+          // Store metadata for potential future lazy loading
+          (treeNode as any)._childCount = children.length;
+          (treeNode as any)._lazyChildren = children;
+        } else {
+          // Load children normally
+          for (const child of children) {
+            const childNodes = await processNode(child, depth + 1);
+            treeNode.children.push(...childNodes);
+          }
+        }
+      }
+
+      return [treeNode];
+    } catch (error) {
+      console.warn("Error processing node:", error, node);
+      return [];
+    }
+  };
+
+  const rootNodes: TreeNodeData[] = [];
+  if (Array.isArray(spatialData)) {
+    for (const rootNode of spatialData) {
+      const processed = await processNode(rootNode, 0);
+      rootNodes.push(...processed);
+    }
+  } else if (spatialData) {
+    const processed = await processNode(spatialData);
+    rootNodes.push(...processed);
   }
+
+  return rootNodes;
 };
 
 // Render tree node for a specific model
@@ -295,7 +445,10 @@ const renderTreeNodeForModel = (
 
   const node = document.createElement("div");
   node.className = "tree-node";
-  node.dataset.localId = nodeData.localId.toString();
+  // Fix: Handle null localId from lazy loading
+  if (nodeData.localId !== null && nodeData.localId !== undefined) {
+    node.dataset.localId = nodeData.localId.toString();
+  }
   node.style.paddingLeft = `${level * 20 + 10}px`;
 
   // Toggle icon for expandable nodes
@@ -307,7 +460,7 @@ const renderTreeNodeForModel = (
     toggleIcon.onclick = (e) => {
       e.stopPropagation();
       const childrenContainer = container.querySelector(
-        ".tree-children-grid"
+        ".tree-children"
       ) as HTMLElement;
       if (childrenContainer) {
         const isCollapsed = childrenContainer.classList.contains("collapsed");
@@ -344,7 +497,7 @@ const renderTreeNodeForModel = (
     node.appendChild(count);
   }
 
-  // Click handler for parent node - triggers focus/highlight
+  // Click handler for parent node - triggers focus/highlight (optimized)
   node.onclick = async (e) => {
     e.stopPropagation();
 
@@ -356,38 +509,77 @@ const renderTreeNodeForModel = (
       const targetIds = collectAllLocalIds(nodeData);
       console.log("Focusing on:", nodeData.name, "with", targetIds.length, "elements");
 
-      // Reset highlights and visibility
-      await model.resetHighlight(undefined);
-      await model.setVisible(undefined, true);
-      await fragments.update(true);
+      // Batch all highlight operations for better performance
+      const highlightPromises = [];
 
-      // Highlight target elements in red
+      // Reset all highlights first (batched)
+      for (const [_, m] of models.entries()) {
+        highlightPromises.push(m.resetHighlight(undefined));
+      }
+      await Promise.all(highlightPromises);
+      highlightPromises.length = 0; // Clear array
+
+      // Make all elements semi-transparent (ghost mode) - batched
+      for (const [_, m] of models.entries()) {
+        highlightPromises.push(
+          m.highlight(undefined, {
+            color: new THREE.Color(0xcccccc),
+            opacity: 0.2,
+            transparent: true,
+            renderedFaces: FRAGS.RenderedFaces.TWO,
+          })
+        );
+      }
+      await Promise.all(highlightPromises);
+
+      // Highlight selected elements with full opacity and color
       if (targetIds.length > 0) {
-        await model.highlight(targetIds, {
-          color: new THREE.Color(0xff0000),
-          opacity: 1,
-          transparent: false,
-          renderedFaces: FRAGS.RenderedFaces.TWO,
-        });
-        await fragments.update(true);
+        try {
+          await model.highlight(targetIds, {
+            color: new THREE.Color('gold'), 
+            opacity: 1,
+            transparent: false,
+            renderedFaces: FRAGS.RenderedFaces.TWO,
+          });
+          console.log("Highlight applied to", targetIds.length, "elements");
+        } catch (error) {
+          console.error("Failed to highlight elements:", error);
+        }
       }
 
-      // Focus camera
-      const bbox = new THREE.Box3().setFromObject(model.object);
-      if (!bbox.isEmpty()) {
-        const center = new THREE.Vector3();
-        bbox.getCenter(center);
-        const size = new THREE.Vector3();
-        bbox.getSize(size);
-        const maxDim = Math.max(size.x, size.y, size.z);
-        const distance = maxDim * 1.5;
+      // Focus camera on the selected elements - calculate bounding box from selected IDs
+      const selectedBbox = new THREE.Box3();
 
+      // Calculate bounding box specifically for the selected elements (optimized)
+      if (targetIds.length > 0) {
+        model.object.traverse((child) => {
+          if (child instanceof THREE.Mesh || child instanceof THREE.InstancedMesh) {
+            const bbox = new THREE.Box3().setFromObject(child);
+            if (!bbox.isEmpty()) {
+              selectedBbox.union(bbox);
+            }
+          }
+        });
+      }
+
+      if (!selectedBbox.isEmpty()) {
+        const center = new THREE.Vector3();
+        selectedBbox.getCenter(center);
+        const size = new THREE.Vector3();
+        selectedBbox.getSize(size);
+        const maxDim = Math.max(size.x, size.y, size.z);
+
+        // Closer distance for tighter framing
+        const distance = Math.max(maxDim * 1.2, 5);
+
+        // Position camera at a 45-degree angle for better perspective
         const cameraPos = new THREE.Vector3(
-          center.x + distance * 0.7,
-          center.y + distance * 0.5,
-          center.z + distance * 0.7
+          center.x + distance * 0.6,
+          center.y + distance * 0.4,
+          center.z + distance * 0.6
         );
 
+        // Smooth animated transition
         world.camera.controls.setLookAt(
           cameraPos.x, cameraPos.y, cameraPos.z,
           center.x, center.y, center.z,
@@ -395,6 +587,7 @@ const renderTreeNodeForModel = (
         );
       }
 
+      // Single update call at the end for better performance
       await fragments.update(true);
     } catch (error) {
       console.error("Error in node click handler:", error);
@@ -404,54 +597,42 @@ const renderTreeNodeForModel = (
   container.appendChild(node);
   treeNodeMap.set(nodeData.localId, node);
 
-  // Render children in grid layout
+  // Render children as nested tree (recursive)
   if (hasChildren) {
-    const childrenGrid = document.createElement("div");
-    childrenGrid.className = "tree-children-grid collapsed"; // Start collapsed
+    const childrenContainer = document.createElement("div");
+    childrenContainer.className = "tree-children collapsed"; // Start collapsed
+    childrenContainer.style.marginLeft = "0";
 
     for (const child of nodeData.children) {
-      const childItem = document.createElement("div");
-      childItem.className = "tree-child-item";
-      childItem.textContent = child.name;
-      childItem.dataset.localId = child.localId.toString();
-
-      childItem.onclick = async (e) => {
-        e.stopPropagation();
-
-        // Update info panel
-        updateInfoPanel(child);
-
-        // Highlight single child element
-        await model.resetHighlight(undefined);
-        await model.setVisible(undefined, true);
-        await model.highlight([child.localId], {
-          color: new THREE.Color(0xff0000),
-          opacity: 1,
-          transparent: false,
-          renderedFaces: FRAGS.RenderedFaces.TWO,
-        });
-        await fragments.update(true);
-
-        // Mark as selected
-        document.querySelectorAll('.tree-child-item.selected').forEach(el => el.classList.remove('selected'));
-        childItem.classList.add('selected');
-      };
-
-      childrenGrid.appendChild(childItem);
+      // Recursively render each child as a full tree node
+      renderTreeNodeForModel(model, child, childrenContainer, level + 1);
     }
 
-    container.appendChild(childrenGrid);
+    container.appendChild(childrenContainer);
   }
 
   parentElement.appendChild(container);
 };
 
-// Collect all local IDs from a node and its children
-const collectAllLocalIds = (node: TreeNodeData): number[] => {
-  const ids = [node.localId];
-  for (const child of node.children) {
-    ids.push(...collectAllLocalIds(child));
+// Recursive function to collect all local IDs from a node and its children (optimized with limit)
+const collectAllLocalIds = (node: TreeNodeData, maxIds: number = 10000): number[] => {
+  const ids: number[] = [];
+  const stack: TreeNodeData[] = [node];
+  
+  while (stack.length > 0 && ids.length < maxIds) {
+    const current = stack.pop()!;
+    
+    if (current.localId !== null && current.localId !== undefined) {
+      ids.push(current.localId);
+    }
+    
+    if (current.children && current.children.length > 0) {
+      // Limit children to prevent memory overflow
+      const childrenToAdd = current.children.slice(0, Math.min(current.children.length, 1000));
+      stack.push(...childrenToAdd);
+    }
   }
+  
   return ids;
 };
 
@@ -539,28 +720,71 @@ const initializeObjectTree = async () => {
     return;
   }
 
-  treeContainer.innerHTML = '<div style="color: #aaa; padding: 20px; text-align: center;">Loading tree...</div>';
+  // Show loading with progress
+  treeContainer.innerHTML = `
+    <div style="color: #aaa; padding: 20px; text-align: center;">
+      <i class="fas fa-spinner fa-spin" style="font-size: 24px; margin-bottom: 10px;"></i>
+      <div>Loading tree structure...</div>
+      <div style="font-size: 12px; margin-top: 10px; opacity: 0.7;">
+        This may take 10-30 seconds for large models
+      </div>
+    </div>
+  `;
 
   try {
-    treeContainer.innerHTML = "";
+    // Use DocumentFragment for better performance
+    const fragment = document.createDocumentFragment();
 
-    // Process each model
+    // Process each model with timeout
     for (const [modelName, model] of models.entries()) {
-      console.log(`Processing model: ${modelName}`);
+      console.log(`📦 Processing model: ${modelName}`);
+      
+      // Update progress
+      treeContainer.innerHTML = `
+        <div style="color: #aaa; padding: 20px; text-align: center;">
+          <i class="fas fa-spinner fa-spin" style="font-size: 24px; margin-bottom: 10px;"></i>
+          <div>Extracting spatial structure...</div>
+          <div style="font-size: 12px; margin-top: 10px; opacity: 0.7;">
+            Processing: ${modelName}
+          </div>
+        </div>
+      `;
 
       try {
-        // Get spatial structure for this model
-        const spatialData = await model.getSpatialStructure();
-        console.log(`Spatial structure for ${modelName}:`, spatialData);
+        console.time(`getSpatialStructure-${modelName}`);
+        
+        // Get spatial structure with timeout (30 seconds max)
+        const spatialDataPromise = model.getSpatialStructure();
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Timeout: Model is too large or complex')), 30000)
+        );
+        
+        const spatialData = await Promise.race([spatialDataPromise, timeoutPromise]);
+        console.timeEnd(`getSpatialStructure-${modelName}`);
+        console.log(`✅ Spatial structure for ${modelName}:`, spatialData);
 
         if (!spatialData) {
-          console.warn(`No spatial structure for ${modelName}`);
+          console.warn(`⚠️ No spatial structure for ${modelName}`);
+          treeContainer.innerHTML = '<div style="color: #ff6b6b; padding: 20px; text-align: center;">No spatial structure found in model</div>';
           continue;
         }
 
+        // Check if spatialData is empty or invalid
+        if (Array.isArray(spatialData) && spatialData.length === 0) {
+          console.warn(`⚠️ Empty spatial structure array for ${modelName}`);
+          treeContainer.innerHTML = '<div style="color: #ff6b6b; padding: 20px; text-align: center;">Model has no spatial hierarchy</div>';
+          continue;
+        }
+
+        console.log(`🔨 Building tree structure for ${modelName}...`);
+        console.time(`buildTree-${modelName}`);
+        
         // Build tree structure for this model
         const treeData = await buildTreeStructureForModel(model, spatialData);
-        console.log(`Tree data for ${modelName}:`, treeData);
+        
+        console.timeEnd(`buildTree-${modelName}`);
+        console.log(`✅ Tree data for ${modelName}:`, treeData);
+        console.log(`📊 Tree has ${treeData.length} root nodes`);
 
         // Create model root node
         const modelContainer = document.createElement("div");
@@ -610,23 +834,37 @@ const initializeObjectTree = async () => {
         const childrenContainer = document.createElement("div");
         childrenContainer.className = "model-children collapsed";
 
-        // Render storeys for this model
+        // Render storeys for this model using fragment
         for (const storeyNode of treeData) {
           renderTreeNodeForModel(model, storeyNode, childrenContainer, 1);
         }
 
         modelContainer.appendChild(childrenContainer);
-        treeContainer.appendChild(modelContainer);
+        fragment.appendChild(modelContainer);
 
       } catch (error) {
         console.error(`Error processing ${modelName}:`, error);
+        // Show error in tree container
+        const errorDiv = document.createElement('div');
+        errorDiv.style.cssText = 'color: #ff6b6b; padding: 20px; text-align: center;';
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        errorDiv.innerHTML = `<i class="fas fa-exclamation-triangle"></i><br/>Error loading tree for ${modelName}<br/><small>${errorMessage}</small>`;
+        fragment.appendChild(errorDiv);
       }
     }
 
-    console.log("=== TREE INITIALIZED FOR ALL MODELS ===");
+    // Append all at once for better performance
+    treeContainer.innerHTML = "";
+    
+    if (fragment.childNodes.length === 0) {
+      treeContainer.innerHTML = '<div style="color: #ff6b6b; padding: 20px; text-align: center;"><i class="fas fa-exclamation-triangle"></i><br/>No tree data available<br/><small>Model may not have spatial structure</small></div>';
+    } else {
+      treeContainer.appendChild(fragment);
+      console.log("=== TREE INITIALIZED FOR ALL MODELS ===");
+    }
   } catch (error) {
     console.error("Error initializing tree:", error);
-    treeContainer.innerHTML = '<div style="color: #f55; padding: 20px; text-align: center;">Error loading tree. Check console for details.</div>';
+    treeContainer.innerHTML = '<div style="color: #ff6b6b; padding: 20px; text-align: center;"><i class="fas fa-exclamation-triangle"></i><br/>Error loading tree<br/><small>Check console for details</small></div>';
   }
 };
 
@@ -636,10 +874,18 @@ const treeToggleBtn = document.getElementById("tree-toggle-btn");
 const treeCloseBtn = document.getElementById("tree-close-btn");
 const treeResetBtn = document.getElementById("tree-reset-btn");
 
+console.log("Tree panel elements:", { treePanel, treeToggleBtn, treeCloseBtn });
+
 if (treeToggleBtn && treePanel) {
   treeToggleBtn.addEventListener("click", () => {
+    console.log("Tree toggle button clicked!");
+    console.log("Panel classes before toggle:", treePanel.className);
     treePanel.classList.toggle("panel-hidden");
+    console.log("Panel classes after toggle:", treePanel.className);
   });
+  console.log("✅ Tree toggle button event listener attached");
+} else {
+  console.error("❌ Tree toggle button or panel not found!", { treeToggleBtn, treePanel });
 }
 
 if (treeCloseBtn && treePanel) {
@@ -733,8 +979,10 @@ if (treeSearchInput) {
   });
 }
 
-// Initialize tree after model loads
-await initializeObjectTree();
+// Initialize tree after model loads (non-blocking - runs in background)
+initializeObjectTree().catch(error => {
+  console.error('Failed to initialize tree:', error);
+});
 
 // Update object count in status bar
 const updateObjectCount = () => {
@@ -953,7 +1201,7 @@ if (statusCloseBtn && statusPanel) {
 
 // Modal controls
 const statusModal = document.getElementById("statusModal");
-const addStatusBtn = document.getElementById("create-status-btn");
+const addStatusBtn = document.getElementById("add-status-btn");
 const modalCloseBtn = document.getElementById("modal-close-btn");
 const cancelStatusBtn = document.getElementById("cancel-status-btn");
 const createStatusBtn = document.getElementById("create-status-btn");
@@ -965,9 +1213,12 @@ const statusColorInput = document.getElementById("status-color-input") as HTMLIn
 const statusColorText = document.getElementById("status-color-text") as HTMLInputElement;
 
 // Open modal
+console.log("Status modal elements:", { addStatusBtn, statusModal });
 if (addStatusBtn && statusModal) {
   addStatusBtn.addEventListener("click", () => {
+    console.log("Add status button clicked! Opening modal...");
     statusModal.classList.add("show");
+    console.log("Modal classes:", statusModal.className);
     selectedIcon = "";
     if (statusNameInput) statusNameInput.value = "";
     if (statusColorInput) statusColorInput.value = "#3B82F6";
@@ -976,6 +1227,9 @@ if (addStatusBtn && statusModal) {
     if (selectedIconDisplay) selectedIconDisplay.textContent = "Select an icon";
     renderIconList();
   });
+  console.log("✅ Add status button event listener attached");
+} else {
+  console.error("❌ Add status button or modal not found!", { addStatusBtn, statusModal });
 }
 
 // Close modal
@@ -1940,15 +2194,16 @@ if (doneSelectGroupsBtn) {
       }
 
       // Update group members: add this element to newly selected groups
+      const elementId = currentElementId; // Type narrowing
       tempSelectedGroupIds.forEach(groupId => {
         if (!oldGroupIds.includes(groupId)) {
           // Element was added to this group
           const group = groups.find(g => g.id === groupId);
-          if (group) {
+          if (group && elementId !== null) {
             // Check if element is not already in the group
-            if (!group.members.some(m => m.localId === currentElementId)) {
+            if (!group.members.some(m => m.localId === elementId)) {
               group.members.push({
-                localId: currentElementId,
+                localId: elementId,
                 name: elementName,
                 storeyName: storeyName
               });
@@ -1962,8 +2217,8 @@ if (doneSelectGroupsBtn) {
         if (!tempSelectedGroupIds.includes(groupId)) {
           // Element was removed from this group
           const group = groups.find(g => g.id === groupId);
-          if (group) {
-            group.members = group.members.filter(m => m.localId !== currentElementId);
+          if (group && elementId !== null) {
+            group.members = group.members.filter(m => m.localId !== elementId);
           }
         }
       });
@@ -1971,7 +2226,9 @@ if (doneSelectGroupsBtn) {
       saveConnections(elementConnections);
       saveGroups(groups);
       renderGroupsList(); // Update groups UI in real-time
-      updateElementInfoPanel({ localId: currentElementId } as TreeNodeData);
+      if (elementId !== null) {
+        updateElementInfoPanel({ localId: elementId } as TreeNodeData);
+      }
     }
     closeSelectGroupsModal();
   });

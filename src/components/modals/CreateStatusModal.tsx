@@ -1,7 +1,9 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
+import { authenticatedFetch } from '@/utils/authenticatedFetch'
 
 interface CreateStatusModalProps {
   isOpen: boolean
@@ -18,6 +20,15 @@ interface CreateStatusModalProps {
 import * as LucideIcons from 'lucide-react'
 
 const ICON_OPTIONS = [
+  // // Common Status Icons (suggested for panel statuses)
+  // { value: 'ready-production', label: 'Ready for Production', icon: 'Factory' },
+  // { value: 'produced', label: 'Produced', icon: 'CheckCircle2' },
+  // { value: 'pre-fabricated', label: 'Pre-Fabricated', icon: 'Hammer' },
+  // { value: 'truck-load', label: 'Truck Load', icon: 'Truck' },
+  // { value: 'shipped', label: 'Shipped', icon: 'Send' },
+  // { value: 'edit', label: 'Edit', icon: 'Edit' },
+  
+  // General Icons
   { value: 'angle-double-down', label: 'Angle Double Down', icon: 'ChevronsDown' },
   { value: 'angle-double-left', label: 'Angle Double Left', icon: 'ChevronsLeft' },
   { value: 'angle-double-right', label: 'Angle Double Right', icon: 'ChevronsRight' },
@@ -75,7 +86,6 @@ const ICON_OPTIONS = [
   { value: 'times', label: 'Times', icon: 'X' },
   { value: 'times-circle', label: 'Times Circle', icon: 'XCircle' },
   { value: 'trash', label: 'Trash', icon: 'Trash2' },
-  { value: 'truck', label: 'Truck', icon: 'Truck' },
   { value: 'undo', label: 'Undo', icon: 'Undo' },
   { value: 'unlock', label: 'Unlock', icon: 'Unlock' },
   { value: 'user', label: 'User', icon: 'User' },
@@ -102,6 +112,52 @@ const PRESET_COLORS = [
   '#14B8A6', // Teal
   '#A855F7'  // Violet
 ]
+
+// // Default status templates (previously built-in statuses)
+// const DEFAULT_STATUS_TEMPLATES = [
+//   {
+//     name: 'Ready for Production',
+//     icon: 'Wrench',
+//     iconValue: 'wrench',
+//     color: '#3B82F6',
+//     description: 'Panel is ready to be manufactured'
+//   },
+//   {
+//     name: 'Produced',
+//     icon: 'Check',
+//     iconValue: 'check',
+//     color: '#10B981',
+//     description: 'Panel has been manufactured'
+//   },
+//   {
+//     name: 'Pre-Fabricated',
+//     icon: 'Box',
+//     iconValue: 'box',
+//     color: '#F59E0B',
+//     description: 'Panel has been pre-fabricated'
+//   },
+//   {
+//     name: 'Ready for Truck Load',
+//     icon: 'Truck',
+//     iconValue: 'truck',
+//     color: '#8B5CF6',
+//     description: 'Panel is ready to be loaded onto truck'
+//   },
+//   {
+//     name: 'Shipped',
+//     icon: 'Send',
+//     iconValue: 'send',
+//     color: '#06B6D4',
+//     description: 'Panel has been shipped'
+//   },
+//   {
+//     name: 'Edit',
+//     icon: 'Edit',
+//     iconValue: 'pen-to-square',
+//     color: '#EF4444',
+//     description: 'Panel requires editing or modifications'
+//   }
+// ]
 
 // Helper function to convert HSL to Hex
 function hslToHex(h: number, s: number, l: number): string {
@@ -174,12 +230,14 @@ export function CreateStatusModal({ isOpen, onClose, onSubmit }: CreateStatusMod
     setError('')
 
     try {
-      await onSubmit({
+      const statusData = {
         name: name.trim(),
         icon,
         color,
         description: description.trim() || undefined
-      })
+      };
+      console.log('🔵 Modal - Submitting status data:', statusData);
+      await onSubmit(statusData)
       
       // Reset form
       setName('')
@@ -207,24 +265,24 @@ export function CreateStatusModal({ isOpen, onClose, onSubmit }: CreateStatusMod
 
   if (!isOpen) return null
 
-  return (
+  const modalContent = (
     <div 
-      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50"
+      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[9999]"
       onClick={handleClose}
     >
       <div 
-        className="bg-[#1A1F2E] border border-[rgba(58,123,213,0.3)] rounded-lg p-6 max-w-md w-full mx-4"
+        className="bg-white border border-slate-200 rounded-lg p-6 max-w-md w-full mx-4"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-bold text-[#E8EAF0] uppercase tracking-wider">
+          <h2 className="text-2xl font-bold text-slate-900">
             Create New Status
           </h2>
           <button
             onClick={handleClose}
             disabled={isSubmitting}
-            className="text-[#B8BCC8] hover:text-[#E8EAF0] transition-colors disabled:opacity-50"
+            className="text-slate-600 hover:text-slate-900 transition-colors disabled:opacity-50"
           >
             <X className="h-6 w-6" />
           </button>
@@ -234,7 +292,7 @@ export function CreateStatusModal({ isOpen, onClose, onSubmit }: CreateStatusMod
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Status Name */}
           <div>
-            <label className="block text-sm font-medium text-[#B8BCC8] mb-2 uppercase tracking-wider">
+            <label className="block text-sm font-medium text-slate-600 mb-2 ">
               Status Name *
             </label>
             <input
@@ -242,7 +300,7 @@ export function CreateStatusModal({ isOpen, onClose, onSubmit }: CreateStatusMod
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Enter status name"
-              className="w-full px-4 py-2 bg-[rgba(37,42,58,0.6)] border border-[rgba(58,123,213,0.2)] rounded-lg text-[#E8EAF0] placeholder-[#B8BCC8] focus:border-[#3A7BD5] focus:outline-none"
+              className="w-full px-4 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:border-slate-500 focus:outline-none"
               disabled={isSubmitting}
               maxLength={50}
             />
@@ -250,7 +308,7 @@ export function CreateStatusModal({ isOpen, onClose, onSubmit }: CreateStatusMod
 
           {/* Icon Selector */}
           <div className="relative" ref={dropdownRef}>
-            <label className="block text-sm font-medium text-[#B8BCC8] mb-2 uppercase tracking-wider">
+            <label className="block text-sm font-medium text-slate-600 mb-2 ">
               Icon
             </label>
             <div className="relative">
@@ -258,7 +316,7 @@ export function CreateStatusModal({ isOpen, onClose, onSubmit }: CreateStatusMod
                 type="button"
                 onClick={() => setShowIconDropdown(!showIconDropdown)}
                 disabled={isSubmitting}
-                className="w-full px-4 py-2 bg-[rgba(37,42,58,0.6)] border border-[rgba(58,123,213,0.2)] rounded-lg text-[#E8EAF0] focus:border-[#3A7BD5] focus:outline-none flex items-center justify-between disabled:opacity-50"
+                className="w-full px-4 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 focus:border-slate-500 focus:outline-none flex items-center justify-between disabled:opacity-50"
               >
                 <div className="flex items-center gap-2">
                   {(() => {
@@ -276,23 +334,23 @@ export function CreateStatusModal({ isOpen, onClose, onSubmit }: CreateStatusMod
               </button>
               
               {showIconDropdown && !isSubmitting && (
-                <div className="absolute z-10 w-full mt-1 bg-[#1A1F2E] border border-[rgba(58,123,213,0.3)] rounded-lg shadow-lg max-h-64 overflow-hidden">
+                <div className="absolute z-10 w-full mt-1 bg-white border border-slate-300 rounded-lg shadow-lg max-h-96 overflow-hidden">
                   {/* Search Input */}
-                  <div className="p-2 border-b border-[rgba(58,123,213,0.2)]">
+                  <div className="p-2 border-b border-slate-200 bg-slate-50">
                     <div className="relative">
-                      <LucideIcons.Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-[#B8BCC8]" />
+                      <LucideIcons.Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
                       <input
                         type="text"
                         value={iconSearch}
                         onChange={(e) => setIconSearch(e.target.value)}
                         placeholder="Search icons..."
-                        className="w-full pl-10 pr-4 py-2 bg-[rgba(37,42,58,0.6)] border border-[rgba(58,123,213,0.2)] rounded-lg text-[#E8EAF0] placeholder-[#B8BCC8] focus:border-[#3A7BD5] focus:outline-none text-sm"
+                        className="w-full pl-10 pr-4 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:outline-none text-sm"
                       />
                     </div>
                   </div>
                   
-                  {/* Icon List */}
-                  <div className="max-h-48 overflow-y-auto">
+                  {/* Icons List */}
+                  <div className="max-h-64 overflow-y-auto bg-white">
                     {filteredIcons.map((option) => {
                       const IconComponent = getIconComponent(option.icon)
                       return (
@@ -304,17 +362,17 @@ export function CreateStatusModal({ isOpen, onClose, onSubmit }: CreateStatusMod
                             setShowIconDropdown(false)
                             setIconSearch('')
                           }}
-                          className={`w-full px-4 py-2 flex items-center gap-3 hover:bg-[rgba(58,123,213,0.1)] transition-colors ${
-                            icon === option.value ? 'bg-[rgba(58,123,213,0.2)]' : ''
+                          className={`w-full px-4 py-2 flex items-center gap-3 hover:bg-slate-100 transition-colors ${
+                            icon === option.value ? 'bg-slate-100 border-l-4 border-blue-500' : ''
                           }`}
                         >
-                          <IconComponent className="w-4 h-4 text-[#E8EAF0]" />
-                          <span className="text-[#E8EAF0] text-sm">{option.label}</span>
+                          <IconComponent className="w-4 h-4 text-slate-700" />
+                          <span className="text-slate-900 text-sm">{option.label}</span>
                         </button>
                       )
                     })}
                     {filteredIcons.length === 0 && (
-                      <div className="px-4 py-8 text-center text-[#B8BCC8] text-sm">
+                      <div className="px-4 py-8 text-center text-slate-500 text-sm">
                         No icons found
                       </div>
                     )}
@@ -326,7 +384,7 @@ export function CreateStatusModal({ isOpen, onClose, onSubmit }: CreateStatusMod
 
           {/* Color Picker */}
           <div className="relative" ref={colorPickerRef}>
-            <label className="block text-sm font-medium text-[#B8BCC8] mb-2 uppercase tracking-wider">
+            <label className="block text-sm font-medium text-slate-600 mb-2 ">
               Color
             </label>
             <div className="flex items-center gap-3">
@@ -345,7 +403,7 @@ export function CreateStatusModal({ isOpen, onClose, onSubmit }: CreateStatusMod
                 value={color}
                 onChange={(e) => setColor(e.target.value)}
                 placeholder="#3B82F6"
-                className="flex-1 px-4 py-2 bg-[rgba(37,42,58,0.6)] border border-[rgba(58,123,213,0.2)] rounded-lg text-[#E8EAF0] placeholder-[#B8BCC8] focus:border-[#3A7BD5] focus:outline-none font-mono"
+                className="flex-1 px-4 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:border-slate-500 focus:outline-none font-mono"
                 disabled={isSubmitting}
                 maxLength={7}
               />
@@ -426,7 +484,7 @@ export function CreateStatusModal({ isOpen, onClose, onSubmit }: CreateStatusMod
                       }}
                       className={`w-full h-8 rounded-lg border-2 transition-all hover:scale-110 ${
                         color === presetColor 
-                          ? 'border-white ring-2 ring-[#3A7BD5]' 
+                          ? 'border-white ring-2 ring-text-slate-700' 
                           : 'border-[rgba(58,123,213,0.3)]'
                       }`}
                       style={{ backgroundColor: presetColor }}
@@ -439,7 +497,7 @@ export function CreateStatusModal({ isOpen, onClose, onSubmit }: CreateStatusMod
 
           {/* Description (Optional) */}
           <div>
-            <label className="block text-sm font-medium text-[#B8BCC8] mb-2 uppercase tracking-wider">
+            <label className="block text-sm font-medium text-slate-600 mb-2 ">
               Description (Optional)
             </label>
             <textarea
@@ -447,7 +505,7 @@ export function CreateStatusModal({ isOpen, onClose, onSubmit }: CreateStatusMod
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Enter status description"
               rows={3}
-              className="w-full px-4 py-2 bg-[rgba(37,42,58,0.6)] border border-[rgba(58,123,213,0.2)] rounded-lg text-[#E8EAF0] placeholder-[#B8BCC8] focus:border-[#3A7BD5] focus:outline-none resize-none"
+              className="w-full px-4 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:border-slate-500 focus:outline-none resize-none"
               disabled={isSubmitting}
               maxLength={200}
             />
@@ -461,8 +519,8 @@ export function CreateStatusModal({ isOpen, onClose, onSubmit }: CreateStatusMod
           )}
 
           {/* Preview */}
-          <div className="p-4 bg-[rgba(37,42,58,0.6)] rounded-lg border border-[rgba(58,123,213,0.1)]">
-            <p className="text-xs text-[#B8BCC8] mb-2 uppercase tracking-wider">Preview</p>
+          {/* <div className="p-4 bg-white rounded-lg border border-[rgba(58,123,213,0.1)]">
+            <p className="text-xs text-slate-600 mb-2 ">Preview</p>
             <div className="flex items-center gap-3">
               <div 
                 className="p-2 rounded-lg flex items-center justify-center"
@@ -475,13 +533,13 @@ export function CreateStatusModal({ isOpen, onClose, onSubmit }: CreateStatusMod
                 })()}
               </div>
               <div>
-                <p className="text-[#E8EAF0] font-semibold">{name || 'Status Name'}</p>
+                <p className="text-slate-900 font-semibold">{name || 'Status Name'}</p>
                 {description && (
-                  <p className="text-[#B8BCC8] text-sm">{description}</p>
+                  <p className="text-slate-600 text-sm">{description}</p>
                 )}
               </div>
             </div>
-          </div>
+          </div> */}
 
           {/* Actions */}
           <div className="flex gap-3 pt-2">
@@ -489,14 +547,14 @@ export function CreateStatusModal({ isOpen, onClose, onSubmit }: CreateStatusMod
               type="button"
               onClick={handleClose}
               disabled={isSubmitting}
-              className="flex-1 px-4 py-2 bg-[rgba(37,42,58,0.6)] border border-[rgba(58,123,213,0.2)] rounded-lg text-[#E8EAF0] hover:bg-[rgba(58,123,213,0.1)] transition-all disabled:opacity-50"
+              className="flex-1 px-4 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 hover:bg-[rgba(58,123,213,0.1)] transition-all disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSubmitting || !name.trim()}
-              className="flex-1 px-4 py-2 bg-gradient-to-r from-[#3A7BD5] to-[#00D2FF] text-white rounded-lg font-semibold hover:opacity-90 transition-all disabled:opacity-50"
+              className="flex-1 px-4 py-2 bg-slate-700 text-white rounded-lg font-semibold hover:opacity-90 transition-all disabled:opacity-50"
             >
               {isSubmitting ? 'Creating...' : 'Create'}
             </button>
@@ -505,4 +563,6 @@ export function CreateStatusModal({ isOpen, onClose, onSubmit }: CreateStatusMod
       </div>
     </div>
   )
+
+  return createPortal(modalContent, document.body)
 }

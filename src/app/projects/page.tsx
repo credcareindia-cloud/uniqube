@@ -48,60 +48,8 @@ export default function ProjectsPage() {
         setProjects(response.projects)
       } catch (err) {
         console.error('Failed to load projects:', err)
-        setError('Failed to load projects. Using mock data for development.')
-        
-        // Fallback to mock data for development
-        const mockProjects: Project[] = [
-          {
-            id: '1',
-            name: 'Downtown Office Complex',
-            description: 'Modern 15-story office building with retail space',
-            status: 'active',
-            totalPanels: 450,
-            completedPanels: 387,
-            lastUpdated: '2024-01-15T10:30:00Z',
-            createdAt: '2024-01-01T00:00:00Z',
-            updatedAt: '2024-01-15T10:30:00Z',
-            stats: { totalModels: 125 }
-          },
-          {
-            id: '2',
-            name: 'Residential Tower A',
-            description: '32-floor luxury residential building',
-            status: 'planning',
-            totalPanels: 680,
-            completedPanels: 45,
-            lastUpdated: '2024-01-14T16:45:00Z',
-            createdAt: '2024-01-01T00:00:00Z',
-            updatedAt: '2024-01-14T16:45:00Z',
-            stats: { totalModels: 89 }
-          },
-          {
-            id: '3',
-            name: 'Shopping Mall Renovation',
-            description: 'Complete renovation of existing shopping center',
-            status: 'completed',
-            totalPanels: 320,
-            completedPanels: 320,
-            lastUpdated: '2024-01-10T09:15:00Z',
-            createdAt: '2024-01-01T00:00:00Z',
-            updatedAt: '2024-01-10T09:15:00Z',
-            stats: { totalModels: 67 }
-          },
-          {
-            id: '4',
-            name: 'Industrial Warehouse',
-            description: 'Large-scale industrial storage facility',
-            status: 'on-hold',
-            totalPanels: 280,
-            completedPanels: 150,
-            lastUpdated: '2024-01-12T14:20:00Z',
-            createdAt: '2024-01-01T00:00:00Z',
-            updatedAt: '2024-01-12T14:20:00Z',
-            stats: { totalModels: 45 }
-          }
-        ]
-        setProjects(mockProjects)
+        setError('Failed to load projects. Please check your connection and try again.')
+        setProjects([])
       } finally {
         setLoading(false)
       }
@@ -126,7 +74,7 @@ export default function ProjectsPage() {
     active: projects.filter(p => p.status === 'active').length,
     completed: projects.filter(p => p.status === 'completed').length,
     planning: projects.filter(p => p.status === 'planning').length,
-    totalPanels: projects.reduce((sum, p) => sum + (p.totalPanels || 0), 0)
+    totalPanels: projects.reduce((sum, p) => sum + (p.stats?.totalPanels || 0), 0)
   }
 
   if (loading) {
@@ -149,68 +97,68 @@ export default function ProjectsPage() {
     <div className="w-full h-full space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-        <div className="flex-1">
-          <h1 className="text-2xl sm:text-3xl font-bold text-[#E8EAF0] uppercase tracking-wider mb-1">
-            Projects
-          </h1>
-          <p className="text-sm sm:text-base text-[#B8BCC8] uppercase tracking-wider font-medium">
-            3D IFC Project Management
-          </p>
+        <div className="flex items-center gap-4">
+          <div className="w-14 h-14 bg-gradient-to-br from-slate-100 to-slate-50 border border-slate-200 rounded-xl flex items-center justify-center shadow-sm">
+            <Building2 className="h-7 w-7 text-slate-700" />
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold text-slate-900">
+              Projects
+            </h1>
+            <p className="text-slate-600 mt-1">
+              Manage your 3D IFC projects
+            </p>
+          </div>
         </div>
         <button
           onClick={() => setShowModelCreation(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-[#4A90E2] to-[#357ABD] text-white rounded-lg hover:from-[#357ABD] hover:to-[#2E5F9F] transition-all duration-300 font-medium uppercase tracking-wider"
+          className="flex items-center gap-2 px-4 py-2.5 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors shadow-sm font-medium"
         >
-          <Upload className="h-4 w-4" />
-          Create Project with Model
+          <Plus className="h-4 w-4" />
+          New Project
         </button>
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4 lg:gap-6 mb-6">
-        <div className="bg-[rgba(26,31,46,0.8)] border border-[rgba(184,188,200,0.1)] rounded-lg p-4 sm:p-6 hover:border-[rgba(74,144,226,0.3)] transition-all duration-300">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[#B8BCC8] text-xs sm:text-sm uppercase tracking-wider">Total</span>
-            <Building2 className="h-3 w-3 sm:h-4 sm:w-4 text-[#4A90E2]" />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div className="bg-white border border-slate-200 rounded-lg p-6 hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between mb-3">
+            <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center">
+              <Building2 className="h-5 w-5 text-slate-700" />
+            </div>
           </div>
-          <div className="text-xl sm:text-2xl font-bold text-[#E8EAF0] mb-1">{stats.total}</div>
-          <div className="text-xs text-[#6B7BD5] uppercase tracking-wider">Projects</div>
+          <div className="text-2xl font-bold text-slate-900 mb-1">{stats.total}</div>
+          <div className="text-sm text-slate-600">Total Projects</div>
         </div>
 
-        <div className="bg-[rgba(26,31,46,0.8)] border border-[rgba(184,188,200,0.1)] rounded-lg p-4 sm:p-6 hover:border-[rgba(74,144,226,0.3)] transition-all duration-300">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[#B8BCC8] text-xs sm:text-sm uppercase tracking-wider">Active</span>
-            <Activity className="h-3 w-3 sm:h-4 sm:w-4 text-[#10B981]" />
+        <div className="bg-white border border-slate-200 rounded-lg p-6 hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between mb-3">
+            <div className="w-10 h-10 bg-green-50 rounded-lg flex items-center justify-center">
+              <Activity className="h-5 w-5 text-green-600" />
+            </div>
           </div>
-          <div className="text-xl sm:text-2xl font-bold text-[#E8EAF0] mb-1">{stats.active}</div>
-          <div className="text-xs text-[#10B981] uppercase tracking-wider">In Progress</div>
+          <div className="text-2xl font-bold text-slate-900 mb-1">{stats.active}</div>
+          <div className="text-sm text-slate-600">Active Projects</div>
         </div>
 
-        <div className="bg-[rgba(26,31,46,0.8)] border border-[rgba(184,188,200,0.1)] rounded-lg p-4 sm:p-6 hover:border-[rgba(74,144,226,0.3)] transition-all duration-300">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[#B8BCC8] text-xs sm:text-sm uppercase tracking-wider">Completed</span>
-            <TrendingUp className="h-3 w-3 sm:h-4 sm:w-4 text-[#8B5CF6]" />
+        <div className="bg-white border border-slate-200 rounded-lg p-6 hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between mb-3">
+            <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center">
+              <TrendingUp className="h-5 w-5 text-blue-600" />
+            </div>
           </div>
-          <div className="text-xl sm:text-2xl font-bold text-[#E8EAF0] mb-1">{stats.completed}</div>
-          <div className="text-xs text-[#8B5CF6] uppercase tracking-wider">Finished</div>
+          <div className="text-2xl font-bold text-slate-900 mb-1">{stats.completed}</div>
+          <div className="text-sm text-slate-600">Completed</div>
         </div>
 
-        <div className="bg-[rgba(26,31,46,0.8)] border border-[rgba(184,188,200,0.1)] rounded-lg p-4 sm:p-6 hover:border-[rgba(74,144,226,0.3)] transition-all duration-300">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[#B8BCC8] text-xs sm:text-sm uppercase tracking-wider">Planning</span>
-            <Calendar className="h-3 w-3 sm:h-4 sm:w-4 text-[#F59E0B]" />
+        <div className="bg-white border border-slate-200 rounded-lg p-6 hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between mb-3">
+            <div className="w-10 h-10 bg-amber-50 rounded-lg flex items-center justify-center">
+              <Calendar className="h-5 w-5 text-amber-600" />
+            </div>
           </div>
-          <div className="text-xl sm:text-2xl font-bold text-[#E8EAF0] mb-1">{stats.planning}</div>
-          <div className="text-xs text-[#F59E0B] uppercase tracking-wider">Upcoming</div>
-        </div>
-
-        <div className="bg-[rgba(26,31,46,0.8)] border border-[rgba(184,188,200,0.1)] rounded-lg p-4 sm:p-6 hover:border-[rgba(74,144,226,0.3)] transition-all duration-300">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[#B8BCC8] text-xs sm:text-sm uppercase tracking-wider">Panels</span>
-            <Package className="h-3 w-3 sm:h-4 sm:w-4 text-[#EF4444]" />
-          </div>
-          <div className="text-xl sm:text-2xl font-bold text-[#E8EAF0] mb-1">{stats.totalPanels.toLocaleString()}</div>
-          <div className="text-xs text-[#EF4444] uppercase tracking-wider">Components</div>
+          <div className="text-2xl font-bold text-slate-900 mb-1">{stats.planning}</div>
+          <div className="text-sm text-slate-600">Planning</div>
         </div>
       </div>
 
@@ -218,64 +166,66 @@ export default function ProjectsPage() {
       <div className="flex flex-col sm:flex-row gap-4 mb-6">
         {/* Search */}
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-[#B8BCC8]" />
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
           <input
             type="text"
             placeholder="Search projects..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 bg-[rgba(26,31,46,0.8)] border border-[rgba(184,188,200,0.1)] rounded-lg text-[#E8EAF0] placeholder-[#B8BCC8] focus:border-[rgba(74,144,226,0.5)] focus:outline-none"
+            className="w-full pl-10 pr-4 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:border-slate-600 focus:ring-2 focus:ring-slate-600 focus:outline-none transition-colors"
           />
         </div>
 
         {/* Filter */}
-        <select
+        {/* <select
           value={filterStatus}
           onChange={(e) => setFilterStatus(e.target.value as FilterStatus)}
-          className="px-4 py-2 bg-[rgba(26,31,46,0.8)] border border-[rgba(184,188,200,0.1)] rounded-lg text-[#E8EAF0] focus:border-[rgba(74,144,226,0.5)] focus:outline-none"
+          className="px-4 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 focus:border-slate-600 focus:ring-2 focus:ring-slate-600 focus:outline-none transition-colors"
         >
           <option value="all">All Status</option>
           <option value="active">Active</option>
           <option value="completed">Completed</option>
           <option value="planning">Planning</option>
-        </select>
+        </select> */}
 
         {/* View Mode Toggle */}
-        <div className="flex bg-[rgba(26,31,46,0.8)] border border-[rgba(184,188,200,0.1)] rounded-lg p-1">
+        {/* <div className="flex bg-white border border-slate-300 rounded-lg p-1">
           <button
             onClick={() => setViewMode('grid')}
-            className={`p-2 rounded ${viewMode === 'grid' 
-              ? 'bg-[rgba(74,144,226,0.2)] text-[#4A90E2]' 
-              : 'text-[#B8BCC8] hover:text-[#E8EAF0]'
-            } transition-colors`}
+            className={`p-2 rounded transition-colors ${
+              viewMode === 'grid' 
+                ? 'bg-slate-100 text-slate-900' 
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
           >
             <Grid3X3 className="h-4 w-4" />
           </button>
           <button
             onClick={() => setViewMode('table')}
-            className={`p-2 rounded ${viewMode === 'table' 
-              ? 'bg-[rgba(74,144,226,0.2)] text-[#4A90E2]' 
-              : 'text-[#B8BCC8] hover:text-[#E8EAF0]'
-            } transition-colors`}
+            className={`p-2 rounded transition-colors ${
+              viewMode === 'table' 
+                ? 'bg-slate-100 text-slate-900' 
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
           >
             <List className="h-4 w-4" />
           </button>
-        </div>
+        </div> */}
       </div>
 
       {/* Error Message */}
       {error && (
-        <div className="bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] rounded-lg p-4 mb-6">
-          <p className="text-[#EF4444] text-sm">{error}</p>
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+          <p className="text-red-600 text-sm">{error}</p>
         </div>
       )}
 
       {/* Projects Content */}
       {filteredProjects.length === 0 ? (
-        <div className="text-center py-12">
-          <Building2 className="h-12 w-12 text-[#B8BCC8] mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-[#E8EAF0] mb-2">No projects found</h3>
-          <p className="text-[#B8BCC8] mb-4">
+        <div className="text-center py-12 bg-white border border-slate-200 rounded-lg">
+          <Building2 className="h-12 w-12 text-slate-300 mx-auto mb-4" />
+          <h3 className="text-lg font-semibold text-slate-900 mb-2">No projects found</h3>
+          <p className="text-slate-600 mb-4">
             {searchQuery || filterStatus !== 'all' 
               ? 'Try adjusting your search or filter criteria.' 
               : 'Get started by creating your first project.'
@@ -283,7 +233,7 @@ export default function ProjectsPage() {
           </p>
           <button
             onClick={() => setShowModelCreation(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-[#4A90E2] to-[#357ABD] text-white rounded-lg hover:from-[#357ABD] hover:to-[#2E5F9F] transition-all duration-300"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors shadow-sm"
           >
             <Plus className="h-4 w-4" />
             Create New Project
@@ -306,7 +256,9 @@ export default function ProjectsPage() {
               <div className="p-6">
                 <div className="space-y-4">
                   {filteredProjects.map((project) => {
-                    const progress = project.totalPanels > 0 ? Math.round((project.completedPanels / project.totalPanels) * 100) : 0
+                    const totalPanels = project.stats?.totalPanels || 0
+                    const completedPanels = project.completedPanels || 0
+                    const progress = totalPanels > 0 ? Math.round((completedPanels / totalPanels) * 100) : 0
                     return (
                       <div key={project.id} className="flex items-center justify-between p-4 bg-[rgba(15,20,25,0.5)] rounded-lg border border-[rgba(184,188,200,0.1)] hover:border-[rgba(74,144,226,0.3)] transition-all duration-300">
                         <div className="flex-1">
@@ -322,7 +274,7 @@ export default function ProjectsPage() {
                               {project.status}
                             </span>
                             <span>{progress}% Complete</span>
-                            <span>{project.completedPanels.toLocaleString()} / {project.totalPanels.toLocaleString()} Panels</span>
+                            <span>{completedPanels.toLocaleString()} / {totalPanels.toLocaleString()} Panels</span>
                           </div>
                         </div>
                         <button

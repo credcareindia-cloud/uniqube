@@ -14,11 +14,28 @@ export interface Project {
   status: 'active' | 'completed' | 'on-hold' | 'planning';
   createdAt: string;
   updatedAt: string;
-  lastUpdated: string;
+  lastUpdated?: string;
   modelUrl?: string;
   thumbnailUrl?: string;
-  totalPanels: number;
-  completedPanels: number;
+  totalPanels?: number;
+  completedPanels?: number;
+  currentModel?: {
+    id: string;
+    type: string;
+    status: string;
+    sizeBytes: number;
+    version: number;
+    isActive: boolean;
+  } | null;
+  modelHistory?: Array<{
+    id: string;
+    type: string;
+    status: string;
+    sizeBytes: number;
+    version: number;
+    isActive: boolean;
+    createdAt: string;
+  }>;
   groups?: Array<{
     id: string;
     name: string;
@@ -27,6 +44,8 @@ export interface Project {
   }>;
   stats?: {
     totalModels?: number;
+    totalGroups?: number;
+    totalPanels?: number;
   };
 }
 

@@ -13,8 +13,9 @@ import {
   Settings,
   Filter
 } from 'lucide-react'
-import { ProfessionalGamingCard } from '@/components/gaming/ProfessionalGamingCard'
-import { ProfessionalGamingButton } from '@/components/gaming/ProfessionalGamingButton'
+import { Card, CardContent } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { api } from '@/services/api'
 import type { Notification } from '@/services/api'
@@ -132,13 +133,13 @@ export default function NotificationsPage() {
   const getNotificationIcon = (type: string) => {
     switch (type) {
       case 'success':
-        return <CheckCircle className="h-5 w-5 text-[#4A9B6B]" />
+        return <CheckCircle className="h-5 w-5 text-green-600" />
       case 'warning':
-        return <AlertTriangle className="h-5 w-5 text-[#F59E0B]" />
+        return <AlertTriangle className="h-5 w-5 text-amber-600" />
       case 'error':
-        return <AlertTriangle className="h-5 w-5 text-[#EF4444]" />
+        return <AlertTriangle className="h-5 w-5 text-red-600" />
       default:
-        return <Info className="h-5 w-5 text-[#3A7BD5]" />
+        return <Info className="h-5 w-5 text-blue-600" />
     }
   }
 
@@ -163,9 +164,9 @@ export default function NotificationsPage() {
     return (
       <div className="w-full h-full space-y-6">
         <div className="animate-pulse">
-          <div className="h-24 bg-[rgba(26,31,46,0.8)] rounded mb-6"></div>
+          <div className="h-24 bg-slate-200 rounded mb-6"></div>
           {[...Array(5)].map((_, i) => (
-            <div key={i} className="h-20 bg-[rgba(26,31,46,0.8)] rounded mb-4"></div>
+            <div key={i} className="h-20 bg-slate-200 rounded mb-4"></div>
           ))}
         </div>
       </div>
@@ -174,165 +175,173 @@ export default function NotificationsPage() {
 
   return (
     <div className="w-full h-full space-y-4 sm:space-y-6">
-      {/* Professional Header */}
-      <ProfessionalGamingCard variant="panel" className="p-4 sm:p-6">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <div className="p-3 rounded-lg bg-gradient-to-br from-[#3A7BD5] to-[#00D2FF] shadow-lg">
-              <Bell className="h-6 w-6 sm:h-8 sm:w-8 text-white" />
-            </div>
-            <div>
-              <div className="flex items-center gap-3">
-                <h1 className="text-xl sm:text-2xl font-bold text-[#E8EAF0] uppercase tracking-wider">NOTIFICATIONS</h1>
-                {unreadCount > 0 && (
-                  <div className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border bg-[rgba(239,68,68,0.2)] border-[#EF4444] text-[#EF4444]">
-                    {unreadCount} NEW
-                  </div>
-                )}
+      {/* Header */}
+      <Card className="border-slate-200">
+        <CardContent className="p-6">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="p-3 rounded-lg bg-slate-700">
+                <Bell className="h-8 w-8 text-white" />
               </div>
-              <p className="text-[#B8BCC8] text-sm">Stay updated with your project activities and alerts</p>
+              <div>
+                <div className="flex items-center gap-3">
+                  <h1 className="text-2xl font-bold text-slate-900">Notifications</h1>
+                  {unreadCount > 0 && (
+                    <Badge variant="destructive" className="text-xs">
+                      {unreadCount} New
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-slate-600 text-sm">Stay updated with your project activities and alerts</p>
+              </div>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-3">
+              {unreadCount > 0 && (
+                <Button variant="outline" onClick={markAllAsRead} className="flex-1 sm:flex-none">
+                  Mark All Read
+                </Button>
+              )}
+              <div className="flex gap-2">
+                <Button 
+                  variant={filter === 'all' ? 'default' : 'outline'}
+                  onClick={() => setFilter('all')}
+                  size="sm"
+                  className="flex-1 sm:flex-none"
+                >
+                  <Filter className="h-4 w-4 mr-2" />
+                  All
+                </Button>
+                <Button 
+                  variant={filter === 'unread' ? 'default' : 'outline'}
+                  onClick={() => setFilter('unread')}
+                  size="sm"
+                  className="flex-1 sm:flex-none"
+                >
+                  Unread ({unreadCount})
+                </Button>
+              </div>
             </div>
           </div>
-          <div className="flex flex-col sm:flex-row gap-3">
-            {unreadCount > 0 && (
-              <ProfessionalGamingButton variant="secondary" onClick={markAllAsRead} className="flex-1 sm:flex-none">
-                MARK ALL READ
-              </ProfessionalGamingButton>
-            )}
-            <div className="flex gap-2">
-              <ProfessionalGamingButton 
-                variant={filter === 'all' ? 'primary' : 'secondary'}
-                onClick={() => setFilter('all')}
-                size="sm"
-                className="flex-1 sm:flex-none"
-              >
-                <Filter className="h-4 w-4 mr-2" />
-                ALL
-              </ProfessionalGamingButton>
-              <ProfessionalGamingButton 
-                variant={filter === 'unread' ? 'primary' : 'secondary'}
-                onClick={() => setFilter('unread')}
-                size="sm"
-                className="flex-1 sm:flex-none"
-              >
-                UNREAD ({unreadCount})
-              </ProfessionalGamingButton>
-            </div>
-          </div>
-        </div>
-      </ProfessionalGamingCard>
+        </CardContent>
+      </Card>
 
       {/* Error Message */}
       {error && (
-        <div className="bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] rounded-lg p-4">
-          <p className="text-[#EF4444] text-sm">{error}</p>
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <p className="text-red-600 text-sm">{error}</p>
         </div>
       )}
 
       {/* Notifications List */}
       <div className="space-y-3 sm:space-y-4">
         {filteredNotifications.length === 0 ? (
-          <ProfessionalGamingCard variant="panel" className="p-8 sm:p-12 text-center">
-            <div className="space-y-4">
-              <Bell className="h-12 w-12 sm:h-16 sm:w-16 text-[#6B7280] mx-auto" />
-              <h3 className="text-lg sm:text-xl font-bold text-[#E8EAF0] uppercase tracking-wider">
-                {filter === 'unread' ? 'NO UNREAD NOTIFICATIONS' : 'NO NOTIFICATIONS'}
-              </h3>
-              <p className="text-[#B8BCC8] text-sm">
-                {filter === 'unread' 
-                  ? 'All caught up! Check back later for new updates.'
-                  : 'You\'ll see notifications about your projects here.'}
-              </p>
-            </div>
-          </ProfessionalGamingCard>
+          <Card className="border-slate-200">
+            <CardContent className="p-12 text-center">
+              <div className="space-y-4">
+                <Bell className="h-16 w-16 text-slate-400 mx-auto" />
+                <h3 className="text-xl font-bold text-slate-900">
+                  {filter === 'unread' ? 'No Unread Notifications' : 'No Notifications'}
+                </h3>
+                <p className="text-slate-600 text-sm">
+                  {filter === 'unread' 
+                    ? 'All caught up! Check back later for new updates.'
+                    : 'You\'ll see notifications about your projects here.'}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
         ) : (
           filteredNotifications.map((notification) => (
-            <ProfessionalGamingCard 
+            <Card 
               key={notification.id} 
-              variant={!notification.read ? "monitor" : "panel"}
-              className={`transition-all duration-200 hover:border-[rgba(58,123,213,0.4)] ${
-                !notification.read ? 'border-l-4 border-l-[#3A7BD5] bg-[rgba(58,123,213,0.05)]' : ''
+              className={`transition-all duration-200 hover:border-slate-300 border-slate-200 ${
+                !notification.read ? 'border-l-4 border-l-blue-500 bg-blue-50' : ''
               }`}
             >
-              <div 
-                className="p-4 sm:p-6 cursor-pointer"
+              <CardContent 
+                className="p-6 cursor-pointer"
                 onClick={() => markAsRead(notification.id)}
               >
-                <div className="flex items-start gap-3 sm:gap-4">
+                <div className="flex items-start gap-4">
                   <div className="relative">
-                    <Avatar className="h-10 w-10 sm:h-12 sm:w-12 border-2 border-[rgba(58,123,213,0.3)]">
+                    <Avatar className="h-12 w-12 border-2 border-slate-200">
                       <AvatarImage src="/avatars/system.png" />
-                      <AvatarFallback className="bg-[rgba(37,42,58,0.8)]">
+                      <AvatarFallback className="bg-slate-100">
                         {getNotificationIcon(notification.type)}
                       </AvatarFallback>
                     </Avatar>
                     {!notification.read && (
-                      <div className="absolute -top-1 -right-1 w-3 h-3 bg-[#3A7BD5] rounded-full border-2 border-[#1A1F2E]"></div>
+                      <div className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full border-2 border-white"></div>
                     )}
                   </div>
                   
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-2">
-                      <h3 className="font-bold text-[#E8EAF0] text-sm sm:text-base uppercase tracking-wider truncate">
+                      <h3 className="font-bold text-slate-900 text-base truncate">
                         {notification.title}
                       </h3>
-                      <div className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border ${
-                        notification.type === 'success' ? 'bg-[rgba(74,155,107,0.2)] border-[#4A9B6B] text-[#4A9B6B]' :
-                        notification.type === 'warning' ? 'bg-[rgba(245,158,11,0.2)] border-[#F59E0B] text-[#F59E0B]' :
-                        notification.type === 'error' ? 'bg-[rgba(239,68,68,0.2)] border-[#EF4444] text-[#EF4444]' :
-                        'bg-[rgba(58,123,213,0.2)] border-[#3A7BD5] text-[#3A7BD5]'
-                      }`}>
-                        {notification.type.toUpperCase()}
-                      </div>
+                      <Badge 
+                        variant={
+                          notification.type === 'success' ? 'success' :
+                          notification.type === 'warning' ? 'warning' :
+                          notification.type === 'error' ? 'destructive' :
+                          'default'
+                        }
+                        className="text-xs"
+                      >
+                        {notification.type}
+                      </Badge>
                     </div>
-                    <p className="text-[#B8BCC8] text-sm mb-3 leading-relaxed">
+                    <p className="text-slate-600 text-sm mb-3 leading-relaxed">
                       {notification.message}
                     </p>
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                      <div className="flex items-center gap-1 text-xs text-[#6B7280]">
+                      <div className="flex items-center gap-1 text-xs text-slate-500">
                         <Clock className="h-3 w-3" />
                         {formatTimestamp(notification.createdAt)}
                       </div>
-                      <ProfessionalGamingButton variant="secondary" size="sm">
+                      <Button variant="outline" size="sm">
                         <Eye className="h-3 w-3 mr-2" />
-                        VIEW DETAILS
-                      </ProfessionalGamingButton>
+                        View Details
+                      </Button>
                     </div>
                   </div>
                   
-                  <ProfessionalGamingButton variant="secondary" size="sm" className="h-8 w-8 p-0 flex-shrink-0">
+                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0 flex-shrink-0">
                     <MoreHorizontal className="h-4 w-4" />
-                  </ProfessionalGamingButton>
+                  </Button>
                 </div>
-              </div>
-            </ProfessionalGamingCard>
+              </CardContent>
+            </Card>
           ))
         )}
       </div>
 
-      {/* Professional Quick Actions */}
-      <ProfessionalGamingCard variant="panel" className="p-4 sm:p-6">
-        <div className="space-y-4 sm:space-y-6">
-          <div className="flex items-center gap-3">
-            <Settings className="h-5 w-5 text-[#3A7BD5]" />
-            <h3 className="text-base sm:text-lg font-bold text-[#E8EAF0] uppercase tracking-wider">NOTIFICATION PREFERENCES</h3>
+      {/* Quick Actions */}
+      <Card className="border-slate-200">
+        <CardContent className="p-6">
+          <div className="space-y-6">
+            <div className="flex items-center gap-3">
+              <Settings className="h-5 w-5 text-slate-700" />
+              <h3 className="text-lg font-bold text-slate-900">Notification Preferences</h3>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <Button variant="outline" className="justify-start h-12">
+                <User className="h-4 w-4 mr-3" />
+                Team Updates
+              </Button>
+              <Button variant="outline" className="justify-start h-12">
+                <Building2 className="h-4 w-4 mr-3" />
+                Project Changes
+              </Button>
+              <Button variant="outline" className="justify-start h-12">
+                <Upload className="h-4 w-4 mr-3" />
+                File Processing
+              </Button>
+            </div>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-            <ProfessionalGamingButton variant="secondary" className="justify-start h-12">
-              <User className="h-4 w-4 mr-3" />
-              TEAM UPDATES
-            </ProfessionalGamingButton>
-            <ProfessionalGamingButton variant="secondary" className="justify-start h-12">
-              <Building2 className="h-4 w-4 mr-3" />
-              PROJECT CHANGES
-            </ProfessionalGamingButton>
-            <ProfessionalGamingButton variant="secondary" className="justify-start h-12">
-              <Upload className="h-4 w-4 mr-3" />
-              FILE PROCESSING
-            </ProfessionalGamingButton>
-          </div>
-        </div>
-      </ProfessionalGamingCard>
+        </CardContent>
+      </Card>
     </div>
   )
 }

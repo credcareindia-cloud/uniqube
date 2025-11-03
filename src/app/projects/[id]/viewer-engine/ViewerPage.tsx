@@ -72,19 +72,19 @@ export default function ViewerPage() {
       // Import and call the initialization function
       const { initializeViewer } = await import('./main');
       
-      // Add timeout to prevent infinite loading
+      // Add timeout to prevent infinite loading (increased to 120s for large models)
       const initializationPromise = initializeViewer('container');
       const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Viewer initialization timeout after 60 seconds')), 60000);
+        setTimeout(() => reject(new Error('Viewer initialization timeout after 120 seconds')), 120000);
       });
       
-      console.log('⏳ Starting viewer initialization with 60s timeout...');
+      console.log('⏳ Starting viewer initialization with 120s timeout...');
       const viewerInstance = await Promise.race([initializationPromise, timeoutPromise]);
       
       console.log('✅ Viewer initialized successfully:', viewerInstance);
       
-      // Additional delay to ensure UI is fully rendered
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Shorter delay - no need to wait so long
+      await new Promise(resolve => setTimeout(resolve, 300));
       
       setIsLoading(false);
       console.log('🎯 Loading overlay removed');
@@ -259,6 +259,10 @@ export default function ViewerPage() {
           <span className="tooltip">Model Structure</span>
         </button>
         <h1 id="modelName"><span>Uni</span>Qube</h1>
+        <button id="selection-tool-btn" className="toolbar-button">
+          <i className="fas fa-mouse-pointer"></i>
+          <span className="tooltip">Selection Tool (Debug)</span>
+        </button>
         <button id="status-toggle-btn" className="toolbar-button">
           <i className="fas fa-tags"></i>
           <span className="tooltip">Status</span>
@@ -352,15 +356,13 @@ export default function ViewerPage() {
           <h3>Status Management</h3>
           <button id="status-close-btn"><i className="fas fa-times"></i></button>
         </div>
-        <div id="statusPanelContent" className="info-content">
-          <div className="status-actions">
-            <button id="create-status-btn" className="btn-primary">
-              <i className="fas fa-plus"></i> Create Status
-            </button>
-          </div>
-          <div id="statusListContent" className="status-list-content">
-            {/* Status items will be populated here */}
-          </div>
+        <div className="status-actions">
+          <button id="add-status-btn" className="add-status-btn">
+            <i className="fas fa-plus"></i> Add New Status
+          </button>
+        </div>
+        <div id="statusListContent" className="status-list-content">
+          {/* Status items will be populated here */}
         </div>
       </div>
 
@@ -370,15 +372,13 @@ export default function ViewerPage() {
           <h3>Groups Management</h3>
           <button id="groups-close-btn"><i className="fas fa-times"></i></button>
         </div>
-        <div id="groupsPanelContent" className="info-content">
-          <div className="status-actions">
-            <button id="add-group-btn" className="btn-primary">
-              <i className="fas fa-plus"></i> Create Group
-            </button>
-          </div>
-          <div id="groupsListContent" className="status-list-content">
-            {/* Group items will be populated here */}
-          </div>
+        <div className="status-actions">
+          <button id="add-group-btn" className="add-status-btn">
+            <i className="fas fa-plus"></i> Add New Group
+          </button>
+        </div>
+        <div id="groupsListContent" className="status-list-content">
+          {/* Group items will be populated here */}
         </div>
       </div>
 

@@ -21,17 +21,24 @@ import {
   BarChart3,
   X
 } from 'lucide-react'
-import { ProfessionalGamingButton } from '@/components/gaming/ProfessionalGamingButton'
-import { ProfessionalGamingCard } from '@/components/gaming/ProfessionalGamingCard'
-import { ProfessionalGamingBadge } from '@/components/gaming/ProfessionalGamingBadge'
+import * as LucideIcons from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
 import { CreateStatusModal } from '@/components/modals/CreateStatusModal'
 import { CreateGroupModal } from '@/components/modals/CreateGroupModal'
 import { EditPanelModal } from '@/components/modals/EditPanelModal'
 import { PanelDetailModal } from '@/components/modals/PanelDetailModal'
+import { OverviewTab } from '@/components/project-tabs/OverviewTab'
+import { StatusManagementTab } from '@/components/project-tabs/StatusManagementTab'
+import { GroupManagementTab } from '@/components/project-tabs/GroupManagementTab'
+import { PanelManagementTab } from '@/components/project-tabs/PanelManagementTab'
+import { ProjectDetailsTab } from '@/components/project-tabs/ProjectDetailsTab'
 import type { Panel } from '@/types/panel'
 import type { Group } from '@/types/group'
 import { PanelStatus, PANEL_STATUS_CONFIG } from '@/types/panel'
 import { GroupStatus, GROUP_STATUS_CONFIG } from '@/types/group'
+import { authenticatedFetch } from '@/utils/authenticatedFetch'
 
 
 interface ProjectData {
@@ -85,29 +92,29 @@ interface CustomStatus {
   updatedAt: string
 }
 
-// Helper function to get panel status variant for badge
-const getPanelStatusVariant = (status: PanelStatus): 'neutral' | 'active' | 'warning' | 'completed' | 'error' | 'info' => {
-  switch (status) {
-    case PanelStatus.SHIPPED:
-      return 'completed'
-    case PanelStatus.READY_FOR_PRODUCTION:
-    case PanelStatus.PRODUCED:
-      return 'active'
-    case PanelStatus.PRE_FABRICATED:
-    case PanelStatus.READY_FOR_TRUCK_LOAD:
-      return 'info'
-    case PanelStatus.EDIT:
-      return 'error'
-    default:
-      return 'neutral'
-  }
-}
+// Helper function to get panel status variant for badge - DEPRECATED (now using custom statuses)
+// const getPanelStatusVariant = (status: PanelStatus): 'neutral' | 'active' | 'warning' | 'completed' | 'error' | 'info' => {
+//   switch (status) {
+//     case PanelStatus.SHIPPED:
+//       return 'completed'
+//     case PanelStatus.READY_FOR_PRODUCTION:
+//     case PanelStatus.PRODUCED:
+//       return 'active'
+//     case PanelStatus.PRE_FABRICATED:
+//     case PanelStatus.READY_FOR_TRUCK_LOAD:
+//       return 'info'
+//     case PanelStatus.EDIT:
+//       return 'error'
+//     default:
+//       return 'neutral'
+//   }
+// }
 
 // Status configuration for badges - using panel status config
 const statusConfig = {
   // Project statuses
   'PLANNING': { label: 'Planning', variant: 'neutral' as const, icon: Clock, color: '#8B5CF6' },
-  'ACTIVE': { label: 'Active', variant: 'active' as const, icon: CheckCircle, color: '#3B82F6' },
+  'ACTIVE': { label: 'Active', variant: "default" as const, icon: CheckCircle, color: '#3B82F6' },
   'ON_HOLD': { label: 'On Hold', variant: 'warning' as const, icon: Clock, color: '#F59E0B' },
   'COMPLETED': { label: 'Completed', variant: 'completed' as const, icon: CheckCircle, color: '#10B981' },
   'CANCELLED': { label: 'Cancelled', variant: 'warning' as const, icon: AlertCircle, color: '#EF4444' },
@@ -121,9 +128,94 @@ const statusConfig = {
   'processing': { label: 'Processing', variant: 'warning' as const, icon: Clock, color: '#F59E0B' },
   'error': { label: 'Error', variant: 'warning' as const, icon: AlertCircle, color: '#EF4444' },
   'planning': { label: 'Planning', variant: 'neutral' as const, icon: Clock, color: '#8B5CF6' },
-  'active': { label: 'Active', variant: 'active' as const, icon: CheckCircle, color: '#3B82F6' }
+  'active': { label: 'Active', variant: "default" as const, icon: CheckCircle, color: '#3B82F6' }
 }
 
+
+const getIconComponent = (iconName: string) => {
+  // Map FontAwesome/kebab-case names to Lucide PascalCase names (matching CreateStatusModal)
+  const iconNameMap: Record<string, string> = {
+    'angle-double-down': 'ChevronsDown',
+    'angle-double-left': 'ChevronsLeft',
+    'angle-double-right': 'ChevronsRight',
+    'angle-double-up': 'ChevronsUp',
+    'angle-down': 'ChevronDown',
+    'angle-left': 'ChevronLeft',
+    'angle-right': 'ChevronRight',
+    'angle-up': 'ChevronUp',
+    'bell': 'Bell',
+    'bookmark': 'Bookmark',
+    'box': 'Box',
+    'check': 'Check',
+    'circle': 'Circle',
+    'clock': 'Clock',
+    'code': 'Code',
+    'exclamation': 'AlertTriangle',
+    'eye': 'Eye',
+    'file': 'File',
+    'folder': 'Folder',
+    'forward': 'Forward',
+    'hashtag': 'Hash',
+    'info': 'Info',
+    'lightbulb': 'Lightbulb',
+    'lock': 'Lock',
+    'lock-open': 'LockOpen',
+    'map-marker': 'MapPin',
+    'minus': 'Minus',
+    'pause': 'Pause',
+    'pen-to-square': 'Edit',
+    'phone': 'Phone',
+    'play': 'Play',
+    'plus': 'Plus',
+    'reply': 'Reply',
+    'save': 'Save',
+    'search': 'Search',
+    'send': 'Send',
+    'server': 'Server',
+    'share-alt': 'Share2',
+    'shield': 'Shield',
+    'shop': 'ShoppingBag',
+    'sign-in': 'LogIn',
+    'sign-out': 'LogOut',
+    'sliders-h': 'SlidersHorizontal',
+    'sort': 'ArrowUpDown',
+    'spinner': 'Loader',
+    'star': 'Star',
+    'stop-circle': 'StopCircle',
+    'stopwatch': 'Timer',
+    'tag': 'Tag',
+    'thumbs-down': 'ThumbsDown',
+    'thumbs-up': 'ThumbsUp',
+    'thumbtack': 'Pin',
+    'th-large': 'Grid3x3',
+    'ticket': 'Ticket',
+    'times': 'X',
+    'times-circle': 'XCircle',
+    'trash': 'Trash2',
+    'undo': 'Undo',
+    'unlock': 'Unlock',
+    'user': 'User',
+    'users': 'Users',
+    'verified': 'BadgeCheck',
+    'warehouse': 'Warehouse',
+    'maximize': 'Maximize',
+    'minimize': 'Minimize',
+    'wrench': 'Wrench',
+    'package': 'Package',
+  }
+  
+  // Convert icon name to Lucide format
+  const lucideIconName = iconNameMap[iconName.toLowerCase()] || iconName
+  
+  // Try to get icon from Lucide
+  const LucideIcon = (LucideIcons as any)[lucideIconName]
+  if (LucideIcon) {
+    return LucideIcon
+  }
+  
+  // Default fallback
+  return (LucideIcons as any).Circle
+}           
 // Helper function to get status config
 const getStatusConfig = (status: string) => {
   return statusConfig[status as keyof typeof statusConfig] || statusConfig.PLANNING
@@ -140,7 +232,7 @@ const calculatePanelStatuses = (panels: Panel[]): PanelStatusSummary[] => {
   panels.forEach(panel => {
     statusCounts[panel.status] = (statusCounts[panel.status] || 0) + 1
   })
-  
+   
   // Convert to PanelStatusSummary array with icons and colors
   return Object.entries(statusCounts).map(([status, count]) => {
     const config = PANEL_STATUS_CONFIG[status as PanelStatus]
@@ -192,11 +284,17 @@ export default function ProjectDetailPage() {
   const [showCreateStatusModal, setShowCreateStatusModal] = useState(false)
   const [showCreateGroupModal, setShowCreateGroupModal] = useState(false)
   const [customStatuses, setCustomStatuses] = useState<CustomStatus[]>([])
+  const [statusRefreshKey, setStatusRefreshKey] = useState(0) // Trigger refresh for StatusManagementTab
   const [selectedPanels, setSelectedPanels] = useState<Set<string>>(new Set())
   const [showBulkActions, setShowBulkActions] = useState(false)
   const [selectedPanel, setSelectedPanel] = useState<Panel | null>(null)
   const [showPanelDetail, setShowPanelDetail] = useState(false)
   const [showEditPanel, setShowEditPanel] = useState(false)
+  
+  // Model metadata state (storeys and panels from IFC)
+  const [modelMetadata, setModelMetadata] = useState<any>(null)
+  const [metadataLoading, setMetadataLoading] = useState(false)
+  const [expandedStoreys, setExpandedStoreys] = useState<Set<string>>(new Set())
 
 
 
@@ -206,6 +304,13 @@ export default function ProjectDetailPage() {
     loadGroups(1)
     loadCustomStatuses()
   }, [id])
+  
+  // Load model metadata when current model changes
+  useEffect(() => {
+    if (models?.currentModel?.id) {
+      loadModelMetadata(models.currentModel.id)
+    }
+  }, [models?.currentModel?.id])
 
   const loadProjectData = async () => {
     if (!id) return
@@ -214,7 +319,7 @@ export default function ProjectDetailPage() {
       setLoading(true)
       setError(null)
       
-      const response = await fetch(`http://localhost:4000/api/projects/${id}`)
+      const response = await authenticatedFetch(`http://localhost:4000/api/projects/${id}`)
       if (!response.ok) {
         throw new Error(`Failed to fetch project: ${response.statusText}`)
       }
@@ -271,6 +376,31 @@ export default function ProjectDetailPage() {
       setLoading(false)
     }
   }
+  
+  const loadModelMetadata = async (modelId: string) => {
+    try {
+      setMetadataLoading(true)
+      console.log('📊 Loading model metadata from database...')
+      
+      const response = await authenticatedFetch(`http://localhost:4000/api/models/${modelId}/metadata`)
+      if (!response.ok) {
+        console.error('Failed to fetch model metadata:', response.status)
+        return
+      }
+      
+      const data = await response.json()
+      console.log('✅ Model metadata loaded from database:', data)
+      
+      if (data.success && data.model) {
+        setModelMetadata(data.model)
+        console.log('📦 Storeys and panels:', data.model.spatialStructure)
+      }
+    } catch (error) {
+      console.error('Error loading model metadata:', error)
+    } finally {
+      setMetadataLoading(false)
+    }
+  }
 
   const loadPanels = async (page = panelPage) => {
     if (!id) return
@@ -278,7 +408,7 @@ export default function ProjectDetailPage() {
     try {
       setPanelsLoading(true)
       // Request with pagination
-      const response = await fetch(`http://localhost:4000/api/panels/${id}?page=${page}&limit=${panelLimit}`)
+      const response = await authenticatedFetch(`http://localhost:4000/api/panels/${id}?page=${page}&limit=${panelLimit}`)
       
       if (!response.ok) {
         console.error('Failed to fetch panels:', response.status, response.statusText)
@@ -327,7 +457,7 @@ export default function ProjectDetailPage() {
     
     try {
       // Use the efficient statistics endpoint instead of fetching all panels
-      const response = await fetch(`http://localhost:4000/api/panels/${id}/statistics`)
+      const response = await authenticatedFetch(`http://localhost:4000/api/panels/${id}/statistics`)
       
       if (!response.ok) {
         console.error('❌ Failed to fetch panel statistics:', response.status)
@@ -341,7 +471,11 @@ export default function ProjectDetailPage() {
       
       // Convert to status summary format
       const statusOverview = Object.entries(statusDistribution).map(([status, count]) => {
-        const statusConfig = PANEL_STATUS_CONFIG[status as PanelStatus] || PANEL_STATUS_CONFIG.EDIT
+        const statusConfig = PANEL_STATUS_CONFIG[status as PanelStatus] || {
+          label: status,
+          color: '#6B7280',
+          icon: Package
+        }
         
         return {
           status: status as PanelStatus,
@@ -365,7 +499,7 @@ export default function ProjectDetailPage() {
     try {
       setGroupsLoading(true)
       // Request with pagination: 50 items per page
-      const response = await fetch(`http://localhost:4000/api/groups/${id}?page=${page}&limit=50`)
+      const response = await authenticatedFetch(`http://localhost:4000/api/groups/${id}?page=${page}&limit=50`)
       if (response.ok) {
         const data = await response.json()
         console.log('✅ Groups data:', data)
@@ -397,7 +531,7 @@ export default function ProjectDetailPage() {
   // Calculate group progress from panel statuses
   const calculateGroupProgress = async (groupId: string): Promise<number> => {
     try {
-      const response = await fetch(`http://localhost:4000/api/panels/${id}?groupId=${groupId}`)
+      const response = await authenticatedFetch(`http://localhost:4000/api/panels/${id}?groupId=${groupId}`)
       if (response.ok) {
         const data = await response.json()
         const panels = data.panels || []
@@ -438,7 +572,7 @@ export default function ProjectDetailPage() {
     
     try {
       setLoadingStatusPanels(true)
-      const response = await fetch(`http://localhost:4000/api/panels/${id}?status=${status}&limit=100`)
+      const response = await authenticatedFetch(`http://localhost:4000/api/panels/${id}?status=${status}&limit=100`)
       if (response.ok) {
         const data = await response.json()
         setStatusPanels(data.panels || [])
@@ -467,7 +601,7 @@ export default function ProjectDetailPage() {
       setShowStatusDetail(true)
       
       // Fetch panels with this custom status
-      const response = await fetch(`http://localhost:4000/api/panels/${id}?customStatusId=${customStatusId}&limit=100`)
+      const response = await authenticatedFetch(`http://localhost:4000/api/panels/${id}?customStatusId=${customStatusId}&limit=100`)
       if (response.ok) {
         const data = await response.json()
         setStatusPanels(data.panels || [])
@@ -489,7 +623,7 @@ export default function ProjectDetailPage() {
     if (!id) return
     
     try {
-      const response = await fetch(`http://localhost:4000/api/panels/bulk-update-status`, {
+      const response = await authenticatedFetch(`http://localhost:4000/api/panels/bulk-update-status`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ panelIds, status: newStatus })
@@ -511,7 +645,7 @@ export default function ProjectDetailPage() {
     if (!id) return
     
     try {
-      const response = await fetch(`http://localhost:4000/api/status-management/${id}`)
+      const response = await authenticatedFetch(`http://localhost:4000/api/status-management/${id}`)
       if (response.ok) {
         const data = await response.json()
         setCustomStatuses(data.statuses || [])
@@ -531,7 +665,9 @@ export default function ProjectDetailPage() {
     if (!id) return
     
     try {
-      const response = await fetch(`http://localhost:4000/api/status-management/${id}`, {
+      console.log('📤 Sending status data:', statusData);
+      console.log('📤 Stringified:', JSON.stringify(statusData));
+      const response = await authenticatedFetch(`http://localhost:4000/api/status-management/${id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(statusData)
@@ -543,6 +679,9 @@ export default function ProjectDetailPage() {
       
       // Reload custom statuses
       await loadCustomStatuses()
+      
+      // Trigger refresh in StatusManagementTab
+      setStatusRefreshKey(prev => prev + 1)
     } catch (error) {
       console.error('Error creating status:', error)
       throw error
@@ -558,7 +697,7 @@ export default function ProjectDetailPage() {
     if (!id) return
     
     try {
-      const response = await fetch(`http://localhost:4000/api/group-management/${id}`, {
+      const response = await authenticatedFetch(`http://localhost:4000/api/group-management/${id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(groupData)
@@ -611,7 +750,7 @@ export default function ProjectDetailPage() {
     if (!id || selectedPanels.size === 0) return
     
     try {
-      const response = await fetch(`http://localhost:4000/api/status-management/assign-to-panels`, {
+      const response = await authenticatedFetch(`http://localhost:4000/api/status-management/assign-to-panels`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -642,7 +781,7 @@ export default function ProjectDetailPage() {
       
       // Update each panel individually with the new groupId
       const updatePromises = Array.from(selectedPanels).map(async (panelId) => {
-        const response = await fetch(`http://localhost:4000/api/panels/${id}/${panelId}`, {
+        const response = await authenticatedFetch(`http://localhost:4000/api/panels/${id}/${panelId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ groupId })
@@ -693,7 +832,7 @@ export default function ProjectDetailPage() {
       console.log('🔄 Updating panel:', panelId, updates)
 
       // Update panel via API
-      const response = await fetch(`http://localhost:4000/api/panels/${id}/${panelId}`, {
+      const response = await authenticatedFetch(`http://localhost:4000/api/panels/${id}/${panelId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -713,7 +852,7 @@ export default function ProjectDetailPage() {
       // Update custom statuses if provided
       if (updates.customStatusIds && updates.customStatusIds.length > 0) {
         for (const statusId of updates.customStatusIds) {
-          await fetch(`http://localhost:4000/api/status-management/assign-to-panels`, {
+          await authenticatedFetch(`http://localhost:4000/api/status-management/assign-to-panels`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -743,7 +882,7 @@ export default function ProjectDetailPage() {
     if (!id) return
 
     try {
-      const response = await fetch(`http://localhost:4000/api/panels/${id}/${panelId}`, {
+      const response = await authenticatedFetch(`http://localhost:4000/api/panels/${id}/${panelId}`, {
         method: 'DELETE'
       })
 
@@ -772,7 +911,7 @@ export default function ProjectDetailPage() {
       const panel = panels.find(p => p.id === panelId)
       if (!panel) return
 
-      const response = await fetch(`http://localhost:4000/api/panels/${id}`, {
+      const response = await authenticatedFetch(`http://localhost:4000/api/panels/${id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -813,7 +952,7 @@ export default function ProjectDetailPage() {
     if (!id) return
     
     try {
-      const response = await fetch(`http://localhost:4000/api/panels/${id}`, {
+      const response = await authenticatedFetch(`http://localhost:4000/api/panels/${id}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -832,7 +971,7 @@ export default function ProjectDetailPage() {
     if (!id) return
     
     try {
-      const response = await fetch(`http://localhost:4000/api/panels/${id}/${panelId}/status`, {
+      const response = await authenticatedFetch(`http://localhost:4000/api/panels/${id}/${panelId}/status`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json'
@@ -872,9 +1011,9 @@ export default function ProjectDetailPage() {
     return (
       <div className="w-full h-full flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-[#3A7BD5] mx-auto mb-4"></div>
-          <h2 className="text-xl font-semibold text-[#E8EAF0]">Loading Project...</h2>
-          <p className="text-[#B8BCC8] mt-2">Fetching project details</p>
+          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-slate-700 mx-auto mb-4"></div>
+          <h2 className="text-xl font-semibold text-slate-900">Loading Project...</h2>
+          <p className="text-slate-600 mt-2">Fetching project details</p>
         </div>
       </div>
     )
@@ -883,406 +1022,249 @@ export default function ProjectDetailPage() {
   if (error || !project) {
     return (
       <div className="w-full h-full">
-        <ProfessionalGamingCard variant="panel" className="p-8 text-center">
+        <Card className="border-slate-200">
+          <CardContent className="p-8 text-center">
           <div className="flex flex-col items-center gap-4">
             <Building2 className="h-12 w-12 text-red-400" />
             <div>
-              <h2 className="text-xl font-bold text-[#E8EAF0] mb-2">PROJECT NOT FOUND</h2>
-              <p className="text-[#B8BCC8] mb-4">{error || 'Project could not be loaded'}</p>
-              <ProfessionalGamingButton 
+              <h2 className="text-xl font-bold text-slate-900 mb-2">PROJECT NOT FOUND</h2>
+              <p className="text-slate-600 mb-4">{error || 'Project could not be loaded'}</p>
+              <Button 
                 onClick={() => navigate('/projects')} 
                 variant="primary"
                 className="flex items-center gap-2"
               >
                 <ArrowLeft className="h-4 w-4" />
                 BACK TO PROJECTS
-              </ProfessionalGamingButton>
+              </Button>
             </div>
           </div>
-        </ProfessionalGamingCard>
+          </CardContent>
+        </Card>
       </div>
     )
   }
 
   return (
-    <div className="w-full h-full space-y-6">
-      {/* Professional Header */}
-      <div className="relative">
-        <div className="absolute inset-0 bg-gradient-to-r from-[#3A7BD5]/20 via-[#00D2FF]/10 to-[#3A7BD5]/20 rounded-xl blur-xl"></div>
-        <ProfessionalGamingCard variant="panel" className="relative p-6 border-2 border-[rgba(58,123,213,0.3)] bg-gradient-to-r from-[rgba(26,31,46,0.9)] to-[rgba(37,42,58,0.9)]">
-          <div className="flex items-center gap-6 mb-4">
-            <ProfessionalGamingButton 
-              onClick={() => navigate('/projects')} 
-              variant="secondary" 
-              className="flex items-center gap-2"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              BACK
-            </ProfessionalGamingButton>
-            <div className="flex items-center gap-6">
-              <div className="relative">
-                <div className="absolute inset-0 bg-gradient-to-br from-[#3A7BD5] to-[#00D2FF] rounded-xl blur-md opacity-60"></div>
-                <div className="relative p-4 rounded-xl bg-gradient-to-br from-[#3A7BD5] to-[#00D2FF] shadow-2xl">
-                  <Building2 className="h-8 w-8 text-white" />
-                </div>
-              </div>
-              <div>
-                <h1 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#E8EAF0] to-[#3A7BD5] uppercase tracking-wider">
-                  {project.name}
-                </h1>
-                <p className="text-[#B8BCC8] text-base mt-1">{project.description}</p>
-              </div>
-            </div>
-          </div>
-          
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+    <div className="w-full h-full">
+      {/* Minimal Header - MyAssembly Style */}
+      <div className="bg-white border-b border-slate-200">
+        <div className="px-8 py-6">
+          <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <ProfessionalGamingBadge variant={getStatusConfig(project.status).variant}>
-                {getStatusConfig(project.status).label.toUpperCase()}
-              </ProfessionalGamingBadge>
-              <div className="text-sm text-[#B8BCC8]">
-                Created {formatDate(project.createdAt)}
-              </div>
+              <button 
+                onClick={() => navigate('/projects')} 
+                className="text-slate-600 hover:text-slate-900 transition-colors"
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </button>
+              <h1 className="text-2xl font-semibold text-slate-900">
+                {project.name}
+              </h1>
             </div>
-            <div className="flex items-center gap-2">
-              {models?.currentModel && (models.currentModel.status === 'READY' || models.currentModel.status === 'ready') && (
-                <ProfessionalGamingButton 
-                  variant="primary" 
-                  size="lg" 
-                  className="w-full"
-                  onClick={() => openViewer(models?.currentModel?.id)}
-                >
-                  <ExternalLink className="h-5 w-5 mr-2" />
-                  OPEN 3D VIEWER
-                </ProfessionalGamingButton>
+            {models?.currentModel && (models.currentModel.status === 'READY' || models.currentModel.status === 'ready') && (
+              <button
+                onClick={() => openViewer(models?.currentModel?.id)}
+                className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-md hover:bg-slate-800 transition-colors text-sm font-medium"
+              >
+                <ExternalLink className="h-4 w-4" />
+                Open 3D Viewer
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Minimal Tabs */}
+        <div className="px-8">
+          <div className="flex gap-8 border-b border-slate-200">
+            <button
+              onClick={() => setActiveTab('overview')}
+              className={`pb-3 text-sm font-medium transition-colors relative ${
+                activeTab === 'overview'
+                  ? 'text-slate-900'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              Overview
+              {activeTab === 'overview' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-900" />
               )}
-            </div>
-          </div>
-        </ProfessionalGamingCard>
-      </div>
-
-      {/* Panel Status Overview */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-bold text-[#E8EAF0] uppercase tracking-wider">PANEL STATUS OVERVIEW</h2>
-          <div className="text-[#B8BCC8] flex flex-col items-end">
-            <div>
-              <span className="text-3xl font-bold text-[#E8EAF0]">{totalPanelCount > 0 ? totalPanelCount : panels.length}</span> Total Panels
-            </div>
-            {totalPanelCount > displayedPanelCount && displayedPanelCount > 0 && (
-              <div className="text-sm text-[#8B5CF6] mt-1">
-                ({displayedPanelCount} displayed for performance)
-              </div>
-            )}
+            </button>
+            <button
+              onClick={() => setActiveTab('status')}
+              className={`pb-3 text-sm font-medium transition-colors relative ${
+                activeTab === 'status'
+                  ? 'text-slate-900'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              Status Management
+              {activeTab === 'status' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-900" />
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab('groups')}
+              className={`pb-3 text-sm font-medium transition-colors relative ${
+                activeTab === 'groups'
+                  ? 'text-slate-900'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              Group Management
+              {activeTab === 'groups' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-900" />
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab('panels')}
+              className={`pb-3 text-sm font-medium transition-colors relative ${
+                activeTab === 'panels'
+                  ? 'text-slate-900'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              Panel Management
+              {activeTab === 'panels' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-900" />
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab('details')}
+              className={`pb-3 text-sm font-medium transition-colors relative ml-auto ${
+                activeTab === 'details'
+                  ? 'text-slate-900'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              Project Details
+              {activeTab === 'details' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-900" />
+              )}
+            </button>
           </div>
         </div>
-        
-        <div className="overflow-x-auto">
-          <div className="flex gap-6 pb-4 min-w-max">
-            {panelStatuses.length > 0 ? panelStatuses.map((status) => {
+      </div>
+
+      {/* Minimal Panel Status Overview - Only on Overview Tab */}
+      {activeTab === 'overview' && (
+        <div className="bg-white border-b border-slate-200 px-8 py-6">
+          <div className="flex items-start gap-8 overflow-x-auto pb-2">
+            {/* Total Panels */}
+            <div className="flex-shrink-0 pt-1">
+              <div className="text-xs text-slate-500 mb-1">Total Panels</div>
+              <div className="text-2xl font-semibold text-slate-900">{totalPanelCount > 0 ? totalPanelCount : panels.length}</div>
+            </div>
+
+            {/* Status Cards - Horizontal */}
+            {customStatuses.length > 0 ? customStatuses.map((status) => {
+              const panelCount = status.panelCount || 0;
+              const percentage = totalPanelCount > 0 ? Math.round((panelCount / totalPanelCount) * 100) : 0;
+              const IconComponent = getIconComponent(status.icon);
+              
               return (
-                <div 
-                  key={status.status}
-                  className="bg-[rgba(26,31,46,0.8)] backdrop-blur-sm border border-[rgba(58,123,213,0.2)] rounded-xl p-6 min-w-[200px] hover:border-[rgba(58,123,213,0.4)] transition-all duration-300"
-                >
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="p-3 rounded-lg" style={{ backgroundColor: `${status.color}20`, border: `1px solid ${status.color}40` }}>
-                      <Package className="w-5 h-5" style={{ color: status.color }} />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-[#E8EAF0] text-sm leading-tight uppercase tracking-wider">
-                        {status.label}
-                      </h3>
-                    </div>
+                <div key={status.id} className="flex-shrink-0 min-w-[160px] pt-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <IconComponent className="w-5 h-5" style={{ color: status.color }} />
+                    <div className="text-xs text-slate-500">{status.name}</div>
                   </div>
-                  
-                  <div className="space-y-2">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-3xl font-bold text-[#E8EAF0]">{status.count}</span>
-                      <span 
-                        className="text-sm font-medium px-2 py-1 rounded"
-                        style={{ 
-                          backgroundColor: `${status.color}20`, 
-                          color: status.color 
-                        }}
-                      >
-                        {status.percentage}%
-                      </span>
-                    </div>
-                    
-                    <div className="w-full bg-[rgba(37,42,58,0.6)] rounded-full h-2">
-                      <div 
-                        className="h-2 rounded-full transition-all duration-500"
-                        style={{ 
-                          backgroundColor: status.color,
-                          width: `${status.percentage}%`
-                        }}
-                      />
-                    </div>
+                  <div className="flex items-baseline gap-2 mb-2">
+                    <div className="text-2xl font-semibold text-slate-900">{panelCount}</div>
+                    <div className="text-xs text-slate-500">{percentage}%</div>
+                  </div>
+                  <div className="w-full bg-slate-100 rounded-full h-1.5">
+                    <div 
+                      className="h-1.5 rounded-full transition-all duration-500"
+                      style={{ 
+                        backgroundColor: status.color,
+                        width: `${percentage}%`
+                      }}
+                    />
                   </div>
                 </div>
-              )
+              );
             }) : (
-              <div className="bg-[rgba(26,31,46,0.8)] backdrop-blur-sm border border-[rgba(58,123,213,0.2)] rounded-xl p-12 min-w-[400px] text-center">
-                <Package className="h-16 w-16 text-[#B8BCC8] mx-auto mb-4" />
-                <h3 className="text-xl font-semibold text-[#E8EAF0] mb-2">No Panel Data Available</h3>
-                <p className="text-[#B8BCC8]">Upload a FRAG model to see detailed panel status information.</p>
+              <div className="flex-1 py-8 text-center text-slate-500 text-sm">
+                No status data available. Create statuses in Status Management.
               </div>
             )}
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Custom Tab Navigation */}
-      <div className="w-full">
-        <div className="flex border-b border-[rgba(58,123,213,0.2)] bg-[rgba(26,31,46,0.8)] rounded-t-lg">
-          <button
-            onClick={() => setActiveTab('overview')}
-            className={`flex items-center px-6 py-3 text-sm font-medium transition-all duration-200 ${
-              activeTab === 'overview'
-                ? 'bg-gradient-to-r from-[#3A7BD5] to-[#00D2FF] text-white border-b-2 border-[#3A7BD5]'
-                : 'text-[#B8BCC8] hover:text-[#E8EAF0] hover:bg-[rgba(58,123,213,0.1)]'
-            }`}
-          >
-            <FileText className="h-4 w-4 mr-2" />
-            Overview
-          </button>
-          <button
-            onClick={() => setActiveTab('status')}
-            className={`flex items-center px-6 py-3 text-sm font-medium transition-all duration-200 ${
-              activeTab === 'status'
-                ? 'bg-gradient-to-r from-[#3A7BD5] to-[#00D2FF] text-white border-b-2 border-[#3A7BD5]'
-                : 'text-[#B8BCC8] hover:text-[#E8EAF0] hover:bg-[rgba(58,123,213,0.1)]'
-            }`}
-          >
-            <Activity className="h-4 w-4 mr-2" />
-            Status Management
-          </button>
-          <button
-            onClick={() => setActiveTab('groups')}
-            className={`flex items-center px-6 py-3 text-sm font-medium transition-all duration-200 ${
-              activeTab === 'groups'
-                ? 'bg-gradient-to-r from-[#3A7BD5] to-[#00D2FF] text-white border-b-2 border-[#3A7BD5]'
-                : 'text-[#B8BCC8] hover:text-[#E8EAF0] hover:bg-[rgba(58,123,213,0.1)]'
-            }`}
-          >
-            <Users className="h-4 w-4 mr-2" />
-            Group Management
-          </button>
-          <button
-            onClick={() => setActiveTab('panels')}
-            className={`flex items-center px-6 py-3 text-sm font-medium transition-all duration-200 ${
-              activeTab === 'panels'
-                ? 'bg-gradient-to-r from-[#3A7BD5] to-[#00D2FF] text-white border-b-2 border-[#3A7BD5]'
-                : 'text-[#B8BCC8] hover:text-[#E8EAF0] hover:bg-[rgba(58,123,213,0.1)]'
-            }`}
-          >
-            <Layers className="h-4 w-4 mr-2" />
-            Panel Management
-          </button>
-        </div>
-
-        
-        {/* Tab Content */}
-        <div className="mt-6">
+      {/* Main Content Area */}
+      <div className="bg-slate-50">
+        <div className="px-8 py-6">
           {activeTab === 'overview' && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Project Information */}
-        <ProfessionalGamingCard variant="panel" className="p-6">
-          <h3 className="text-lg font-semibold text-[#E8EAF0] mb-4 flex items-center uppercase tracking-wider">
-            <Building2 className="h-5 w-5 mr-2 text-[#3A7BD5]" />
-            PROJECT INFORMATION
-          </h3>
-          <div className="space-y-4">
-            <div>
-              <label className="text-sm font-medium text-[#B8BCC8] uppercase tracking-wider">Name</label>
-              <p className="text-[#E8EAF0] font-semibold">{project?.name}</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-[#B8BCC8] uppercase tracking-wider">Description</label>
-              <p className="text-[#E8EAF0]">{project?.description || 'No description provided'}</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-[#B8BCC8] uppercase tracking-wider">Status</label>
-              <div className="mt-1">
-                <ProfessionalGamingBadge variant={getStatusConfig(project.status).variant}>
-                  {getStatusConfig(project.status).label.toUpperCase()}
-                </ProfessionalGamingBadge>
-              </div>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-[#B8BCC8] uppercase tracking-wider">Created</label>
-              <p className="text-[#E8EAF0]">{formatDate(project.createdAt)}</p>
-            </div>
-          </div>
-        </ProfessionalGamingCard>
-
-        {/* Progress Overview */}
-        <ProfessionalGamingCard variant="panel" className="p-6">
-          <h3 className="text-lg font-semibold text-[#E8EAF0] mb-4 flex items-center uppercase tracking-wider">
-            <BarChart3 className="h-5 w-5 mr-2 text-[#3A7BD5]" />
-            PROGRESS OVERVIEW
-          </h3>
-          <div className="space-y-4">
-            <div className="flex justify-between items-center">
-              <span className="text-[#B8BCC8] uppercase tracking-wider">Overall Progress</span>
-              <span className="text-[#E8EAF0] font-semibold">{panels.length > 0 ? Math.round((panelStatuses.find(s => s.label.toLowerCase().includes('completed') || s.label.toLowerCase().includes('produced'))?.count || 0) / panels.length * 100) : 0}%</span>
-            </div>
-            <div className="w-full bg-[rgba(37,42,58,0.6)] rounded-full h-2">
-              <div 
-                className="bg-gradient-to-r from-[#3A7BD5] to-[#00D2FF] h-2 rounded-full transition-all duration-300" 
-                style={{ width: `${panels.length > 0 ? Math.round((panelStatuses.find(s => s.label.toLowerCase().includes('completed') || s.label.toLowerCase().includes('produced'))?.count || 0) / panels.length * 100) : 0}%` }}
-              ></div>
-            </div>
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <span className="text-[#B8BCC8] uppercase tracking-wider">Completed:</span>
-                <span className="text-green-400 ml-2 font-semibold">{panelStatuses.find(s => s.label.toLowerCase().includes('completed') || s.label.toLowerCase().includes('produced'))?.count || 0}</span>
-              </div>
-              <div>
-                <span className="text-[#B8BCC8] uppercase tracking-wider">Remaining:</span>
-                <span className="text-yellow-400 ml-2 font-semibold">{panels.length - (panelStatuses.find(s => s.label.toLowerCase().includes('completed') || s.label.toLowerCase().includes('produced'))?.count || 0)}</span>
-              </div>
-            </div>
-          </div>
-        </ProfessionalGamingCard>
-
-        {/* Current Model & Version History */}
-        <ProfessionalGamingCard variant="panel" className="p-6">
-          <h3 className="text-lg font-semibold text-[#E8EAF0] mb-4 flex items-center uppercase tracking-wider">
-            <Package className="h-5 w-5 mr-2 text-[#3A7BD5]" />
-            MODEL & VERSIONS
-          </h3>
-          <div className="space-y-3">
-            {models?.currentModel && (
-              <div className="p-3 bg-gradient-to-r from-[rgba(58,123,213,0.2)] to-[rgba(16,185,129,0.2)] rounded-lg border border-[rgba(58,123,213,0.3)]">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="flex items-center space-x-2">
-                      <p className="text-sm text-[#B8BCC8] mb-4">Current Model: {models?.currentModel?.originalFilename || 'No model loaded'}</p>
-                      <ProfessionalGamingBadge variant="completed">
-                        v{models.currentModel.version} (Current)
-                      </ProfessionalGamingBadge>
-                    </div>
-                    <p className="text-[#B8BCC8] text-sm">{formatFileSize(Number(models.currentModel.sizeBytes))}</p>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <ProfessionalGamingBadge variant={getStatusConfig(models.currentModel.status).variant}>
-                      {getStatusConfig(models.currentModel.status).label.toUpperCase()}
-                    </ProfessionalGamingBadge>
-                    <ProfessionalGamingButton
-                      variant="secondary"
-                      onClick={() => navigate(`/models/${models.currentModel!.id}`)}
-                      size="sm"
-                      className="flex items-center gap-1"
-                    >
-                      <Eye className="w-3 h-3" />
-                      Details
-                    </ProfessionalGamingButton>
-                    {(models.currentModel.status === 'READY' || models.currentModel.status === 'ready') && (
-                      <ProfessionalGamingButton
-                        variant="secondary"
-                        onClick={() => openViewer(models.currentModel!.id)}
-                        size="sm"
-                        className="p-1"
-                      >
-                        <ExternalLink className="w-3 h-3" />
-                      </ProfessionalGamingButton>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-            
-            {/* Previous Versions */}
-            {models?.modelHistory?.filter((model: any) => !model.isActive).slice(0, 2).map((model: any) => (
-              <div key={model.id} className="flex items-center justify-between p-3 bg-[rgba(37,42,58,0.6)] rounded-lg border border-[rgba(58,123,213,0.1)]">
-                <div>
-                  <div className="flex items-center space-x-2">
-                    <p className="text-[#B8BCC8] font-medium">{model.originalFilename}</p>
-                    <ProfessionalGamingBadge variant="neutral">
-                      v{model.version}
-                    </ProfessionalGamingBadge>
-                  </div>
-                  <p className="text-[#6B7280] text-sm">{formatFileSize(Number(model.sizeBytes))}</p>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <ProfessionalGamingBadge variant="neutral">
-                    PREVIOUS
-                  </ProfessionalGamingBadge>
-                </div>
-              </div>
-            ))}
-            
-            {!models?.hasModel && (
-              <p className="text-[#B8BCC8] text-center py-4">No model uploaded yet</p>
-            )}
-            
-            {(models?.totalVersions || 0) > 3 && (
-              <p className="text-[#B8BCC8] text-center text-sm">
-                +{(models?.totalVersions || 0) - 3} more versions
-              </p>
-            )}
-          </div>
-        </ProfessionalGamingCard>
-            </div>
+            <OverviewTab 
+              projectId={parseInt(id!)} 
+              totalPanels={totalPanelCount > 0 ? totalPanelCount : panels.length}
+              groups={groups}
+              panels={panels}
+              panelStatuses={panelStatuses}
+              groupsCount={groupTotalCount > 0 ? groupTotalCount : groups.length}
+              onCreateStatus={() => setShowCreateStatusModal(true)}
+              onCreateGroup={() => setShowCreateGroupModal(true)}
+            />
           )}
 
           {activeTab === 'status' && (
-          <ProfessionalGamingCard variant="panel" className="p-6">
+            <StatusManagementTab 
+              projectId={parseInt(id!)} 
+              onCreateStatus={() => setShowCreateStatusModal(true)}
+              onStatusClick={handleCustomStatusClick}
+              refreshKey={statusRefreshKey}
+            />
+          )}
+
+          {activeTab === 'groups' && (
+            <GroupManagementTab 
+              projectId={parseInt(id)}
+              onCreateGroup={() => setShowCreateGroupModal(true)}
+              onViewGroup={handleViewGroup}
+            />
+          )}
+
+          {activeTab === 'panels' && (
+            <PanelManagementTab projectId={parseInt(id)} />
+          )}
+
+          {activeTab === 'details' && (
+            <ProjectDetailsTab
+              project={project}
+              models={models}
+              panels={panels}
+              formatDate={formatDate}
+              formatFileSize={formatFileSize}
+              getStatusConfig={getStatusConfig}
+              navigate={navigate}
+              openViewer={openViewer}
+            />
+          )}
+
+          {/* OLD STATUS CODE - COMMENTED OUT - NOW USING StatusManagementTab COMPONENT */}
+          {/* {activeTab === 'status' && (
+          <Card className="border-slate-200">
+          <CardContent className="p-6">
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold text-[#E8EAF0] uppercase tracking-wider">STATUS MANAGEMENT</h3>
+              <h3 className="text-xl font-bold text-slate-900 uppercase tracking-wider">STATUS MANAGEMENT</h3>
               <div className="flex items-center gap-2">
-                <ProfessionalGamingButton 
+                <Button 
                   variant="primary" 
                   size="sm"
                   onClick={() => setShowCreateStatusModal(true)}
                 >
                   + CREATE NEW STATUS
-                </ProfessionalGamingButton>
-                <ProfessionalGamingButton variant="secondary" size="sm">
+                </Button>
+                <Button variant="secondary" size="sm">
                   <Download className="h-4 w-4 mr-2" />
                   EXPORT REPORT
-                </ProfessionalGamingButton>
+                </Button>
               </div>
             </div>
             
-            {/* Status Overview Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {/* Default Panel Statuses */}
-              {panelStatuses.length > 0 ? panelStatuses.map((status) => {
-                return (
-                  <div 
-                    key={status.status} 
-                    className="p-4 bg-[rgba(37,42,58,0.6)] rounded-lg border border-[rgba(58,123,213,0.1)] hover:border-[rgba(58,123,213,0.3)] transition-all cursor-pointer"
-                    onClick={() => handleStatusClick(status.status)}
-                  >
-                    <div className="flex items-center gap-3 mb-3">
-                      <div className="p-2 rounded-lg" style={{ backgroundColor: `${status.color}20`, border: `1px solid ${status.color}40` }}>
-                        <Package className="w-4 h-4" style={{ color: status.color }} />
-                      </div>
-                      <div className="flex-1">
-                        <h4 className="font-semibold text-[#E8EAF0] text-sm uppercase">{status.label}</h4>
-                        <p className="text-[#B8BCC8] text-xs">{status.count} panels</p>
-                      </div>
-                      <Eye className="h-4 w-4 text-[#B8BCC8]" />
-                    </div>
-                    <div className="space-y-2">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-[#B8BCC8]">Percentage</span>
-                        <span className="text-[#E8EAF0] font-medium">{status.percentage}%</span>
-                      </div>
-                      <div className="w-full bg-[rgba(26,31,46,0.6)] rounded-full h-2">
-                        <div className="h-2 rounded-full transition-all duration-300" style={{ backgroundColor: status.color, width: `${status.percentage}%` }} />
-                      </div>
-                    </div>
-                  </div>
-                )
-              }) : null}
-              
-              {/* Custom Statuses */}
               {customStatuses.map((customStatus) => {
-                // Map icon name to Lucide component
                 const iconMap: any = {
                   'Circle': Package,
                   'Check': CheckCircle,
@@ -1301,7 +1283,7 @@ export default function ProjectDetailPage() {
                 return (
                   <div 
                     key={customStatus.id} 
-                    className="p-4 bg-[rgba(37,42,58,0.6)] rounded-lg border border-[rgba(58,123,213,0.1)] hover:border-[rgba(58,123,213,0.3)] transition-all cursor-pointer"
+                    className="p-4 bg-white rounded-lg border border-slate-200 hover:border-slate-300 transition-all cursor-pointer"
                     onClick={() => handleCustomStatusClick(customStatus.id)}
                   >
                     <div className="flex items-center gap-3 mb-3">
@@ -1309,20 +1291,20 @@ export default function ProjectDetailPage() {
                         <IconComponent className="w-4 h-4" style={{ color: customStatus.color }} />
                       </div>
                       <div className="flex-1">
-                        <h4 className="font-semibold text-[#E8EAF0] text-sm uppercase">{customStatus.name}</h4>
-                        <p className="text-[#B8BCC8] text-xs">{panelCount} panels</p>
+                        <h4 className="font-semibold text-slate-900 text-sm uppercase">{customStatus.name}</h4>
+                        <p className="text-slate-600 text-xs">{panelCount} panels</p>
                       </div>
-                      <Eye className="h-4 w-4 text-[#B8BCC8]" />
+                      <Eye className="h-4 w-4 text-slate-600" />
                     </div>
                     {customStatus.description && (
-                      <p className="text-[#B8BCC8] text-xs mb-3">{customStatus.description}</p>
+                      <p className="text-slate-600 text-xs mb-3">{customStatus.description}</p>
                     )}
                     <div className="space-y-2">
                       <div className="flex justify-between text-sm">
-                        <span className="text-[#B8BCC8]">Percentage</span>
-                        <span className="text-[#E8EAF0] font-medium">{percentage}%</span>
+                        <span className="text-slate-600">Percentage</span>
+                        <span className="text-slate-900 font-medium">{percentage}%</span>
                       </div>
-                      <div className="w-full bg-[rgba(26,31,46,0.6)] rounded-full h-2">
+                      <div className="w-full bg-white rounded-full h-2">
                         <div className="h-2 rounded-full transition-all duration-300" style={{ backgroundColor: customStatus.color, width: `${percentage}%` }} />
                       </div>
                     </div>
@@ -1332,58 +1314,16 @@ export default function ProjectDetailPage() {
               
               {panelStatuses.length === 0 && customStatuses.length === 0 && (
                 <div className="col-span-full text-center py-12">
-                  <Package className="h-12 w-12 text-[#B8BCC8] mx-auto mb-4" />
-                  <h4 className="text-lg font-semibold text-[#E8EAF0] mb-2">No Status Data Available</h4>
-                  <p className="text-[#B8BCC8]">Upload a FRAG model or create custom statuses.</p>
+                  <Package className="h-12 w-12 text-slate-600 mx-auto mb-4" />
+                  <h4 className="text-lg font-semibold text-slate-900 mb-2">No Status Data Available</h4>
+                  <p className="text-slate-600">Upload a FRAG model or create custom statuses.</p>
                 </div>
               )}
             </div>
             
-            {/* Status Workflow Visualization */}
-            {panelStatuses.length > 0 && (
-              <div className="mt-8 p-6 bg-[rgba(37,42,58,0.6)] rounded-lg border border-[rgba(58,123,213,0.1)]">
-                <h4 className="text-lg font-semibold text-[#E8EAF0] mb-4 uppercase tracking-wider">Production Workflow</h4>
-                <div className="grid grid-cols-6 gap-4">
-                  {[
-                    { key: 'READY_FOR_PRODUCTION', label: 'Ready For Production' },
-                    { key: 'PRODUCED', label: 'Produced' },
-                    { key: 'PRE_FABRICATED', label: 'Pre Fabricated' },
-                    { key: 'READY_FOR_TRUCK_LOAD', label: 'Ready For Truck Load' },
-                    { key: 'SHIPPED', label: 'Shipped' },
-                    { key: 'EDIT', label: 'Edit' }
-                  ].map((statusInfo, index) => {
-                    const statusData = panelStatuses.find(s => s.status === statusInfo.key)
-                    const count = statusData?.count || 0
-                    const color = statusData?.color || '#6B7280'
-                    
-                    return (
-                      <div key={statusInfo.key} className="flex flex-col items-center">
-                        <div 
-                          className="w-16 h-16 rounded-lg flex items-center justify-center border-2 transition-all cursor-pointer hover:scale-105"
-                          style={{ 
-                            backgroundColor: count > 0 ? `${color}20` : 'rgba(37,42,58,0.6)',
-                            borderColor: count > 0 ? color : 'rgba(58,123,213,0.2)'
-                          }}
-                          onClick={() => count > 0 && handleStatusClick(statusInfo.key as PanelStatus)}
-                        >
-                          <div className="text-center">
-                            <span className="text-lg font-bold block" style={{ color: count > 0 ? color : '#B8BCC8' }}>
-                              {count}
-                            </span>
-                            <span className="text-xs text-[#B8BCC8]">panels</span>
-                          </div>
-                        </div>
-                        <span className="text-xs text-[#B8BCC8] mt-2 text-center max-w-[80px]">
-                          {statusInfo.label}
-                        </span>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-          </ProfessionalGamingCard>
-          )}
+            </CardContent>
+        </Card>
+          )} */}
           
           {/* Create Status Modal */}
           <CreateStatusModal
@@ -1434,20 +1374,20 @@ export default function ProjectDetailPage() {
           {/* Status Detail Modal */}
           {showStatusDetail && selectedStatus && (
             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setShowStatusDetail(false)}>
-              <div className="bg-[#1A1F2E] border border-[rgba(58,123,213,0.3)] rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+              <div className="bg-white border border-slate-200 rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center gap-3">
                     <div className="p-2 rounded-lg" style={{ backgroundColor: `${PANEL_STATUS_CONFIG[selectedStatus]?.color}20`, border: `1px solid ${PANEL_STATUS_CONFIG[selectedStatus]?.color}40` }}>
                       <Package className="w-6 h-6" style={{ color: PANEL_STATUS_CONFIG[selectedStatus]?.color }} />
                     </div>
                     <div>
-                      <h3 className="text-2xl font-bold text-[#E8EAF0] uppercase">{PANEL_STATUS_CONFIG[selectedStatus]?.label}</h3>
-                      <p className="text-[#B8BCC8]">{statusPanels.length} panels with this status</p>
+                      <h3 className="text-2xl font-bold text-slate-900 uppercase">{PANEL_STATUS_CONFIG[selectedStatus]?.label}</h3>
+                      <p className="text-slate-600">{statusPanels.length} panels with this status</p>
                     </div>
                   </div>
                   <button
                     onClick={() => setShowStatusDetail(false)}
-                    className="text-[#B8BCC8] hover:text-[#E8EAF0] transition-colors"
+                    className="text-slate-600 hover:text-slate-900 transition-colors"
                   >
                     <X className="h-6 w-6" />
                   </button>
@@ -1455,43 +1395,43 @@ export default function ProjectDetailPage() {
                 
                 {loadingStatusPanels ? (
                   <div className="text-center py-12">
-                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#3A7BD5] mx-auto"></div>
-                    <p className="text-[#B8BCC8] mt-4">Loading panels...</p>
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-slate-700 mx-auto"></div>
+                    <p className="text-slate-600 mt-4">Loading panels...</p>
                   </div>
                 ) : (
                   <div className="space-y-4">
                     {/* Panel List */}
                     <div className="max-h-96 overflow-y-auto space-y-2">
                       {statusPanels.map(panel => (
-                        <div key={panel.id} className="p-3 bg-[rgba(37,42,58,0.6)] rounded-lg border border-[rgba(58,123,213,0.1)] hover:border-[rgba(58,123,213,0.3)] transition-all">
+                        <div key={panel.id} className="p-3 bg-white rounded-lg border border-slate-200 hover:border-slate-300 transition-all">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
-                              <input type="checkbox" className="w-4 h-4 rounded border-[rgba(58,123,213,0.3)]" />
+                              <input type="checkbox" className="w-4 h-4 rounded border-slate-300" />
                               <div>
-                                <p className="text-[#E8EAF0] font-semibold">{panel.name}</p>
-                                <p className="text-[#B8BCC8] text-sm">{panel.objectType} • {panel.location}</p>
+                                <p className="text-slate-900 font-semibold">{panel.name}</p>
+                                <p className="text-slate-600 text-sm">{panel.objectType} • {panel.location}</p>
                               </div>
                             </div>
-                            <ProfessionalGamingButton variant="secondary" size="sm">
+                            <Button variant="secondary" size="sm">
                               <Eye className="h-4 w-4" />
-                            </ProfessionalGamingButton>
+                            </Button>
                           </div>
                         </div>
                       ))}
                     </div>
                     
                     {/* Bulk Actions */}
-                    <div className="flex items-center justify-between pt-4 border-t border-[rgba(58,123,213,0.2)]">
-                      <div className="text-sm text-[#B8BCC8]">
+                    <div className="flex items-center justify-between pt-4 border-t border-slate-200">
+                      <div className="text-sm text-slate-600">
                         Select panels to perform bulk actions
                       </div>
                       <div className="flex gap-2">
-                        <ProfessionalGamingButton variant="secondary" size="sm" onClick={() => setShowStatusDetail(false)}>
+                        <Button variant="secondary" size="sm" onClick={() => setShowStatusDetail(false)}>
                           Close
-                        </ProfessionalGamingButton>
-                        <ProfessionalGamingButton variant="primary" size="sm">
+                        </Button>
+                        <Button variant="primary" size="sm">
                           Update Status
-                        </ProfessionalGamingButton>
+                        </Button>
                       </div>
                     </div>
                   </div>
@@ -1500,131 +1440,113 @@ export default function ProjectDetailPage() {
             </div>
           )}
 
-          {activeTab === 'groups' && (
-          <ProfessionalGamingCard variant="panel" className="p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold text-[#E8EAF0] uppercase tracking-wider">GROUP MANAGEMENT</h3>
-              <div className="flex items-center gap-2">
-                <ProfessionalGamingButton 
-                  variant="primary" 
-                  size="sm"
-                  onClick={() => setShowCreateGroupModal(true)}
-                >
-                  + CREATE NEW GROUP
-                </ProfessionalGamingButton>
-                <select
-                  value={groupTypeFilter}
-                  onChange={(e) => setGroupTypeFilter(e.target.value)}
-                  className="px-3 py-2 bg-[rgba(26,31,46,0.6)] border border-[rgba(58,123,213,0.3)] rounded-lg text-[#E8EAF0] text-sm focus:outline-none focus:border-[#3A7BD5]"
-                >
-                  <option value="all">All Types</option>
-                  <option value="STOREY">Storey</option>
-                  <option value="SYSTEM">System</option>
-                </select>
-                <select
-                  value={groupStatusFilter}
-                  onChange={(e) => setGroupStatusFilter(e.target.value)}
-                  className="px-3 py-2 bg-[rgba(26,31,46,0.6)] border border-[rgba(58,123,213,0.3)] rounded-lg text-[#E8EAF0] text-sm focus:outline-none focus:border-[#3A7BD5]"
-                >
-                  <option value="all">All Statuses</option>
-                  <option value="PENDING">Pending</option>
-                  <option value="IN_PROGRESS">In Progress</option>
-                  <option value="COMPLETED">Completed</option>
-                </select>
-              </div>
-            </div>
-            
-            {/* Groups count and pagination info */}
-            <div className="mb-4 text-sm text-[#B8BCC8]">
-              Showing {filteredGroups.length} of {groupTotalCount} groups (Page {groupPage} of {groupTotalPages})
-            </div>
-            
-            <div className="space-y-4">
-              {filteredGroups.length > 0 ? filteredGroups.map((group) => {
-                const panelCount = group.metadata?.panelCount || group._count?.panels || 0;
-                const groupType = group.metadata?.type || 'GROUP';
-                const progress = 0; // Calculate from panel statuses later
+
+          
+          {/* IFC Model Structure - Building Storeys and Panels */}
+          {activeTab === 'groups' && modelMetadata && modelMetadata.spatialStructure && modelMetadata.spatialStructure.length > 0 && (
+            <Card className="border-slate-200 mt-6">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center gap-3">
+                    <Building2 className="h-6 w-6 text-blue-600" />
+                    <h3 className="text-xl font-bold text-slate-900 uppercase tracking-wider">Building Structure</h3>
+                  </div>
+                  <Badge variant="outline" className="text-sm">
+                    {modelMetadata.totalElements} Total Elements
+                  </Badge>
+                </div>
                 
-                return (
-                  <div key={group.id} className="p-4 bg-[rgba(37,42,58,0.6)] rounded-lg border border-[rgba(58,123,213,0.1)] hover:border-[rgba(58,123,213,0.3)] transition-all">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className="p-2 bg-[rgba(58,123,213,0.2)] rounded-lg border border-[rgba(58,123,213,0.3)]">
-                          <Building2 className="h-5 w-5 text-[#3A7BD5]" />
-                        </div>
-                        <div>
-                          <h4 className="font-semibold text-[#E8EAF0] uppercase">{group.name}</h4>
-                          <p className="text-[#B8BCC8] text-sm">{groupType} • {panelCount} panels</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="text-right">
-                          <p className="text-[#E8EAF0] font-medium">{progress}%</p>
-                          <div className="w-20 bg-[rgba(26,31,46,0.6)] rounded-full h-2 mt-1">
-                            <div className="bg-gradient-to-r from-[#3A7BD5] to-[#00D2FF] h-2 rounded-full transition-all" style={{ width: `${progress}%` }} />
+                <div className="space-y-3">
+                  {modelMetadata.spatialStructure.map((storey: any, index: number) => {
+                    const storeyId = storey.id || `storey-${index}`;
+                    const isExpanded = expandedStoreys.has(storeyId);
+                    
+                    return (
+                      <div key={storeyId} className="border border-slate-200 rounded-lg overflow-hidden">
+                        {/* Storey Header - Clickable to expand/collapse */}
+                        <div 
+                          className="bg-slate-50 px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-slate-100 transition-colors"
+                          onClick={() => {
+                            const newExpanded = new Set(expandedStoreys);
+                            if (isExpanded) {
+                              newExpanded.delete(storeyId);
+                            } else {
+                              newExpanded.add(storeyId);
+                            }
+                            setExpandedStoreys(newExpanded);
+                          }}
+                        >
+                          <div className="flex items-center gap-3">
+                            <Layers className="h-5 w-5 text-slate-600" />
+                            <h5 className="font-semibold text-slate-900">{storey.name}</h5>
+                            <Badge variant="secondary" className="text-xs">
+                              {storey.elementCount} elements
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-slate-500">{storey.type}</span>
+                            <svg 
+                              className={`h-5 w-5 text-slate-600 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                              fill="none" 
+                              stroke="currentColor" 
+                              viewBox="0 0 24 24"
+                            >
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
                           </div>
                         </div>
-                        <ProfessionalGamingBadge variant={getStatusConfig(group.status).variant}>
-                          <span className="uppercase">{getStatusConfig(group.status).label}</span>
-                        </ProfessionalGamingBadge>
-                        <ProfessionalGamingButton 
-                          variant="secondary" 
-                          size="sm"
-                          onClick={() => handleViewGroup(group)}
-                        >
-                          <Eye className="h-4 w-4" />
-                        </ProfessionalGamingButton>
+                        
+                        {/* Panels Grid - Collapsible */}
+                        {isExpanded && storey.children && storey.children.length > 0 && (
+                          <div className="p-4 bg-white border-t border-slate-200">
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-2">
+                              {storey.children.map((panel: any) => (
+                                <div
+                                  key={panel.id}
+                                  className="px-3 py-2 bg-slate-50 rounded border border-slate-200 hover:border-blue-400 hover:bg-blue-50 transition-all cursor-pointer group"
+                                  title={`${panel.name} (${panel.type})`}
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <Box className="h-3 w-3 text-slate-400 group-hover:text-blue-600 flex-shrink-0" />
+                                    <span className="text-xs font-medium text-slate-700 group-hover:text-blue-700 truncate">
+                                      {panel.name}
+                                    </span>
+                                  </div>
+                                  <span className="text-[10px] text-slate-500 truncate block">
+                                    {panel.type.replace('Ifc', '')}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
+                    );
+                  })}
+                </div>
+                
+                {/* <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                    <div className="text-xs text-blue-800">
+                      <strong>Real IFC Data:</strong> This structure was extracted directly from your IFC file during upload. 
+                      All storey names and panel identifiers are authentic from your building model. Click on any storey to expand/collapse panels.
                     </div>
                   </div>
-                );
-              }) : (
-                <div className="text-center py-12">
-                  <Building2 className="h-12 w-12 text-[#B8BCC8] mx-auto mb-4" />
-                  <h4 className="text-lg font-semibold text-[#E8EAF0] mb-2">No Groups Available</h4>
-                  <p className="text-[#B8BCC8]">Upload a FRAG model to see spatial groups and organization.</p>
-                </div>
-              )}
-            </div>
-            
-            {/* Pagination Controls */}
-            {groupTotalPages > 1 && (
-              <div className="flex items-center justify-between mt-6 pt-6 border-t border-[rgba(58,123,213,0.2)]">
-                <div className="text-sm text-[#B8BCC8]">
-                  Page {groupPage} of {groupTotalPages}
-                </div>
-                <div className="flex items-center gap-2">
-                  <ProfessionalGamingButton
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => handleGroupPageChange(groupPage - 1)}
-                    disabled={groupPage === 1}
-                  >
-                    Previous
-                  </ProfessionalGamingButton>
-                  <ProfessionalGamingButton
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => handleGroupPageChange(groupPage + 1)}
-                    disabled={groupPage === groupTotalPages}
-                  >
-                    Next
-                  </ProfessionalGamingButton>
-                </div>
-              </div>
-            )}
-          </ProfessionalGamingCard>
+                </div> */}
+              </CardContent>
+            </Card>
           )}
           
           {/* Group Detail Modal */}
           {showGroupDetail && selectedGroup && (
             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setShowGroupDetail(false)}>
-              <div className="bg-[#1A1F2E] border border-[rgba(58,123,213,0.3)] rounded-lg p-6 max-w-2xl w-full mx-4" onClick={(e) => e.stopPropagation()}>
+              <div className="bg-white border border-slate-200 rounded-lg p-6 max-w-2xl w-full mx-4" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-2xl font-bold text-[#E8EAF0] uppercase">{selectedGroup.name}</h3>
+                  <h3 className="text-2xl font-bold text-slate-900 uppercase">{selectedGroup.name}</h3>
                   <button
                     onClick={() => setShowGroupDetail(false)}
-                    className="text-[#B8BCC8] hover:text-[#E8EAF0] transition-colors"
+                    className="text-slate-600 hover:text-slate-900 transition-colors"
                   >
                     <X className="h-6 w-6" />
                   </button>
@@ -1632,40 +1554,40 @@ export default function ProjectDetailPage() {
                 
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="p-4 bg-[rgba(37,42,58,0.6)] rounded-lg border border-[rgba(58,123,213,0.1)]">
-                      <p className="text-[#B8BCC8] text-sm mb-1">Type</p>
-                      <p className="text-[#E8EAF0] font-semibold uppercase">{selectedGroup.metadata?.type || 'N/A'}</p>
+                    <div className="p-4 bg-white rounded-lg border border-slate-200">
+                      <p className="text-slate-600 text-sm mb-1">Type</p>
+                      <p className="text-slate-900 font-semibold uppercase">{selectedGroup.metadata?.type || 'N/A'}</p>
                     </div>
-                    <div className="p-4 bg-[rgba(37,42,58,0.6)] rounded-lg border border-[rgba(58,123,213,0.1)]">
-                      <p className="text-[#B8BCC8] text-sm mb-1">Status</p>
-                      <ProfessionalGamingBadge variant={getStatusConfig(selectedGroup.status).variant}>
+                    <div className="p-4 bg-white rounded-lg border border-slate-200">
+                      <p className="text-slate-600 text-sm mb-1">Status</p>
+                      <Badge variant={getStatusConfig(selectedGroup.status).variant}>
                         <span className="uppercase">{getStatusConfig(selectedGroup.status).label}</span>
-                      </ProfessionalGamingBadge>
+                      </Badge>
                     </div>
-                    <div className="p-4 bg-[rgba(37,42,58,0.6)] rounded-lg border border-[rgba(58,123,213,0.1)]">
-                      <p className="text-[#B8BCC8] text-sm mb-1">Panel Count</p>
-                      <p className="text-[#E8EAF0] font-semibold">{(selectedGroup as any)._count?.panels || selectedGroup.metadata?.panelCount || 0}</p>
+                    <div className="p-4 bg-white rounded-lg border border-slate-200">
+                      <p className="text-slate-600 text-sm mb-1">Panel Count</p>
+                      <p className="text-slate-900 font-semibold">{(selectedGroup as any)._count?.panelGroups || 0}</p>
                     </div>
-                    <div className="p-4 bg-[rgba(37,42,58,0.6)] rounded-lg border border-[rgba(58,123,213,0.1)]">
-                      <p className="text-[#B8BCC8] text-sm mb-1">Unassigned</p>
-                      <p className="text-[#E8EAF0] font-semibold">{selectedGroup.elementIds?.length || 0}</p>
+                    <div className="p-4 bg-white rounded-lg border border-slate-200">
+                      <p className="text-slate-600 text-sm mb-1">Unassigned</p>
+                      <p className="text-slate-900 font-semibold">{selectedGroup.elementIds?.length || 0}</p>
                     </div>
                   </div>
                   
-                  <div className="p-4 bg-[rgba(37,42,58,0.6)] rounded-lg border border-[rgba(58,123,213,0.1)]">
-                    <p className="text-[#B8BCC8] text-sm mb-2">Description</p>
-                    <p className="text-[#E8EAF0]">{selectedGroup.description || 'No description available'}</p>
+                  <div className="p-4 bg-white rounded-lg border border-slate-200">
+                    <p className="text-slate-600 text-sm mb-2">Description</p>
+                    <p className="text-slate-900">{selectedGroup.description || 'No description available'}</p>
                   </div>
                   
                   <div className="flex justify-end gap-2 mt-6">
-                    <ProfessionalGamingButton
+                    <Button
                       variant="secondary"
                       size="sm"
                       onClick={() => setShowGroupDetail(false)}
                     >
                       Close
-                    </ProfessionalGamingButton>
-                    <ProfessionalGamingButton
+                    </Button>
+                    <Button
                       variant="primary"
                       size="sm"
                       onClick={() => {
@@ -1675,276 +1597,14 @@ export default function ProjectDetailPage() {
                       }}
                     >
                       View Panels
-                    </ProfessionalGamingButton>
+                    </Button>
                   </div>
                 </div>
               </div>
             </div>
           )}
 
-          {activeTab === 'panels' && (
-          <ProfessionalGamingCard variant="panel" className="p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold text-[#E8EAF0] uppercase tracking-wider">PANEL MANAGEMENT</h3>
-              <div className="flex items-center gap-2">
-                <ProfessionalGamingButton variant="secondary" size="sm">
-                  <Download className="h-4 w-4 mr-2" />
-                  EXPORT
-                </ProfessionalGamingButton>
-                <ProfessionalGamingButton variant="primary" size="sm">
-                  <Filter className="h-4 w-4 mr-2" />
-                  FILTER
-                </ProfessionalGamingButton>
-              </div>
-            </div>
-            
-            {/* Bulk Actions Toolbar */}
-            {selectedPanels.size > 0 && (
-              <div className="mb-4 p-4 bg-[rgba(58,123,213,0.1)] border border-[rgba(58,123,213,0.3)] rounded-lg flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <p className="text-[#E8EAF0] font-semibold">
-                    {selectedPanels.size} panel{selectedPanels.size !== 1 ? 's' : ''} selected
-                  </p>
-                  <button
-                    onClick={clearPanelSelection}
-                    className="text-[#B8BCC8] hover:text-[#E8EAF0] text-sm underline"
-                  >
-                    Clear selection
-                  </button>
-                </div>
-                <div className="flex items-center gap-2">
-                  <select
-                    onChange={(e) => {
-                      if (e.target.value) {
-                        handleBulkAssignStatus(e.target.value)
-                        e.target.value = ''
-                      }
-                    }}
-                    className="px-3 py-2 bg-[rgba(26,31,46,0.6)] border border-[rgba(58,123,213,0.3)] rounded-lg text-[#E8EAF0] text-sm focus:outline-none focus:border-[#3A7BD5]"
-                  >
-                    <option value="">Assign Status...</option>
-                    {Object.entries(PANEL_STATUS_CONFIG).map(([key, config]) => (
-                      <option key={key} value={key}>{config.label}</option>
-                    ))}
-                    {customStatuses.map((status) => (
-                      <option key={status.id} value={status.id}>{status.name}</option>
-                    ))}
-                  </select>
-                  <select
-                    onChange={(e) => {
-                      if (e.target.value) {
-                        handleBulkAddToGroup(e.target.value)
-                        e.target.value = ''
-                      }
-                    }}
-                    className="px-3 py-2 bg-[rgba(26,31,46,0.6)] border border-[rgba(58,123,213,0.3)] rounded-lg text-[#E8EAF0] text-sm focus:outline-none focus:border-[#3A7BD5]"
-                  >
-                    <option value="">Add to Group...</option>
-                    {groups.map((group) => (
-                      <option key={group.id} value={group.id}>{group.name}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            )}
-            
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-[rgba(58,123,213,0.2)]">
-                    <th className="text-left py-3 px-4 text-[#B8BCC8] font-medium uppercase tracking-wider w-12">
-                      <input
-                        type="checkbox"
-                        checked={selectedPanels.size > 0 && selectedPanels.size === panels.filter(panel => {
-                          const matchesSearch = panel.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                                              (panel.tag && panel.tag.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                                              (panel.location && panel.location.toLowerCase().includes(searchTerm.toLowerCase()))
-                          const matchesStatus = statusFilter === 'all' || panel.status === statusFilter
-                          return matchesSearch && matchesStatus
-                        }).length}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            selectAllPanels()
-                          } else {
-                            clearPanelSelection()
-                          }
-                        }}
-                        className="w-4 h-4 rounded border-[rgba(58,123,213,0.3)] bg-[rgba(26,31,46,0.6)] checked:bg-[#3A7BD5] focus:ring-2 focus:ring-[#3A7BD5] focus:ring-offset-0"
-                      />
-                    </th>
-                    <th className="text-left py-3 px-4 text-[#B8BCC8] font-medium uppercase tracking-wider">Panel</th>
-                    <th className="text-left py-3 px-4 text-[#B8BCC8] font-medium uppercase tracking-wider">Type</th>
-                    <th className="text-left py-3 px-4 text-[#B8BCC8] font-medium uppercase tracking-wider">Group</th>
-                    <th className="text-left py-3 px-4 text-[#B8BCC8] font-medium uppercase tracking-wider">Location</th>
-                    <th className="text-left py-3 px-4 text-[#B8BCC8] font-medium uppercase tracking-wider">Status</th>
-                    <th className="text-left py-3 px-4 text-[#B8BCC8] font-medium uppercase tracking-wider">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {panels.length > 0 ? panels.filter(panel => {
-                    const matchesSearch = panel.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                                        (panel.tag && panel.tag.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                                        (panel.location && panel.location.toLowerCase().includes(searchTerm.toLowerCase()))
-                    const matchesStatus = statusFilter === 'all' || panel.status === statusFilter
-                    return matchesSearch && matchesStatus
-                  }).map((panel) => {
-                    const panelId = String(panel.id)
-                    return (
-                      <tr 
-                        key={panel.id} 
-                        className="border-b border-[rgba(58,123,213,0.1)] hover:bg-[rgba(58,123,213,0.05)] transition-all cursor-pointer"
-                        onClick={(e) => {
-                          // Don't trigger if clicking checkbox or action buttons
-                          if ((e.target as HTMLElement).closest('input, button')) return
-                          handlePanelClick(panel)
-                        }}
-                      >
-                        <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
-                          <input
-                            type="checkbox"
-                            checked={selectedPanels.has(panelId)}
-                            onChange={() => togglePanelSelection(panelId)}
-                            className="w-4 h-4 rounded border-[rgba(58,123,213,0.3)] bg-[rgba(26,31,46,0.6)] checked:bg-[#3A7BD5] focus:ring-2 focus:ring-[#3A7BD5] focus:ring-offset-0"
-                          />
-                        </td>
-                        <td className="py-3 px-4">
-                          <div>
-                            <p className="font-medium text-[#E8EAF0]">{panel.name}</p>
-                            <p className="text-sm text-[#B8BCC8]">{panel.tag || 'No tag'}</p>
-                          </div>
-                        </td>
-                        <td className="py-3 px-4 text-[#E8EAF0]">{panel.objectType || 'Unknown'}</td>
-                        <td className="py-3 px-4 text-[#E8EAF0]">{panel.group?.name || 'No group'}</td>
-                        <td className="py-3 px-4 text-[#B8BCC8]">{panel.location || 'Unknown'}</td>
-                        <td className="py-3 px-4">
-                          <ProfessionalGamingBadge variant={getPanelStatusVariant(panel.status)}>
-                            <span className="uppercase">{PANEL_STATUS_CONFIG[panel.status]?.label || panel.status}</span>
-                          </ProfessionalGamingBadge>
-                        </td>
-                        <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex items-center gap-2">
-                            <ProfessionalGamingButton 
-                              variant="secondary" 
-                              size="sm"
-                              onClick={() => handlePanelClick(panel)}
-                            >
-                              <Eye className="h-4 w-4" />
-                            </ProfessionalGamingButton>
-                            <ProfessionalGamingButton variant="secondary" size="sm">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </ProfessionalGamingButton>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  }) : (
-                    <tr>
-                      <td colSpan={7} className="py-12 text-center">
-                        <Box className="h-12 w-12 text-[#B8BCC8] mx-auto mb-4" />
-                        <h4 className="text-lg font-semibold text-[#E8EAF0] mb-2">No Panels Available</h4>
-                        <p className="text-[#B8BCC8]">Upload a FRAG model to see detailed panel information.</p>
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-            
-            {/* Pagination Controls */}
-            {panels.length > 0 && panelTotalPages > 1 && (
-              <div className="mt-6 flex items-center justify-between">
-                <div className="text-[#B8BCC8] text-sm">
-                  Showing {((panelPage - 1) * panelLimit) + 1} to {Math.min(panelPage * panelLimit, displayedPanelCount)} of {displayedPanelCount.toLocaleString()} panels
-                  {totalPanelCount > displayedPanelCount && (
-                    <span className="ml-2 text-[#3A7BD5]">
-                      ({totalPanelCount.toLocaleString()} total in model)
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => {
-                      const newPage = 1
-                      setPanelPage(newPage)
-                      loadPanels(newPage)
-                    }}
-                    disabled={panelPage === 1}
-                    className="px-3 py-2 bg-[rgba(37,42,58,0.6)] border border-[rgba(58,123,213,0.2)] rounded-lg text-[#E8EAF0] hover:bg-[rgba(58,123,213,0.1)] transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-                  >
-                    First
-                  </button>
-                  <button
-                    onClick={() => {
-                      const newPage = panelPage - 1
-                      setPanelPage(newPage)
-                      loadPanels(newPage)
-                    }}
-                    disabled={panelPage === 1}
-                    className="px-3 py-2 bg-[rgba(37,42,58,0.6)] border border-[rgba(58,123,213,0.2)] rounded-lg text-[#E8EAF0] hover:bg-[rgba(58,123,213,0.1)] transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-                  >
-                    Previous
-                  </button>
-                  
-                  <div className="flex items-center gap-2">
-                    {/* Page numbers */}
-                    {Array.from({ length: Math.min(5, panelTotalPages) }, (_, i) => {
-                      let pageNum
-                      if (panelTotalPages <= 5) {
-                        pageNum = i + 1
-                      } else if (panelPage <= 3) {
-                        pageNum = i + 1
-                      } else if (panelPage >= panelTotalPages - 2) {
-                        pageNum = panelTotalPages - 4 + i
-                      } else {
-                        pageNum = panelPage - 2 + i
-                      }
-                      
-                      return (
-                        <button
-                          key={pageNum}
-                          onClick={() => {
-                            setPanelPage(pageNum)
-                            loadPanels(pageNum)
-                          }}
-                          className={`px-3 py-2 rounded-lg text-sm font-semibold transition-all ${
-                            panelPage === pageNum
-                              ? 'bg-gradient-to-r from-[#3A7BD5] to-[#00D2FF] text-white'
-                              : 'bg-[rgba(37,42,58,0.6)] border border-[rgba(58,123,213,0.2)] text-[#E8EAF0] hover:bg-[rgba(58,123,213,0.1)]'
-                          }`}
-                        >
-                          {pageNum}
-                        </button>
-                      )
-                    })}
-                  </div>
-                  
-                  <button
-                    onClick={() => {
-                      const newPage = panelPage + 1
-                      setPanelPage(newPage)
-                      loadPanels(newPage)
-                    }}
-                    disabled={panelPage === panelTotalPages}
-                    className="px-3 py-2 bg-[rgba(37,42,58,0.6)] border border-[rgba(58,123,213,0.2)] rounded-lg text-[#E8EAF0] hover:bg-[rgba(58,123,213,0.1)] transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-                  >
-                    Next
-                  </button>
-                  <button
-                    onClick={() => {
-                      const newPage = panelTotalPages
-                      setPanelPage(newPage)
-                      loadPanels(newPage)
-                    }}
-                    disabled={panelPage === panelTotalPages}
-                    className="px-3 py-2 bg-[rgba(37,42,58,0.6)] border border-[rgba(58,123,213,0.2)] rounded-lg text-[#E8EAF0] hover:bg-[rgba(58,123,213,0.1)] transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-                  >
-                    Last
-                  </button>
-                </div>
-              </div>
-            )}
-          </ProfessionalGamingCard>
-          )}
+          {/* DUPLICATE PANEL MANAGEMENT - REMOVED - USE TAB VERSION INSTEAD */}
         </div>
       </div>
     </div>

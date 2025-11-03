@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { 
   Camera, 
   Save, 
@@ -12,31 +12,145 @@ import {
   Activity, 
   Users, 
   Package, 
-  TrendingUp 
+  TrendingUp,
+  Loader
 } from 'lucide-react'
-import { ProfessionalGamingCard } from '@/components/gaming/ProfessionalGamingCard'
-import { ProfessionalGamingButton } from '@/components/gaming/ProfessionalGamingButton'
-import { ProfessionalGamingStat } from '@/components/gaming/ProfessionalGamingStat'
+import { Card, CardContent } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { authenticatedFetch } from '@/utils/authenticatedFetch'
+import { useAuth } from '@/contexts/AuthContext'
 
 export default function ProfilePage() {
+  const { user } = useAuth()
   const [isEditing, setIsEditing] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [stats, setStats] = useState({
+    activeProjects: 0,
+    totalGroups: 0,
+    totalPanels: 0,
+    completionRate: 0
+  })
   const [formData, setFormData] = useState({
-    name: 'Demo User',
-    email: 'demo@uniqube3d.com',
-    phone: '+1 (555) 123-4567',
-    location: 'San Francisco, CA',
-    company: 'UniQube Construction',
-    role: 'Project Manager',
-    joinDate: 'January 2024'
+    name: user?.name || '',
+    email: user?.email || '',
+    phone: '',
+    location: '',
+    company: '',
+    role: '',
+    joinDate: ''
   })
 
-  const handleSave = () => {
-    setIsEditing(false)
-    // TODO: Save profile data to backend
-    console.log('Saving profile data:', formData)
+  useEffect(() => {
+    loadUserProfile()
+    loadUserStats()
+  }, [user])
+
+  const loadUserProfile = async () => {
+    try {
+      setLoading(true)
+      const response = await authenticatedFetch('http://localhost:4000/api/user/profile')
+      
+      if (response.ok) {
+        const data = await response.json()
+        setFormData({
+          name: data.name || user?.name || '',
+          email: data.email || user?.email || '',
+          phone: data.phone || '',
+          location: data.location || '',
+          company: data.company || '',
+          role: data.role || '',
+          joinDate: data.createdAt ? new Date(data.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : ''
+        })
+      }
+    } catch (error) {
+      console.error('Failed to load user profile:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadUserStats = async () => {
+    try {
+      // Fetch user's projects
+      const projectsResponse = await authenticatedFetch('http://localhost:4000/api/projects-simple')
+      if (projectsResponse.ok) {
+        const projects = await projectsResponse.json()
+        
+        // Calculate stats from projects
+        let totalGroups = 0
+        let totalPanels = 0
+        let completedPanels = 0
+        
+        for (const project of projects) {
+          // Fetch groups for each project
+          try {
+            const groupsResponse = await authenticatedFetch(`http://localhost:4000/api/groups/${project.id}`)
+            if (groupsResponse.ok) {
+              const groups = await groupsResponse.json()
+              totalGroups += groups.length
+            }
+          } catch (error) {
+            console.error(`Failed to fetch groups for project ${project.id}:`, error)
+          }
+          
+          // Fetch panels statistics
+          try {
+            const panelsResponse = await authenticatedFetch(`http://localhost:4000/api/panels/${project.id}/statistics`)
+            if (panelsResponse.ok) {
+              const panelStats = await panelsResponse.json()
+              totalPanels += panelStats.total || 0
+              completedPanels += panelStats.completed || 0
+            }
+          } catch (error) {
+            console.error(`Failed to fetch panel stats for project ${project.id}:`, error)
+          }
+        }
+        
+        const completionRate = totalPanels > 0 ? Math.round((completedPanels / totalPanels) * 100) : 0
+        
+        setStats({
+          activeProjects: projects.length,
+          totalGroups,
+          totalPanels,
+          completionRate
+        })
+      }
+    } catch (error) {
+      console.error('Failed to load user stats:', error)
+    }
+  }
+
+  const handleSave = async () => {
+    try {
+      setSaving(true)
+      const response = await authenticatedFetch('http://localhost:4000/api/user/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: formData.name,
+          phone: formData.phone,
+          location: formData.location,
+          company: formData.company,
+          role: formData.role
+        })
+      })
+      
+      if (response.ok) {
+        setIsEditing(false)
+        console.log('✅ Profile updated successfully')
+      } else {
+        console.error('Failed to update profile')
+      }
+    } catch (error) {
+      console.error('Error saving profile:', error)
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleInputChange = (field: string, value: string) => {
@@ -44,206 +158,234 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="w-full h-full space-y-4 sm:space-y-6">
-      {/* Professional Header */}
-      <ProfessionalGamingCard variant="panel" className="p-4 sm:p-6">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-          <div className="p-3 rounded-lg bg-gradient-to-br from-[#3A7BD5] to-[#00D2FF] shadow-lg">
-            <User className="h-6 w-6 sm:h-8 sm:w-8 text-white" />
-          </div>
-          <div className="flex-1">
-            <h1 className="text-xl sm:text-2xl font-bold text-[#E8EAF0] uppercase tracking-wider">USER PROFILE</h1>
-            <p className="text-[#B8BCC8] text-sm">Manage your account settings and digital twin preferences</p>
-          </div>
-          <div className="flex gap-3 w-full sm:w-auto">
-            <ProfessionalGamingButton variant="secondary" size="sm" className="flex-1 sm:flex-none">
-              <Settings className="h-4 w-4 mr-2" />
-              SETTINGS
-            </ProfessionalGamingButton>
-          </div>
-        </div>
-      </ProfessionalGamingCard>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-        {/* Professional Profile Card */}
-        <ProfessionalGamingCard variant="monitor" className="lg:col-span-1 p-4 sm:p-6">
-          <div className="text-center space-y-4 sm:space-y-6">
-            <div className="relative mx-auto w-fit">
-              <div className="relative">
-                <Avatar className="h-24 w-24 sm:h-32 sm:w-32 mx-auto border-4 border-[rgba(58,123,213,0.3)] shadow-2xl">
-                  <AvatarImage src="/avatars/demo-user.png" />
-                  <AvatarFallback className="bg-gradient-to-br from-[#3A7BD5] to-[#00D2FF] text-white text-2xl sm:text-4xl font-bold">
-                    {formData.name.charAt(0)}
-                  </AvatarFallback>
-                </Avatar>
-                <ProfessionalGamingButton
-                  variant="secondary"
-                  size="sm"
-                  className="absolute -bottom-2 -right-2 h-8 w-8 sm:h-10 sm:w-10 rounded-full p-0"
-                >
-                  <Camera className="h-3 w-3 sm:h-4 sm:w-4" />
-                </ProfessionalGamingButton>
-              </div>
+    <div className="w-full h-full space-y-3 sm:space-y-4">
+      {/* Header */}
+      <Card className="border-slate-200">
+        <CardContent className="p-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+            <div className="p-2 rounded-lg bg-slate-700">
+              <User className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
             </div>
-            
-            <div className="space-y-3">
-              <h2 className="text-lg sm:text-xl font-bold text-[#E8EAF0] uppercase tracking-wider">{formData.name}</h2>
-              <p className="text-[#B8BCC8] text-sm sm:text-base">{formData.role}</p>
-              <div className="px-3 sm:px-4 py-1 sm:py-2 rounded-full text-xs font-bold uppercase tracking-wider border bg-[rgba(74,155,107,0.2)] border-[#4A9B6B] text-[#4A9B6B] inline-block">
-                ACTIVE USER
-              </div>
+            <div className="flex-1">
+              <h1 className="text-xl font-bold text-slate-900">User Profile</h1>
+              <p className="text-slate-600 text-xs">Manage your account settings and preferences</p>
             </div>
-
-            <div className="space-y-3 sm:space-y-4 text-left">
-              <div className="flex items-center gap-3 p-2 sm:p-3 bg-[rgba(37,42,58,0.6)] rounded-lg border border-[rgba(58,123,213,0.1)]">
-                <Mail className="h-4 w-4 sm:h-5 sm:w-5 text-[#3A7BD5] flex-shrink-0" />
-                <span className="text-[#B8BCC8] text-xs sm:text-sm truncate">{formData.email}</span>
-              </div>
-              <div className="flex items-center gap-3 p-2 sm:p-3 bg-[rgba(37,42,58,0.6)] rounded-lg border border-[rgba(58,123,213,0.1)]">
-                <Phone className="h-4 w-4 sm:h-5 sm:w-5 text-[#3A7BD5] flex-shrink-0" />
-                <span className="text-[#B8BCC8] text-xs sm:text-sm">{formData.phone}</span>
-              </div>
-              <div className="flex items-center gap-3 p-2 sm:p-3 bg-[rgba(37,42,58,0.6)] rounded-lg border border-[rgba(58,123,213,0.1)]">
-                <MapPin className="h-4 w-4 sm:h-5 sm:w-5 text-[#3A7BD5] flex-shrink-0" />
-                <span className="text-[#B8BCC8] text-xs sm:text-sm">{formData.location}</span>
-              </div>
-              <div className="flex items-center gap-3 p-2 sm:p-3 bg-[rgba(37,42,58,0.6)] rounded-lg border border-[rgba(58,123,213,0.1)]">
-                <Building className="h-4 w-4 sm:h-5 sm:w-5 text-[#3A7BD5] flex-shrink-0" />
-                <span className="text-[#B8BCC8] text-xs sm:text-sm">{formData.company}</span>
-              </div>
-              <div className="flex items-center gap-3 p-2 sm:p-3 bg-[rgba(37,42,58,0.6)] rounded-lg border border-[rgba(58,123,213,0.1)]">
-                <Calendar className="h-4 w-4 sm:h-5 sm:w-5 text-[#3A7BD5] flex-shrink-0" />
-                <span className="text-[#B8BCC8] text-xs sm:text-sm">Joined {formData.joinDate}</span>
-              </div>
+            <div className="flex gap-3 w-full sm:w-auto">
+              {/* <Button variant="outline" size="sm" className="flex-1 sm:flex-none">
+                <Settings className="h-4 w-4 mr-2" />
+                Settings
+              </Button> */}
             </div>
           </div>
-        </ProfessionalGamingCard>
+        </CardContent>
+      </Card>
 
-        {/* Professional Profile Form */}
-        <ProfessionalGamingCard variant="panel" className="lg:col-span-2 p-4 sm:p-6">
-          <div className="space-y-4 sm:space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <div>
-                <h3 className="text-base sm:text-lg font-bold text-[#E8EAF0] uppercase tracking-wider">PERSONAL INFORMATION</h3>
-                <p className="text-[#B8BCC8] text-xs sm:text-sm">Update your personal details and contact information</p>
-              </div>
-              {!isEditing ? (
-                <ProfessionalGamingButton variant="primary" onClick={() => setIsEditing(true)} className="w-full sm:w-auto">
-                  EDIT PROFILE
-                </ProfessionalGamingButton>
-              ) : (
-                <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-                  <ProfessionalGamingButton variant="secondary" onClick={() => setIsEditing(false)} className="flex-1 sm:flex-none">
-                    CANCEL
-                  </ProfessionalGamingButton>
-                  <ProfessionalGamingButton variant="primary" onClick={handleSave} className="flex-1 sm:flex-none">
-                    <Save className="h-4 w-4 mr-2" />
-                    SAVE CHANGES
-                  </ProfessionalGamingButton>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4">
+        {/* Profile Card */}
+        <Card className="lg:col-span-1 border-slate-200">
+          <CardContent className="p-4">
+            <div className="text-center space-y-4">
+              <div className="relative mx-auto w-fit">
+                <div className="relative">
+                  <Avatar className="h-24 w-24 mx-auto border-2 border-slate-200 shadow-lg">
+                    <AvatarImage src="/avatars/demo-user.png" />
+                    <AvatarFallback className="bg-slate-700 text-white text-2xl font-bold">
+                      {formData.name.charAt(0)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="absolute -bottom-1 -right-1 h-8 w-8 rounded-full p-0"
+                  >
+                    <Camera className="h-3 w-3" />
+                  </Button>
                 </div>
-              )}
-            </div>
+              </div>
+              
+              <div className="space-y-2">
+                <h2 className="text-lg font-bold text-slate-900">{formData.name}</h2>
+                <p className="text-slate-600 text-xs">{formData.role}</p>
+                <Badge variant="success" className="text-xs">
+                  Active User
+                </Badge>
+              </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-              <div className="space-y-2">
-                <Label htmlFor="name" className="text-[#E8EAF0] font-medium uppercase tracking-wider text-xs sm:text-sm">FULL NAME</Label>
-                <Input
-                  id="name"
-                  value={formData.name}
-                  onChange={(e) => handleInputChange('name', e.target.value)}
-                  disabled={!isEditing}
-                  className={`bg-[rgba(37,42,58,0.6)] border-[rgba(58,123,213,0.2)] text-[#E8EAF0] placeholder-[#6B7280] focus:border-[#3A7BD5] focus:ring-[#3A7BD5] ${!isEditing ? 'opacity-60' : ''}`}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="email" className="text-[#E8EAF0] font-medium uppercase tracking-wider text-xs sm:text-sm">EMAIL ADDRESS</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => handleInputChange('email', e.target.value)}
-                  disabled={!isEditing}
-                  className={`bg-[rgba(37,42,58,0.6)] border-[rgba(58,123,213,0.2)] text-[#E8EAF0] placeholder-[#6B7280] focus:border-[#3A7BD5] focus:ring-[#3A7BD5] ${!isEditing ? 'opacity-60' : ''}`}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="phone" className="text-[#E8EAF0] font-medium uppercase tracking-wider text-xs sm:text-sm">PHONE NUMBER</Label>
-                <Input
-                  id="phone"
-                  value={formData.phone}
-                  onChange={(e) => handleInputChange('phone', e.target.value)}
-                  disabled={!isEditing}
-                  className={`bg-[rgba(37,42,58,0.6)] border-[rgba(58,123,213,0.2)] text-[#E8EAF0] placeholder-[#6B7280] focus:border-[#3A7BD5] focus:ring-[#3A7BD5] ${!isEditing ? 'opacity-60' : ''}`}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="location" className="text-[#E8EAF0] font-medium uppercase tracking-wider text-xs sm:text-sm">LOCATION</Label>
-                <Input
-                  id="location"
-                  value={formData.location}
-                  onChange={(e) => handleInputChange('location', e.target.value)}
-                  disabled={!isEditing}
-                  className={`bg-[rgba(37,42,58,0.6)] border-[rgba(58,123,213,0.2)] text-[#E8EAF0] placeholder-[#6B7280] focus:border-[#3A7BD5] focus:ring-[#3A7BD5] ${!isEditing ? 'opacity-60' : ''}`}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="company" className="text-[#E8EAF0] font-medium uppercase tracking-wider text-xs sm:text-sm">COMPANY</Label>
-                <Input
-                  id="company"
-                  value={formData.company}
-                  onChange={(e) => handleInputChange('company', e.target.value)}
-                  disabled={!isEditing}
-                  className={`bg-[rgba(37,42,58,0.6)] border-[rgba(58,123,213,0.2)] text-[#E8EAF0] placeholder-[#6B7280] focus:border-[#3A7BD5] focus:ring-[#3A7BD5] ${!isEditing ? 'opacity-60' : ''}`}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="role" className="text-[#E8EAF0] font-medium uppercase tracking-wider text-xs sm:text-sm">ROLE</Label>
-                <Input
-                  id="role"
-                  value={formData.role}
-                  onChange={(e) => handleInputChange('role', e.target.value)}
-                  disabled={!isEditing}
-                  className={`bg-[rgba(37,42,58,0.6)] border-[rgba(58,123,213,0.2)] text-[#E8EAF0] placeholder-[#6B7280] focus:border-[#3A7BD5] focus:ring-[#3A7BD5] ${!isEditing ? 'opacity-60' : ''}`}
-                />
+              <div className="space-y-2 text-left">
+                <div className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg border border-slate-200">
+                  <Mail className="h-4 w-4 text-slate-600 flex-shrink-0" />
+                  <span className="text-slate-700 text-xs truncate">{formData.email}</span>
+                </div>
+                <div className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg border border-slate-200">
+                  <Phone className="h-4 w-4 text-slate-600 flex-shrink-0" />
+                  <span className="text-slate-700 text-xs">{formData.phone}</span>
+                </div>
+                <div className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg border border-slate-200">
+                  <MapPin className="h-4 w-4 text-slate-600 flex-shrink-0" />
+                  <span className="text-slate-700 text-xs">{formData.location}</span>
+                </div>
+                <div className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg border border-slate-200">
+                  <Building className="h-4 w-4 text-slate-600 flex-shrink-0" />
+                  <span className="text-slate-700 text-xs">{formData.company}</span>
+                </div>
+                <div className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg border border-slate-200">
+                  <Calendar className="h-4 w-4 text-slate-600 flex-shrink-0" />
+                  <span className="text-slate-700 text-xs">Joined {formData.joinDate}</span>
+                </div>
               </div>
             </div>
-          </div>
-        </ProfessionalGamingCard>
+          </CardContent>
+        </Card>
+
+        {/* Profile Form */}
+        <Card className="lg:col-span-2 border-slate-200">
+          <CardContent className="p-4">
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Personal Information</h3>
+                  <p className="text-slate-600 text-xs">Update your personal details and contact information</p>
+                </div>
+                {!isEditing ? (
+                  <Button onClick={() => setIsEditing(true)} className="w-full sm:w-auto" disabled={loading}>
+                    Edit Profile
+                  </Button>
+                ) : (
+                  <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                    <Button variant="outline" onClick={() => setIsEditing(false)} className="flex-1 sm:flex-none" disabled={saving}>
+                      Cancel
+                    </Button>
+                    <Button onClick={handleSave} className="flex-1 sm:flex-none" disabled={saving}>
+                      {saving ? (
+                        <>
+                          <Loader className="h-4 w-4 mr-2 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <Save className="h-4 w-4 mr-2" />
+                          Save Changes
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="name" className="text-slate-700 font-medium text-sm">Full Name</Label>
+                  <Input
+                    id="name"
+                    value={formData.name}
+                    onChange={(e) => handleInputChange('name', e.target.value)}
+                    disabled={!isEditing}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="email" className="text-slate-700 font-medium text-sm">Email Address</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={formData.email}
+                    onChange={(e) => handleInputChange('email', e.target.value)}
+                    disabled={!isEditing}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="phone" className="text-slate-700 font-medium text-sm">Phone Number</Label>
+                  <Input
+                    id="phone"
+                    value={formData.phone}
+                    onChange={(e) => handleInputChange('phone', e.target.value)}
+                    disabled={!isEditing}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="location" className="text-slate-700 font-medium text-sm">Location</Label>
+                  <Input
+                    id="location"
+                    value={formData.location}
+                    onChange={(e) => handleInputChange('location', e.target.value)}
+                    disabled={!isEditing}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="company" className="text-slate-700 font-medium text-sm">Company</Label>
+                  <Input
+                    id="company"
+                    value={formData.company}
+                    onChange={(e) => handleInputChange('company', e.target.value)}
+                    disabled={!isEditing}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="role" className="text-slate-700 font-medium text-sm">Role</Label>
+                  <Input
+                    id="role"
+                    value={formData.role}
+                    onChange={(e) => handleInputChange('role', e.target.value)}
+                    disabled={!isEditing}
+                  />
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Professional Activity Stats */}
-      <ProfessionalGamingCard variant="panel" className="p-4 sm:p-6">
-        <div className="space-y-4 sm:space-y-6">
-          <h3 className="text-base sm:text-lg font-bold text-[#E8EAF0] uppercase tracking-wider">ACTIVITY OVERVIEW</h3>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
-            <ProfessionalGamingStat
-              value={4}
-              label="ACTIVE PROJECTS"
-              variant="default"
-              icon={<Activity className="h-4 w-4 sm:h-5 sm:w-5" />}
-            />
-            <ProfessionalGamingStat
-              value={12}
-              label="GROUPS MANAGED"
-              variant="success"
-              icon={<Users className="h-4 w-4 sm:h-5 sm:w-5" />}
-            />
-            <ProfessionalGamingStat
-              value={870}
-              label="PANELS TRACKED"
-              variant="default"
-              icon={<Package className="h-4 w-4 sm:h-5 sm:w-5" />}
-            />
-            <ProfessionalGamingStat
-              value="95%"
-              label="COMPLETION RATE"
-              variant="success"
-              icon={<TrendingUp className="h-4 w-4 sm:h-5 sm:w-5" />}
-              trend="up"
-            />
+      {/* Activity Stats */}
+      {/* <Card className="border-slate-200">
+        <CardContent className="p-6">
+          <div className="space-y-6">
+            <h3 className="text-lg font-bold text-slate-900">Activity Overview</h3>
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader className="h-8 w-8 animate-spin text-slate-400" />
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 bg-slate-100 rounded-lg">
+                      <Activity className="h-5 w-5 text-slate-700" />
+                    </div>
+                  </div>
+                  <div className="text-2xl font-bold text-slate-900">{stats.activeProjects}</div>
+                  <div className="text-sm text-slate-600">Active Projects</div>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 bg-green-100 rounded-lg">
+                      <Users className="h-5 w-5 text-green-700" />
+                    </div>
+                  </div>
+                  <div className="text-2xl font-bold text-slate-900">{stats.totalGroups}</div>
+                  <div className="text-sm text-slate-600">Groups Managed</div>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 bg-slate-100 rounded-lg">
+                      <Package className="h-5 w-5 text-slate-700" />
+                    </div>
+                  </div>
+                  <div className="text-2xl font-bold text-slate-900">{stats.totalPanels}</div>
+                  <div className="text-sm text-slate-600">Panels Tracked</div>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 bg-green-100 rounded-lg">
+                      <TrendingUp className="h-5 w-5 text-green-700" />
+                    </div>
+                  </div>
+                  <div className="text-2xl font-bold text-slate-900">{stats.completionRate}%</div>
+                  <div className="text-sm text-slate-600">Completion Rate</div>
+                </div>
+              </div>
+            )}
           </div>
-        </div>
-      </ProfessionalGamingCard>
+        </CardContent>
+      </Card> */}
     </div>
   )
 }
