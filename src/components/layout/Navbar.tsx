@@ -51,9 +51,10 @@ export function Navbar() {
                 <img src="/uniQube.png" alt="UniQube Logo" className="w-8 h-8 sm:w-12 sm:h-8" />
               </div>
               <div className="hidden sm:block">
-                <h1 className="text-lg sm:text-xl font-bold text-slate-900">
-                  UniQube 3D
-                </h1>
+               <h1 className="text-lg sm:text-xl font-bold text-slate-900">
+  Uni<span className="bg-gradient-to-r from-yellow-400 via-yellow-500 to-amber-600 bg-clip-text text-transparent">Qube</span> 3D
+</h1>
+
                 <p className="text-xs text-slate-600">Centralized Project Manager</p>
               </div>
             </div>

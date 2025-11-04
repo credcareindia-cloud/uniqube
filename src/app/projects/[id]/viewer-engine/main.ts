@@ -1653,27 +1653,87 @@ const renderStatusList = () => {
   }
 
   statusListContent.innerHTML = "";
-  elementStatuses.forEach((status) => {
+  elementStatuses.forEach((status, index) => {
     const statusItem = document.createElement("div");
     statusItem.className = "status-item";
     statusItem.style.borderLeftColor = status.color;
-    statusItem.style.cursor = "pointer";
+    statusItem.dataset.statusId = status.id;
 
     const iconClass = getIconClass(status.icon);
     const panelCount = status.panelCount || 0;
 
+    // Get panels from the status
+    const panels = status.panelStatuses?.map((ps: any) => ps.panel) || [];
+
     statusItem.innerHTML = `
-      <i data-lucide="${iconClass}" class="status-item-icon" style="color: ${status.color}; width: 20px; height: 20px;"></i>
-      <span class="status-item-name">${status.name}</span>
-      <span class="status-item-count" style="font-size: 11px; color: var(--slate-500); margin-left: auto;">${panelCount} panel${panelCount !== 1 ? 's' : ''}</span>
+      <div class="status-item-header">
+        <div style="display: flex; align-items: center; gap: 8px; flex: 1; cursor: pointer;" class="status-header-main">
+          <i class="fas fa-chevron-right status-chevron" style="font-size: 12px; transition: transform 0.2s; color: var(--slate-400);"></i>
+          <i data-lucide="${iconClass}" class="status-item-icon" style="color: ${status.color}; width: 20px; height: 20px;"></i>
+          <span class="status-item-name">${status.name}</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <button class="status-highlight-btn" title="Highlight all panels with this status" style="background: none; border: none; cursor: pointer; padding: 6px 8px; border-radius: 4px; display: flex; align-items: center; justify-content: center; transition: all 0.2s;">
+            <i class="fas fa-eye" style="font-size: 14px; color: ${status.color};"></i>
+          </button>
+          <span class="status-item-count" style="font-size: 11px; color: var(--slate-500);">${panelCount} panel${panelCount !== 1 ? 's' : ''}</span>
+        </div>
+      </div>
+      <div class="status-panels-container" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--slate-200);">
+        <div class="status-panels-grid">
+          ${panels.length > 0 ? panels.map(panel => `
+            <div class="status-panel-item" data-panel-id="${panel.id}">
+              <i class="fas fa-cube" style="font-size: 14px; color: ${status.color};"></i>
+              <div class="panel-item-info">
+                <div class="panel-item-name">${panel.name}</div>
+                ${panel.tag ? `<div class="panel-item-tag">${panel.tag}</div>` : ''}
+              </div>
+            </div>
+          `).join('') : '<div class="empty-state" style="grid-column: 1 / -1; padding: 20px;"><p style="font-size: 13px; color: var(--slate-500);">No panels with this status</p></div>'}
+        </div>
+      </div>
     `;
 
-    // Add click handler to highlight status panels
-    statusItem.addEventListener("click", () => highlightStatusPanels(status));
+    // Add click handler to toggle expansion (only on the main header, not the highlight button)
+    const headerMain = statusItem.querySelector(".status-header-main");
+    const panelsContainer = statusItem.querySelector(".status-panels-container");
+    const chevron = statusItem.querySelector(".status-chevron");
+
+    if (headerMain && panelsContainer && chevron) {
+      headerMain.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const isExpanded = panelsContainer.style.display !== "none";
+
+        if (isExpanded) {
+          panelsContainer.style.display = "none";
+          chevron.style.transform = "rotate(0deg)";
+        } else {
+          panelsContainer.style.display = "block";
+          chevron.style.transform = "rotate(90deg)";
+        }
+      });
+    }
+
+    // Add click handler for highlight button to highlight all status panels (original behavior)
+    const highlightBtn = statusItem.querySelector(".status-highlight-btn");
+    if (highlightBtn) {
+      highlightBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        highlightStatusPanels(status);
+      });
+
+      // Hover effect for highlight button
+      highlightBtn.addEventListener("mouseenter", () => {
+        (highlightBtn as HTMLElement).style.background = "var(--slate-100)";
+      });
+      highlightBtn.addEventListener("mouseleave", () => {
+        (highlightBtn as HTMLElement).style.background = "none";
+      });
+    }
 
     statusListContent.appendChild(statusItem);
   });
-  
+
   // Initialize Lucide icons after rendering
   setTimeout(() => initializeLucideIcons(), 100);
 };
@@ -1870,29 +1930,89 @@ const renderGroupsList = () => {
   }
 
   groupsListContent.innerHTML = "";
-  groups.forEach((group) => {
+  groups.forEach((group, index) => {
     const groupItem = document.createElement("div");
     groupItem.className = "group-item";
+    groupItem.dataset.groupId = group.id;
 
     const panelCount = group._count?.panelGroups || group._count?.panels || group.metadata?.panelCount || 0;
     const statusConfig = getGroupStatusDisplay(group.status);
 
+    // Get panels from the group
+    const panels = group.panelGroups?.map(pg => pg.panel) || group.panels || [];
+
     groupItem.innerHTML = `
       <div class="group-item-header">
-        <span class="group-item-name">${group.name}</span>
-        <span class="status-badge" style="background: ${statusConfig.bgColor}; color: ${statusConfig.color}; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">
-          ${statusConfig.label}
-        </span>
+        <div style="display: flex; align-items: center; gap: 8px; flex: 1; cursor: pointer;" class="group-header-main">
+          <i class="fas fa-chevron-right group-chevron" style="font-size: 12px; transition: transform 0.2s; color: var(--slate-400);"></i>
+          <span class="group-item-name">${group.name}</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <button class="group-highlight-btn" title="Highlight all panels in group" style="background: none; border: none; cursor: pointer; padding: 6px 8px; border-radius: 4px; display: flex; align-items: center; justify-content: center; transition: all 0.2s;">
+            <i class="fas fa-eye" style="font-size: 14px; color: var(--primary);"></i>
+          </button>
+          <span class="status-badge" style="background: ${statusConfig.bgColor}; color: ${statusConfig.color}; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">
+            ${statusConfig.label}
+          </span>
+        </div>
       </div>
       <div class="group-item-description">${group.description || "No description"}</div>
       <div class="group-item-members">
         <i class="fas fa-cube"></i>
         <span>${panelCount} panel${panelCount !== 1 ? "s" : ""}</span>
       </div>
+      <div class="group-panels-container" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--slate-200);">
+        <div class="group-panels-grid">
+          ${panels.length > 0 ? panels.map(panel => `
+            <div class="group-panel-item" data-panel-id="${panel.id}">
+              <i class="fas fa-cube" style="font-size: 14px; color: var(--primary);"></i>
+              <div class="panel-item-info">
+                <div class="panel-item-name">${panel.name}</div>
+                ${panel.tag ? `<div class="panel-item-tag">${panel.tag}</div>` : ''}
+              </div>
+            </div>
+          `).join('') : '<div class="empty-state" style="grid-column: 1 / -1; padding: 20px;"><p style="font-size: 13px; color: var(--slate-500);">No panels in this group</p></div>'}
+        </div>
+      </div>
     `;
 
-    // Add click handler to highlight group panels
-    groupItem.addEventListener("click", () => highlightGroupPanels(group));
+    // Add click handler to toggle expansion (only on the main header, not the highlight button)
+    const headerMain = groupItem.querySelector(".group-header-main");
+    const panelsContainer = groupItem.querySelector(".group-panels-container");
+    const chevron = groupItem.querySelector(".group-chevron");
+
+    if (headerMain && panelsContainer && chevron) {
+      headerMain.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const isExpanded = panelsContainer.style.display !== "none";
+
+        if (isExpanded) {
+          panelsContainer.style.display = "none";
+          chevron.style.transform = "rotate(0deg)";
+        } else {
+          panelsContainer.style.display = "block";
+          chevron.style.transform = "rotate(90deg)";
+        }
+      });
+    }
+
+    // Add click handler for highlight button to highlight all group panels (original behavior)
+    const highlightBtn = groupItem.querySelector(".group-highlight-btn");
+    if (highlightBtn) {
+      highlightBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        highlightGroupPanels(group);
+      });
+
+      // Hover effect for highlight button
+      highlightBtn.addEventListener("mouseenter", () => {
+        (highlightBtn as HTMLElement).style.background = "var(--slate-100)";
+      });
+      highlightBtn.addEventListener("mouseleave", () => {
+        (highlightBtn as HTMLElement).style.background = "none";
+      });
+    }
+
 
     groupsListContent.appendChild(groupItem);
   });
