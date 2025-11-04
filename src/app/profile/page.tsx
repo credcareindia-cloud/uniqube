@@ -57,13 +57,14 @@ export default function ProfilePage() {
       
       if (response.ok) {
         const data = await response.json()
+        console.log('Profile data received:', data)
         setFormData({
           name: data.name || user?.name || '',
           email: data.email || user?.email || '',
           phone: data.phone || '',
           location: data.location || '',
           company: data.company || '',
-          role: data.role || '',
+          role: data.userRole || '',
           joinDate: data.createdAt ? new Date(data.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : ''
         })
       }

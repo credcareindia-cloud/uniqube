@@ -1,10 +1,12 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { X, Search, Users, ChevronLeft, ChevronRight, Eye, Edit } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
 import { PanelDetailModal } from '@/components/modals/PanelDetailModal'
 import { EditPanelModal } from '@/components/modals/EditPanelModal'
+import { authenticatedFetch } from '@/utils/authenticatedFetch'
 
 interface Panel {
   id: string
@@ -74,17 +76,27 @@ export function GroupDetailModal({ isOpen, onClose, group, projectId }: GroupDet
 
     try {
       setLoading(true)
-      const response = await fetch(
-        `http://localhost:4000/api/groups/${projectId}/${group.id}/panels?page=${page}&limit=${limit}`
-      )
+      const url = `/groups/${projectId}/${group.id}/panels?page=${page}&limit=${limit}`
+      console.log('🔍 Fetching group panels from:', url)
+      console.log('📦 Group ID:', group.id)
+      console.log('📦 Project ID:', projectId)
+      
+      const response = await authenticatedFetch(url)
+      console.log('📡 Response status:', response.status)
+      
       if (response.ok) {
         const data = await response.json()
+        console.log('✅ Group panels data:', data)
+        console.log('📊 Panels count:', data.panels?.length)
         setPanels(data.panels || [])
         setTotalPages(data.pagination?.totalPages || 1)
         setTotalCount(data.pagination?.total || 0)
+      } else {
+        const errorText = await response.text()
+        console.error('❌ Error response:', errorText)
       }
     } catch (error) {
-      console.error('Error loading group panels:', error)
+      console.error('❌ Error loading group panels:', error)
     } finally {
       setLoading(false)
     }
@@ -92,7 +104,7 @@ export function GroupDetailModal({ isOpen, onClose, group, projectId }: GroupDet
 
   const loadStatuses = async () => {
     try {
-      const response = await fetch(`http://localhost:4000/api/status-management/${projectId}`)
+      const response = await authenticatedFetch(`/status-management/${projectId}`)
       if (response.ok) {
         const data = await response.json()
         setStatuses(data.statuses || [])
@@ -104,7 +116,7 @@ export function GroupDetailModal({ isOpen, onClose, group, projectId }: GroupDet
 
   const loadGroups = async () => {
     try {
-      const response = await fetch(`http://localhost:4000/api/groups/${projectId}`)
+      const response = await authenticatedFetch(`/groups/${projectId}`)
       if (response.ok) {
         const data = await response.json()
         setGroups(data.groups || [])
@@ -204,9 +216,14 @@ export function GroupDetailModal({ isOpen, onClose, group, projectId }: GroupDet
 
   if (!isOpen || !group) return null
 
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col">
+  const modalContent = (
+    <>
+      {/* Backdrop with blur */}
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50" onClick={onClose}></div>
+      
+      {/* Modal container */}
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
+        <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col pointer-events-auto" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-slate-200">
           <div className="flex items-center gap-3">
@@ -396,6 +413,7 @@ export function GroupDetailModal({ isOpen, onClose, group, projectId }: GroupDet
             </button>
           </div>
         </div>
+        </div>
       </div>
 
       {/* Panel Detail Modal */}
@@ -445,6 +463,8 @@ export function GroupDetailModal({ isOpen, onClose, group, projectId }: GroupDet
           }}
         />
       )}
-    </div>
+    </>
   )
+
+  return createPortal(modalContent, document.body)
 }

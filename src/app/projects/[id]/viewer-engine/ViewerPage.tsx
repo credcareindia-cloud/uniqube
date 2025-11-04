@@ -104,6 +104,27 @@ export default function ViewerPage() {
     }
   };
 
+  // Load Lucide icons script
+  useEffect(() => {
+    // Add Lucide vanilla JS library
+    const lucideScript = document.createElement('script');
+    lucideScript.src = 'https://unpkg.com/lucide@latest/dist/umd/lucide.min.js';
+    lucideScript.async = true;
+    lucideScript.onload = () => {
+      console.log('✅ Lucide icons library loaded');
+      // Make lucide available globally for main.ts
+      (window as any).lucide = (window as any).lucide;
+    };
+    document.head.appendChild(lucideScript);
+
+    return () => {
+      // Cleanup on unmount
+      if (lucideScript.parentNode) {
+        lucideScript.parentNode.removeChild(lucideScript);
+      }
+    };
+  }, []);
+
   // Initialize viewer when component mounts
   useEffect(() => {
     console.log('🔗 useEffect triggered, checking container...');

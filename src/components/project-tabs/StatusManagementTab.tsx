@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { authenticatedFetch } from '@/utils/authenticatedFetch'
-import { Plus, Package, CheckCircle, Clock, Eye, AlertCircle, MoreVertical, Edit, Trash2 } from 'lucide-react'
+import { Plus, Package, MoreVertical, Edit, Trash2, Eye, AlertCircle } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
 import { StatusDetailModal } from '@/components/modals/StatusDetailModal'
 import { PanelDetailModal } from '@/components/modals/PanelDetailModal'
@@ -10,6 +10,7 @@ import { EditPanelModal } from '@/components/modals/EditPanelModal'
 import { EditStatusModal } from '@/components/modals/EditStatusModal'
 import { ConfirmDeleteModal } from '@/components/modals/ConfirmDeleteModal'
 import { toast } from '@/components/ui/use-toast'
+import { getLucideIconName } from '@/utils/iconMapping'
 
 interface CustomStatus {
   id: string
@@ -286,79 +287,8 @@ export function StatusManagementTab({
   }
 
   const getIconComponent = (iconName: string) => {
-    // Map FontAwesome/kebab-case names to Lucide PascalCase names (matching CreateStatusModal)
-    const iconNameMap: Record<string, string> = {
-      'angle-double-down': 'ChevronsDown',
-      'angle-double-left': 'ChevronsLeft',
-      'angle-double-right': 'ChevronsRight',
-      'angle-double-up': 'ChevronsUp',
-      'angle-down': 'ChevronDown',
-      'angle-left': 'ChevronLeft',
-      'angle-right': 'ChevronRight',
-      'angle-up': 'ChevronUp',
-      'bell': 'Bell',
-      'bookmark': 'Bookmark',
-      'box': 'Box',
-      'check': 'Check',
-      'circle': 'Circle',
-      'clock': 'Clock',
-      'code': 'Code',
-      'exclamation': 'AlertTriangle',
-      'eye': 'Eye',
-      'file': 'File',
-      'folder': 'Folder',
-      'forward': 'Forward',
-      'hashtag': 'Hash',
-      'info': 'Info',
-      'lightbulb': 'Lightbulb',
-      'lock': 'Lock',
-      'lock-open': 'LockOpen',
-      'map-marker': 'MapPin',
-      'minus': 'Minus',
-      'pause': 'Pause',
-      'pen-to-square': 'Edit',
-      'phone': 'Phone',
-      'play': 'Play',
-      'plus': 'Plus',
-      'reply': 'Reply',
-      'save': 'Save',
-      'search': 'Search',
-      'send': 'Send',
-      'server': 'Server',
-      'share-alt': 'Share2',
-      'shield': 'Shield',
-      'shop': 'ShoppingBag',
-      'sign-in': 'LogIn',
-      'sign-out': 'LogOut',
-      'sliders-h': 'SlidersHorizontal',
-      'sort': 'ArrowUpDown',
-      'spinner': 'Loader',
-      'star': 'Star',
-      'stop-circle': 'StopCircle',
-      'stopwatch': 'Timer',
-      'tag': 'Tag',
-      'thumbs-down': 'ThumbsDown',
-      'thumbs-up': 'ThumbsUp',
-      'thumbtack': 'Pin',
-      'th-large': 'Grid3x3',
-      'ticket': 'Ticket',
-      'times': 'X',
-      'times-circle': 'XCircle',
-      'trash': 'Trash2',
-      'undo': 'Undo',
-      'unlock': 'Unlock',
-      'user': 'User',
-      'users': 'Users',
-      'verified': 'BadgeCheck',
-      'warehouse': 'Warehouse',
-      'maximize': 'Maximize',
-      'minimize': 'Minimize',
-      'wrench': 'Wrench',
-      'package': 'Package',
-    }
-    
-    // Convert icon name to Lucide format
-    const lucideIconName = iconNameMap[iconName.toLowerCase()] || iconName
+    // Use shared icon mapping utility
+    const lucideIconName = getLucideIconName(iconName)
     
     // Try to get icon from Lucide
     const LucideIcon = (LucideIcons as any)[lucideIconName]

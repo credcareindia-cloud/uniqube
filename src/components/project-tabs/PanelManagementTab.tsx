@@ -221,15 +221,18 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
   const loadPanels = async () => {
     try {
       setLoading(true)
+      // Fetch ALL panels (no pagination on backend)
       const response = await authenticatedFetch(
-        `http://localhost:4000/api/panels/${projectId}?page=${page}&limit=${limit}`
+        `http://localhost:4000/api/panels/${projectId}/all`
       )
       if (response.ok) {
         const data = await response.json()
-        setPanels(data.panels || [])
-        setTotalPages(data.pagination?.totalPages || 1)
-        setTotalPanels(data.pagination?.total || 0)
-        console.log('✅ Pagination loaded:', data.pagination)
+        const allPanels = data.panels || []
+        setPanels(allPanels)
+        setTotalPanels(allPanels.length)
+        // Calculate total pages for client-side pagination
+        setTotalPages(Math.ceil(allPanels.length / limit))
+        console.log(`✅ Loaded ${allPanels.length} panels (client-side pagination)`)
       }
     } catch (error) {
       console.error('Error loading panels:', error)
@@ -262,11 +265,53 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
     }
   }
 
-  const filteredPanels = panels.filter(panel =>
-    panel.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    panel.tag?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    panel.location?.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  // Helper function to extract storey/floor number from panel
+  const getStorey = (panel: Panel): number => {
+    // Try to extract storey number from location (e.g., "1ST FLOOR", "2ND FLOOR", "FLOOR 3")
+    const location = panel.location?.toLowerCase() || ''
+    const storeyMatch = location.match(/(\d+)(st|nd|rd|th)?\s*floor|floor\s*(\d+)|storey\s*(\d+)|level\s*(\d+)/i)
+    if (storeyMatch) {
+      return parseInt(storeyMatch[1] || storeyMatch[3] || storeyMatch[4] || storeyMatch[5] || '0')
+    }
+    
+    // Try to extract from metadata if available
+    if (panel.metadata && typeof panel.metadata === 'object') {
+      const metadata = panel.metadata as any
+      if (metadata.storey) return parseInt(metadata.storey) || 0
+      if (metadata.floor) return parseInt(metadata.floor) || 0
+      if (metadata.level) return parseInt(metadata.level) || 0
+    }
+    
+    return 999 // Put panels without storey info at the end
+  }
+
+  // Filter and sort all panels
+  const filteredAndSortedPanels = panels
+    .filter(panel =>
+      panel.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      panel.tag?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      panel.location?.toLowerCase().includes(searchTerm.toLowerCase())
+    )
+    .sort((a, b) => {
+      const storeyA = getStorey(a)
+      const storeyB = getStorey(b)
+      
+      // First sort by storey (ascending)
+      if (storeyA !== storeyB) {
+        return storeyA - storeyB
+      }
+      
+      // Then sort by name (ascending)
+      return (a.name || '').localeCompare(b.name || '', undefined, { numeric: true, sensitivity: 'base' })
+    })
+
+  // Apply client-side pagination
+  const startIndex = (page - 1) * limit
+  const endIndex = startIndex + limit
+  const filteredPanels = filteredAndSortedPanels.slice(startIndex, endIndex)
+  
+  // Update total pages based on filtered results
+  const filteredTotalPages = Math.ceil(filteredAndSortedPanels.length / limit)
 
   const handlePanelClick = (panel: Panel) => {
     setSelectedPanel(panel)
@@ -723,11 +768,12 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
         </div>
 
         {/* Pagination */}
-        {totalPages > 1 && (
+        {filteredTotalPages > 1 && (
           <div className="flex items-center justify-between px-6 py-4 border-t border-slate-200 bg-white">
             <div className="text-sm text-slate-600">
-              Showing {((page - 1) * limit) + 1} to {Math.min(page * limit, totalPanels)} of{' '}
-              {totalPanels.toLocaleString()} panels
+              Showing {((page - 1) * limit) + 1} to {Math.min(page * limit, filteredAndSortedPanels.length)} of{' '}
+              {filteredAndSortedPanels.length.toLocaleString()} panels
+              {searchTerm && <span className="text-slate-500"> (filtered from {totalPanels.toLocaleString()} total)</span>}
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -745,18 +791,18 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
                 Previous
               </button>
               <span className="px-4 py-2 text-sm font-semibold text-slate-900">
-                Page {page} of {totalPages}
+                Page {page} of {filteredTotalPages}
               </span>
               <button
                 onClick={() => setPage(page + 1)}
-                disabled={page === totalPages}
+                disabled={page === filteredTotalPages}
                 className="px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 Next
               </button>
               <button
-                onClick={() => setPage(totalPages)}
-                disabled={page === totalPages}
+                onClick={() => setPage(filteredTotalPages)}
+                disabled={page === filteredTotalPages}
                 className="px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 Last

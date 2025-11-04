@@ -57,7 +57,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   }
 
   return (
-    <div className="fixed inset-0 bg-slate-50 overflow-hidden">
+    <div className="fixed inset-0 bg-slate-50">
       {/* Fixed Top Navigation - Full width */}
       <header className="absolute top-0 left-0 right-0 z-50 h-16 bg-white border-b border-slate-200">
         <Navbar />

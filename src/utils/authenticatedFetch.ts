@@ -5,6 +5,10 @@
 export const authenticatedFetch = async (url: string, options: RequestInit = {}) => {
   const token = localStorage.getItem('auth_token')
   
+  // Prepend base URL if not already included
+  const baseUrl = 'http://localhost:4000/api'
+  const fullUrl = url.startsWith('http') ? url : `${baseUrl}${url.startsWith('/') ? url : `/${url}`}`
+  
   // Start with existing headers or empty object
   const headers: Record<string, string> = {}
   
@@ -26,11 +30,11 @@ export const authenticatedFetch = async (url: string, options: RequestInit = {})
     headers['Authorization'] = `Bearer ${token}`
   }
   
-  console.log('🔧 authenticatedFetch - URL:', url);
-  console.log('🔧 authenticatedFetch - Body:', options.body);
+  console.log('🔧 authenticatedFetch - URL:', fullUrl);
+  console.log('🔧 authenticatedFetch - Token:', token ? 'Present' : 'Missing');
   console.log('🔧 authenticatedFetch - Headers:', headers);
   
-  return fetch(url, {
+  return fetch(fullUrl, {
     ...options,
     headers,
   })

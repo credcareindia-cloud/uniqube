@@ -284,7 +284,9 @@ export default function ProjectDetailPage() {
   const [showCreateStatusModal, setShowCreateStatusModal] = useState(false)
   const [showCreateGroupModal, setShowCreateGroupModal] = useState(false)
   const [customStatuses, setCustomStatuses] = useState<CustomStatus[]>([])
-  const [statusRefreshKey, setStatusRefreshKey] = useState(0) // Trigger refresh for StatusManagementTab
+  const [statusRefreshKey, setStatusRefreshKey] = useState(0) 
+  const [groupRefreshKey, setGroupRefreshKey] = useState(0) 
+  const [overviewRefreshKey, setOverviewRefreshKey] = useState(0) 
   const [selectedPanels, setSelectedPanels] = useState<Set<string>>(new Set())
   const [showBulkActions, setShowBulkActions] = useState(false)
   const [selectedPanel, setSelectedPanel] = useState<Panel | null>(null)
@@ -707,8 +709,10 @@ export default function ProjectDetailPage() {
         throw new Error('Failed to create group')
       }
       
-      // Reload groups
+      // Reload groups and trigger refresh in other tabs
       await loadGroups(groupPage)
+      setGroupRefreshKey(prev => prev + 1)
+      setOverviewRefreshKey(prev => prev + 1)
     } catch (error) {
       console.error('Error creating group:', error)
       throw error
@@ -1197,6 +1201,7 @@ export default function ProjectDetailPage() {
         <div className="px-8 py-6">
           {activeTab === 'overview' && (
             <OverviewTab 
+              key={overviewRefreshKey}
               projectId={parseInt(id!)} 
               totalPanels={totalPanelCount > 0 ? totalPanelCount : panels.length}
               groups={groups}
@@ -1219,9 +1224,14 @@ export default function ProjectDetailPage() {
 
           {activeTab === 'groups' && (
             <GroupManagementTab 
+              key={groupRefreshKey}
               projectId={parseInt(id)}
               onCreateGroup={() => setShowCreateGroupModal(true)}
               onViewGroup={handleViewGroup}
+              onDataChange={() => {
+                setGroupRefreshKey(prev => prev + 1)
+                setOverviewRefreshKey(prev => prev + 1)
+              }}
             />
           )}
 

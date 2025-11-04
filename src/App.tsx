@@ -13,6 +13,7 @@ import ProfilePage from '@/app/profile/page'
 import NotificationsPage from '@/app/notifications/page'
 import AdminPage from '@/app/admin/page'
 import ViewerPage from '@/app/projects/[id]/viewer-engine/ViewerPage'
+import ElementReportPage from '@/app/projects/[id]/element-report/[elementId]/page'
 import './App.css'
 
 function App() {
@@ -33,6 +34,10 @@ function App() {
           <Route 
             path="/projects/:id/viewer-engine" 
             element={<ProtectedRoute><ViewerPage /></ProtectedRoute>} 
+          />
+          <Route 
+            path="/projects/:id/element-report/:elementId" 
+            element={<ElementReportPage />} 
           />
           <Route path="/models/:id" element={<ProtectedRoute><AppLayout><ModelDetailPage /></AppLayout></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><AppLayout><ProfilePage /></AppLayout></ProtectedRoute>} />

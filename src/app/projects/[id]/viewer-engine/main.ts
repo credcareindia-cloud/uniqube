@@ -5,6 +5,9 @@ import Stats from "stats.js";
 import * as FRAGS from "@thatopen/fragments";
 import QRCode from 'qrcode';
 
+// API Configuration - must be defined before any functions that use it
+const API_BASE_URL = 'http://localhost:4000/api';
+
 /* MD
   ### 🌎 Setting up a Simple Scene
   To get started, let's set up a basic ThreeJS scene. This will serve as the foundation for our application and allow us to visualize the 3D models effectively:
@@ -700,9 +703,504 @@ const updateInfoPanel = (nodeData: TreeNodeData) => {
   updateElementInfoPanel(nodeData);
 };
 
+// NEW: Fetch tree structure from database (optimized)
+const fetchTreeStructureFromDatabase = async (projectId: string) => {
+  try {
+    console.log(`🗄️ Fetching tree structure from database for project ${projectId}...`);
+    
+    const token = localStorage.getItem('auth_token');
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    
+    console.time('⏱️ Fetch panels from API');
+    console.log(`📡 Fetching from: ${API_BASE_URL}/panels/${projectId}/all`);
+    console.log(`🔑 Auth token present: ${!!token}`);
+    
+    // Fetch ALL panels without pagination
+    const response = await fetch(`${API_BASE_URL}/panels/${projectId}/all`, {
+      method: 'GET',
+      headers: headers,
+    });
+    
+    console.timeEnd('⏱️ Fetch panels from API');
+    console.log(`📥 Response status: ${response.status} ${response.statusText}`);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`❌ API Error: ${response.status} - ${errorText}`);
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    console.time('⏱️ Parse JSON response');
+    const data = await response.json();
+    console.timeEnd('⏱️ Parse JSON response');
+    
+    const panelCount = data.panels?.length || 0;
+    console.log(`✅ Loaded ${panelCount} panels from database`);
+    
+    // WARNING: Log only if panel count is reasonable
+    if (panelCount > 1000) {
+      console.warn(`⚠️ Large dataset detected: ${panelCount} panels. This may cause performance issues.`);
+    } else if (panelCount > 0) {
+      console.log(`📦 Sample panel:`, data.panels?.[0]);
+    }
+    
+    console.time('⏱️ Organize panels by storey');
+    
+    // Organize panels by storey
+    const storeyMap = new Map<string, any[]>();
+    
+    if (data.panels && Array.isArray(data.panels)) {
+      // Process in batches to avoid blocking the main thread
+      const batchSize = 100;
+      let processedCount = 0;
+      
+      for (let i = 0; i < data.panels.length; i += batchSize) {
+        const batch = data.panels.slice(i, i + batchSize);
+        
+        batch.forEach((panel: any) => {
+          const storeyName = panel.metadata?.storeyName || 'Unknown Storey';
+          
+          if (!storeyMap.has(storeyName)) {
+            storeyMap.set(storeyName, []);
+          }
+          
+          // Simplified panel object - only include essential data
+          storeyMap.get(storeyName)!.push({
+            id: panel.id,
+            name: panel.name,
+            tag: panel.tag,
+            type: panel.objectType || panel.metadata?.elementType || 'Unknown',
+            localId: panel.metadata?.ifcElementId ? parseInt(panel.metadata.ifcElementId) : null,
+            elementId: panel.elementId,
+            metadata: panel.metadata,
+            modelName: panel.model?.originalFilename || 'Unknown Model',
+            // Include full groups and statuses data for element info panel
+            groups: panel.groups || [],
+            statuses: panel.statuses || [],
+          });
+        });
+        
+        processedCount += batch.length;
+        
+        // Log progress for large datasets
+        if (data.panels.length > 500 && processedCount % 500 === 0) {
+          console.log(`📊 Processed ${processedCount}/${data.panels.length} panels...`);
+        }
+        
+        // Allow UI to breathe between batches
+        if (i + batchSize < data.panels.length) {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+      }
+    }
+    
+    console.timeEnd('⏱️ Organize panels by storey');
+    
+    console.time('⏱️ Convert to tree structure');
+    // Convert to array format
+    const treeStructure = Array.from(storeyMap.entries()).map(([storeyName, panels]) => ({
+      name: storeyName,
+      type: 'IfcBuildingStorey',
+      elementCount: panels.length,
+      children: panels,
+    }));
+    console.timeEnd('⏱️ Convert to tree structure');
+    
+    console.log(`✅ Organized into ${treeStructure.length} storeys`);
+    console.log(`📊 Storey breakdown:`, treeStructure.map(s => `${s.name}: ${s.children.length} panels`));
+    return treeStructure;
+    
+  } catch (error) {
+    console.error('Error fetching tree structure from database:', error);
+    return null;
+  }
+};
+
 // Initialize tree for multiple models
 const initializeObjectTree = async () => {
   console.log("=== INITIALIZING OBJECT TREE FOR MULTIPLE MODELS ===");
+  const treeContainer = document.getElementById("tree-container");
+  if (!treeContainer) {
+    console.error("Tree container not found");
+    return;
+  }
+
+  // Show loading with progress
+  treeContainer.innerHTML = `
+    <div style="color: #aaa; padding: 20px; text-align: center;">
+      <i class="fas fa-spinner fa-spin" style="font-size: 24px; margin-bottom: 10px;"></i>
+      <div>Loading tree structure from database...</div>
+      <div style="font-size: 12px; margin-top: 10px; opacity: 0.7;">
+        Fast loading - optimized from database
+      </div>
+    </div>
+  `;
+
+  try {
+    // NEW: Fetch from database first (much faster!)
+    // URL format: /projects/5/viewer-engine -> get the project ID (5)
+    const pathParts = window.location.pathname.split('/');
+    const projectsIndex = pathParts.indexOf('projects');
+    const projectIdFromUrl = projectsIndex >= 0 ? pathParts[projectsIndex + 1] : null;
+    console.log(`🔍 Project ID from URL: ${projectIdFromUrl}`);
+    
+    if (projectIdFromUrl) {
+      const dbTreeStructure = await fetchTreeStructureFromDatabase(projectIdFromUrl);
+      console.log(`📊 Database tree structure result:`, dbTreeStructure);
+      
+      if (dbTreeStructure && dbTreeStructure.length > 0) {
+        console.log(`✅ Using database tree structure (optimized) - ${dbTreeStructure.length} storeys`);
+        
+        // Render database tree structure
+        const fragment = document.createDocumentFragment();
+        
+        // Create model root node
+        const modelContainer = document.createElement("div");
+        modelContainer.className = "tree-node-container model-root";
+
+        const modelNode = document.createElement("div");
+        modelNode.className = "tree-node model-node";
+        modelNode.style.paddingLeft = "10px";
+        modelNode.style.fontWeight = "600";
+
+        // Toggle icon
+        const toggleIcon = document.createElement("span");
+        toggleIcon.className = "tree-toggle-icon";
+        toggleIcon.textContent = "▶";
+        toggleIcon.onclick = (e) => {
+          e.stopPropagation();
+          const childrenContainer = modelContainer.querySelector(".model-children") as HTMLElement;
+          if (childrenContainer) {
+            const isCollapsed = childrenContainer.classList.contains("collapsed");
+            childrenContainer.classList.toggle("collapsed", !isCollapsed);
+            toggleIcon.classList.toggle("expanded", isCollapsed);
+          }
+        };
+        modelNode.appendChild(toggleIcon);
+
+        // Model icon
+        const icon = document.createElement("span");
+        icon.className = "tree-icon";
+        icon.textContent = "🏗️";
+        modelNode.appendChild(icon);
+
+        // Model name label - get actual model name from first panel
+        const label = document.createElement("span");
+        label.className = "tree-label";
+        const modelName = dbTreeStructure[0]?.children?.[0]?.modelName || "Building Structure";
+        // Remove .frag extension if present
+        const displayName = modelName.replace(/\.frag$/i, '');
+        label.textContent = displayName;
+        modelNode.appendChild(label);
+
+        // Count badge
+        const count = document.createElement("span");
+        count.className = "tree-count";
+        count.textContent = dbTreeStructure.length.toString();
+        modelNode.appendChild(count);
+
+        modelContainer.appendChild(modelNode);
+
+        // Children container
+        const childrenContainer = document.createElement("div");
+        childrenContainer.className = "model-children collapsed";
+
+        // Render storeys from database
+        dbTreeStructure.forEach((storey: any) => {
+          renderDatabaseStoreyNode(storey, childrenContainer);
+        });
+
+        modelContainer.appendChild(childrenContainer);
+        fragment.appendChild(modelContainer);
+        
+        treeContainer.innerHTML = "";
+        treeContainer.appendChild(fragment);
+        
+        console.log("✅ Database tree structure rendered successfully");
+        return;
+      }
+    }
+    
+    // FALLBACK: Use old IFC model extraction if database fails (COMMENTED OUT - using database only now)
+    console.log("⚠️ Database tree not available, falling back to IFC model extraction...");
+    // await initializeObjectTreeFromModel();  // OLD METHOD - Commented out, using database tree only
+    treeContainer.innerHTML = '<div style="color: #ff6b6b; padding: 20px; text-align: center;"><i class="fas fa-exclamation-triangle"></i><br/>Database tree not available<br/><small>Please ensure panels are loaded in the database</small></div>';
+    
+  } catch (error) {
+    console.error("Error initializing tree:", error);
+    treeContainer.innerHTML = '<div style="color: #ff6b6b; padding: 20px; text-align: center;"><i class="fas fa-exclamation-triangle"></i><br/>Error loading tree structure</div>';
+  }
+};
+
+// Helper function to render database storey nodes
+const renderDatabaseStoreyNode = (storey: any, container: HTMLElement) => {
+  const storeyContainer = document.createElement("div");
+  storeyContainer.className = "tree-node-container";
+
+  const storeyNode = document.createElement("div");
+  storeyNode.className = "tree-node storey-node";
+  storeyNode.style.paddingLeft = "30px";
+
+  // Toggle icon
+  const toggleIcon = document.createElement("span");
+  toggleIcon.className = "tree-toggle-icon";
+  toggleIcon.textContent = "▶";
+  toggleIcon.onclick = (e) => {
+    e.stopPropagation();
+    const childrenContainer = storeyContainer.querySelector(".storey-children") as HTMLElement;
+    if (childrenContainer) {
+      const isCollapsed = childrenContainer.classList.contains("collapsed");
+      childrenContainer.classList.toggle("collapsed", !isCollapsed);
+      toggleIcon.classList.toggle("expanded", isCollapsed);
+    }
+  };
+  storeyNode.appendChild(toggleIcon);
+
+  // Storey icon
+  const icon = document.createElement("span");
+  icon.className = "tree-icon";
+  icon.textContent = "🏢";
+  storeyNode.appendChild(icon);
+
+  // Storey name
+  const label = document.createElement("span");
+  label.className = "tree-label";
+  label.textContent = storey.name;
+  storeyNode.appendChild(label);
+
+  // Count badge
+  const count = document.createElement("span");
+  count.className = "tree-count";
+  count.textContent = storey.children?.length.toString() || "0";
+  storeyNode.appendChild(count);
+
+  storeyContainer.appendChild(storeyNode);
+
+  // Children container
+  const childrenContainer = document.createElement("div");
+  childrenContainer.className = "storey-children collapsed";
+
+  // Render panels
+  if (storey.children && Array.isArray(storey.children)) {
+    storey.children.forEach((panel: any) => {
+      renderDatabasePanelNode(panel, childrenContainer);
+    });
+  }
+
+  storeyContainer.appendChild(childrenContainer);
+  container.appendChild(storeyContainer);
+};
+
+// Helper function to render database panel nodes
+const renderDatabasePanelNode = (panel: any, container: HTMLElement) => {
+  const panelNode = document.createElement("div");
+  panelNode.className = "tree-node panel-node";
+  panelNode.style.paddingLeft = "50px";
+  
+  if (panel.localId) {
+    panelNode.dataset.localId = panel.localId.toString();
+  }
+
+  // Panel icon
+  const icon = document.createElement("span");
+  icon.className = "tree-icon";
+  icon.textContent = "📦";
+  panelNode.appendChild(icon);
+
+  // Panel name
+  const label = document.createElement("span");
+  label.className = "tree-label";
+  label.textContent = panel.name || panel.tag || "Unnamed Panel";
+  panelNode.appendChild(label);
+
+  // Type badge
+  const typeBadge = document.createElement("span");
+  typeBadge.className = "tree-type-badge";
+  typeBadge.textContent = panel.type.replace('Ifc', '');
+  typeBadge.style.cssText = "font-size: 10px; color: #64748b; margin-left: 8px;";
+  panelNode.appendChild(typeBadge);
+
+  // Click handler for highlighting and showing element info
+  panelNode.onclick = async () => {
+    if (panel.localId) {
+      console.log(`Clicked panel: ${panel.name}, localId: ${panel.localId}`);
+      
+      // Highlight in viewer
+      const highlightPromises = [];
+      for (const [_, m] of models.entries()) {
+        highlightPromises.push(m.resetHighlight(undefined));
+      }
+      await Promise.all(highlightPromises);
+      highlightPromises.length = 0;
+
+      // Ghost mode
+      for (const [_, m] of models.entries()) {
+        highlightPromises.push(
+          m.highlight(undefined, {
+            color: new THREE.Color(0xcccccc),
+            opacity: 0.2,
+            transparent: true,
+            renderedFaces: FRAGS.RenderedFaces.TWO,
+          })
+        );
+      }
+      await Promise.all(highlightPromises);
+
+      // Highlight selected panel
+      const firstModel = models.values().next().value;
+      if (firstModel) {
+        try {
+          await firstModel.highlight([panel.localId], {
+            color: new THREE.Color('gold'),
+            opacity: 1,
+            transparent: false,
+            renderedFaces: FRAGS.RenderedFaces.TWO,
+          });
+          
+          // Focus camera
+          const selectedBbox = new THREE.Box3();
+          firstModel.object.traverse((child) => {
+            if (child instanceof THREE.Mesh || child instanceof THREE.InstancedMesh) {
+              const bbox = new THREE.Box3().setFromObject(child);
+              if (!bbox.isEmpty()) {
+                selectedBbox.union(bbox);
+              }
+            }
+          });
+          
+          if (!selectedBbox.isEmpty()) {
+            const center = new THREE.Vector3();
+            selectedBbox.getCenter(center);
+            const size = new THREE.Vector3();
+            selectedBbox.getSize(size);
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const distance = Math.max(maxDim * 1.2, 5);
+            
+            const cameraPos = new THREE.Vector3(
+              center.x + distance * 0.6,
+              center.y + distance * 0.4,
+              center.z + distance * 0.6
+            );
+            
+            world.camera.controls.setLookAt(
+              cameraPos.x, cameraPos.y, cameraPos.z,
+              center.x, center.y, center.z,
+              true
+            );
+          }
+          
+          await fragments.update(true);
+          
+          // Show element information panel (same as old tree structure)
+          const nodeData = {
+            localId: panel.localId,
+            name: panel.name || panel.tag || 'Unnamed',
+            type: panel.type,
+            tag: panel.tag,
+            id: panel.id,
+            elementId: panel.elementId,
+            metadata: panel.metadata,
+            category: 'element',
+            children: [],
+            // Add panel data for groups and statuses
+            panelData: panel,
+          } as any;
+          
+          // Show info panel and update with element data
+          const infoPanel = document.getElementById("infoPanel");
+          const statusPanel = document.getElementById("statusPanel");
+          const groupsPanel = document.getElementById("groupsPanel");
+          
+          if (statusPanel) statusPanel.classList.add("panel-hidden");
+          if (groupsPanel) groupsPanel.classList.add("panel-hidden");
+          if (infoPanel) {
+            infoPanel.classList.remove("panel-hidden");
+            
+            // Update basic info
+            const infoSection = infoPanel.querySelector(".info-section");
+            if (infoSection) {
+              infoSection.innerHTML = `
+                <div class="info-row">
+                  <div class="info-label">Name</div>
+                  <div class="info-value">${nodeData.name}</div>
+                </div>
+                <div class="info-row">
+                  <div class="info-label">ID</div>
+                  <div class="info-value">${nodeData.localId}</div>
+                </div>
+                <div class="info-row">
+                  <div class="info-label">Type</div>
+                  <div class="info-value">${nodeData.type}</div>
+                </div>
+                <!-- COMMENTED OUT: Active Status dropdown - replaced with multiple status assignment
+                <div class="info-row">
+                  <div class="info-label">Active Status</div>
+                  <div class="info-value">
+                    <select id="element-active-status" class="status-select">
+                      <option value="">No status assigned</option>
+                    </select>
+                  </div>
+                </div>
+                -->
+                <div class="info-actions">
+                  <button id="show-qr-btn" class="info-action-btn" title="Show QR Code">
+                    <i class="fas fa-qrcode"></i>
+                  </button>
+                  <button id="show-submissions-btn" class="info-action-btn" title="View Submissions">
+                    <i class="fas fa-bell"></i>
+                    <span id="submission-count" class="notification-badge">0</span>
+                  </button>
+                </div>
+              `;
+            }
+            
+            // Update groups and status sections
+            updateElementInfoPanel(nodeData);
+            
+            // Attach QR code button event listener
+            const showQrBtnInPanel = infoPanel.querySelector("#show-qr-btn");
+            if (showQrBtnInPanel) {
+              showQrBtnInPanel.addEventListener("click", () => {
+                if (nodeData.localId) {
+                  console.log("🔲 Showing QR code for element:", nodeData.localId);
+                  showQRCode(nodeData.localId);
+                }
+              });
+            }
+            
+            // Attach submissions button event listener
+            const showSubmissionsBtnInPanel = infoPanel.querySelector("#show-submissions-btn");
+            if (showSubmissionsBtnInPanel) {
+              showSubmissionsBtnInPanel.addEventListener("click", () => {
+                if (nodeData.localId) {
+                  console.log("📋 Showing submissions for element:", nodeData.localId);
+                  showSubmissionsModal(nodeData.localId);
+                }
+              });
+            }
+          }
+          
+          console.log("✅ Element information panel updated");
+          
+        } catch (error) {
+          console.error("Error highlighting panel:", error);
+        }
+      }
+    }
+  };
+
+  container.appendChild(panelNode);
+};
+
+// OLD: Initialize tree from IFC model (commented out - kept as fallback)
+const initializeObjectTreeFromModel = async () => {
+  console.log("=== INITIALIZING OBJECT TREE FROM IFC MODEL (FALLBACK) ===");
   const treeContainer = document.getElementById("tree-container");
   if (!treeContainer) {
     console.error("Tree container not found");
@@ -1052,38 +1550,11 @@ const fetchStatusesFromDatabase = async (projectId: string): Promise<void> => {
   }
 };
 
-// Map icon names to FontAwesome classes
+// Map icon names to Lucide icons (deprecated - use getIconComponent instead)
+// Kept for backward compatibility with renderStatusList
 const getIconClass = (iconName: string): string => {
-  const iconMap: Record<string, string> = {
-    'angle-double-down': 'fa-angles-down',
-    'angle-double-left': 'fa-angles-left',
-    'angle-double-right': 'fa-angles-right',
-    'angle-double-up': 'fa-angles-up',
-    'angle-down': 'fa-angle-down',
-    'angle-left': 'fa-angle-left',
-    'angle-right': 'fa-angle-right',
-    'angle-up': 'fa-angle-up',
-    'bell': 'fa-bell',
-    'bookmark': 'fa-bookmark',
-    'box': 'fa-box',
-    'check': 'fa-check',
-    'circle': 'fa-circle',
-    'clock': 'fa-clock',
-    'exclamation': 'fa-exclamation',
-    'flag': 'fa-flag',
-    'heart': 'fa-heart',
-    'info': 'fa-info',
-    'pause': 'fa-pause',
-    'play': 'fa-play',
-    'star': 'fa-star',
-    'tag': 'fa-tag',
-    'thumbs-down': 'fa-thumbs-down',
-    'thumbs-up': 'fa-thumbs-up',
-    'wrench': 'fa-wrench',
-    'package': 'fa-box',
-  };
-
-  return iconMap[iconName.toLowerCase()] || 'fa-tag';
+  // Use the same Lucide icon mapping as getIconComponent
+  return getIconComponent(iconName);
 };
 
 // Render status list (read-only)
@@ -1094,11 +1565,12 @@ const renderStatusList = () => {
   if (elementStatuses.length === 0) {
     statusListContent.innerHTML = `
       <div class="empty-state">
-        <i class="fas fa-tags" style="font-size: 48px; margin-bottom: 16px; opacity: 0.3;"></i>
+        <i data-lucide="tags" style="font-size: 48px; margin-bottom: 16px; opacity: 0.3; width: 48px; height: 48px;"></i>
         <p>No statuses found</p>
         <p style="font-size: 13px; margin-top: 8px;">Statuses are managed from the Project Dashboard</p>
       </div>
     `;
+    setTimeout(() => initializeLucideIcons(), 50);
     return;
   }
 
@@ -1107,18 +1579,25 @@ const renderStatusList = () => {
     const statusItem = document.createElement("div");
     statusItem.className = "status-item";
     statusItem.style.borderLeftColor = status.color;
+    statusItem.style.cursor = "pointer";
 
     const iconClass = getIconClass(status.icon);
     const panelCount = status.panelCount || 0;
 
     statusItem.innerHTML = `
-      <i class="fas ${iconClass} status-item-icon" style="color: ${status.color};"></i>
+      <i data-lucide="${iconClass}" class="status-item-icon" style="color: ${status.color}; width: 20px; height: 20px;"></i>
       <span class="status-item-name">${status.name}</span>
       <span class="status-item-count" style="font-size: 11px; color: var(--slate-500); margin-left: auto;">${panelCount} panel${panelCount !== 1 ? 's' : ''}</span>
     `;
 
+    // Add click handler to highlight status panels
+    statusItem.addEventListener("click", () => highlightStatusPanels(status));
+
     statusListContent.appendChild(statusItem);
   });
+  
+  // Initialize Lucide icons after rendering
+  setTimeout(() => initializeLucideIcons(), 100);
 };
 
 // Status management - Read only, editing done in dashboard
@@ -1165,8 +1644,7 @@ if (addStatusBtn) {
   Display groups from database (read-only)
 */
 
-// API Configuration
-const API_BASE_URL = 'http://localhost:4000/api';
+// API Configuration moved to top of file (line 8)
 
 interface DatabaseGroup {
   id: string;
@@ -1347,64 +1825,76 @@ const highlightGroupPanels = async (group: DatabaseGroup) => {
   try {
     console.log(`Highlighting panels for group: ${group.name}`);
 
-    // Get panel tags from the group (using tag as the identifier)
-    const panelTags: string[] = [];
+    // Get panel element IDs from the group (using elementId as the unique identifier)
+    const panelElementIds: string[] = [];
+    const panelIds: string[] = [];
 
     // First try panelGroups (new structure)
     if (group.panelGroups && group.panelGroups.length > 0) {
       group.panelGroups.forEach(pg => {
-        if (pg.panel && pg.panel.tag) {
-          panelTags.push(pg.panel.tag.trim());
+        if (pg.panel) {
+          panelIds.push(pg.panel.id);
+          
+          // Priority 1: Use metadata.ifcElementId (real IFC element ID from model)
+          if ((pg.panel as any).metadata?.ifcElementId) {
+            panelElementIds.push((pg.panel as any).metadata.ifcElementId);
+          }
+          // Priority 2: Use element.globalId from database relation
+          else if (pg.panel.element && pg.panel.element.globalId) {
+            panelElementIds.push(pg.panel.element.globalId);
+          }
+          // Priority 3: Use elementId field if available
+          else if ((pg.panel as any).elementId) {
+            panelElementIds.push((pg.panel as any).elementId);
+          }
         }
       });
     }
     // Fallback to panels (old structure)
     else if (group.panels && group.panels.length > 0) {
       group.panels.forEach(panel => {
-        if (panel.tag) {
-          panelTags.push(panel.tag.trim());
+        panelIds.push(panel.id);
+        
+        // Priority 1: Use metadata.ifcElementId
+        if ((panel as any).metadata?.ifcElementId) {
+          panelElementIds.push((panel as any).metadata.ifcElementId);
+        }
+        // Priority 2: Use element.globalId
+        else if (panel.element && panel.element.globalId) {
+          panelElementIds.push(panel.element.globalId);
+        }
+        // Priority 3: Use elementId field
+        else if ((panel as any).elementId) {
+          panelElementIds.push((panel as any).elementId);
         }
       });
     }
 
-    if (panelTags.length === 0) {
-      console.log("No panels found in this group");
-      return;
+    if (panelElementIds.length === 0) {
+      console.log("No element IDs found in this group, falling back to panel tags");
+      // Fallback to tag-based matching if no element IDs available
+      return highlightGroupPanelsByTag(group);
     }
 
-    console.log(`Found ${panelTags.length} panels in group:`, panelTags);
+    console.log(`Found ${panelElementIds.length} element IDs in group:`, panelElementIds);
 
-    // Find all tree nodes that match the panel tags
+    // Convert IFC element IDs to numbers for matching with localId
     const localIds: number[] = [];
-    const treeContainer = document.getElementById("tree-container");
-
-    if (treeContainer) {
-      // Search through all tree nodes to find matching tags
-      const allTreeNodes = treeContainer.querySelectorAll(".tree-node");
-      allTreeNodes.forEach((node) => {
-        const label = node.querySelector(".tree-label");
-        if (label) {
-          const nodeName = label.textContent?.trim() || "";
-          // Check if this node's name matches any of the panel tags
-          if (panelTags.some(tag => nodeName === tag || nodeName.includes(tag))) {
-            const localIdStr = (node as HTMLElement).dataset.localId;
-            if (localIdStr) {
-              const localId = parseInt(localIdStr);
-              if (!isNaN(localId)) {
-                localIds.push(localId);
-              }
-            }
-          }
-        }
-      });
-    }
+    
+    panelElementIds.forEach(elementId => {
+      // IFC element IDs are stored as strings but represent the localId (numeric)
+      const numericId = parseInt(elementId);
+      if (!isNaN(numericId)) {
+        localIds.push(numericId);
+      }
+    });
 
     if (localIds.length === 0) {
-      console.log("Could not find any matching elements in the tree");
-      return;
+      console.log("Could not parse element IDs as numbers, falling back to tag matching");
+      return highlightGroupPanelsByTag(group);
     }
 
-    console.log(`Found ${localIds.length} matching elements with IDs:`, localIds);
+    console.log(`Converted to ${localIds.length} local IDs for highlighting:`, localIds);
 
     // Reset all highlights first
     const highlightPromises = [];
@@ -1414,7 +1904,7 @@ const highlightGroupPanels = async (group: DatabaseGroup) => {
     await Promise.all(highlightPromises);
     highlightPromises.length = 0;
 
-    // Make all elements semi-transparent (ghost mode)
+    // Make all elements semi-transparent (ghost mode) - same as tree structure
     for (const [_, m] of models.entries()) {
       highlightPromises.push(
         m.highlight(undefined, {
@@ -1427,7 +1917,7 @@ const highlightGroupPanels = async (group: DatabaseGroup) => {
     }
     await Promise.all(highlightPromises);
 
-    // Highlight the group's panels in all models
+    // Highlight the group's panels in gold with full opacity
     for (const [_, model] of models.entries()) {
       try {
         await model.highlight(localIds, {
@@ -1442,9 +1932,395 @@ const highlightGroupPanels = async (group: DatabaseGroup) => {
       }
     }
 
+    // Focus camera on the highlighted elements (exact same as tree node click)
+    const selectedBbox = new THREE.Box3();
+
+    // Calculate bounding box specifically for the selected elements
+    if (localIds.length > 0) {
+      const firstModel = models.values().next().value;
+      if (firstModel) {
+        firstModel.object.traverse((child) => {
+          if (child instanceof THREE.Mesh || child instanceof THREE.InstancedMesh) {
+            const bbox = new THREE.Box3().setFromObject(child);
+            if (!bbox.isEmpty()) {
+              selectedBbox.union(bbox);
+            }
+          }
+        });
+      }
+    }
+
+    if (!selectedBbox.isEmpty()) {
+      const center = new THREE.Vector3();
+      selectedBbox.getCenter(center);
+      const size = new THREE.Vector3();
+      selectedBbox.getSize(size);
+      const maxDim = Math.max(size.x, size.y, size.z);
+
+      // Closer distance for tighter framing
+      const distance = Math.max(maxDim * 1.2, 5);
+
+      // Position camera at a 45-degree angle for better perspective
+      const cameraPos = new THREE.Vector3(
+        center.x + distance * 0.6,
+        center.y + distance * 0.4,
+        center.z + distance * 0.6
+      );
+
+      // Smooth animated transition
+      world.camera.controls.setLookAt(
+        cameraPos.x, cameraPos.y, cameraPos.z,
+        center.x, center.y, center.z,
+        true
+      );
+      
+      console.log("Camera focused on highlighted panels");
+    }
+
+    // Update fragments (same as tree structure)
+    await fragments.update(true);
+
     console.log("Group panels highlighted successfully");
   } catch (error) {
     console.error("Error highlighting group panels:", error);
+  }
+};
+
+// Highlight panels in a status and make others transparent
+const highlightStatusPanels = async (status: any) => {
+  try {
+    console.log(`Highlighting panels for status: ${status.name}`);
+
+    // Get panel element IDs from the status (using elementId as the unique identifier)
+    const panelElementIds: string[] = [];
+    const panelIds: string[] = [];
+
+    // Extract panel data from panelStatuses
+    if (status.panelStatuses && status.panelStatuses.length > 0) {
+      status.panelStatuses.forEach((ps: any) => {
+        if (ps.panel) {
+          panelIds.push(ps.panel.id);
+          
+          // Priority 1: Use metadata.ifcElementId (real IFC element ID from model)
+          if (ps.panel.metadata?.ifcElementId) {
+            panelElementIds.push(ps.panel.metadata.ifcElementId);
+          }
+          // Priority 2: Use element.globalId from database relation
+          else if (ps.panel.element && ps.panel.element.globalId) {
+            panelElementIds.push(ps.panel.element.globalId);
+          }
+          // Priority 3: Use elementId field if available
+          else if (ps.panel.elementId) {
+            panelElementIds.push(ps.panel.elementId);
+          }
+        }
+      });
+    }
+
+    if (panelElementIds.length === 0) {
+      console.log("No element IDs found in this status, falling back to panel tags");
+      return highlightStatusPanelsByTag(status);
+    }
+
+    console.log(`Found ${panelElementIds.length} element IDs in status:`, panelElementIds);
+
+    // Convert IFC element IDs to numbers for matching with localId
+    const localIds: number[] = [];
+    
+    panelElementIds.forEach(elementId => {
+      const numericId = parseInt(elementId);
+      if (!isNaN(numericId)) {
+        localIds.push(numericId);
+      }
+    });
+
+    if (localIds.length === 0) {
+      console.log("Could not parse element IDs as numbers, falling back to tag matching");
+      return highlightStatusPanelsByTag(status);
+    }
+
+    console.log(`Converted to ${localIds.length} local IDs for highlighting:`, localIds);
+
+    // Reset all highlights first
+    const highlightPromises = [];
+    for (const [_, m] of models.entries()) {
+      highlightPromises.push(m.resetHighlight(undefined));
+    }
+    await Promise.all(highlightPromises);
+    highlightPromises.length = 0;
+
+    // Make all elements semi-transparent (ghost mode) - same as tree structure
+    for (const [_, m] of models.entries()) {
+      highlightPromises.push(
+        m.highlight(undefined, {
+          color: new THREE.Color(0xcccccc),
+          opacity: 0.2,
+          transparent: true,
+          renderedFaces: FRAGS.RenderedFaces.TWO,
+        })
+      );
+    }
+    await Promise.all(highlightPromises);
+
+    // Highlight the status's panels in the status color with full opacity
+    const statusColor = new THREE.Color(status.color || '#3b82f6');
+    for (const [_, model] of models.entries()) {
+      try {
+        await model.highlight(localIds, {
+          color: statusColor,
+          opacity: 1,
+          transparent: false,
+          renderedFaces: FRAGS.RenderedFaces.TWO,
+        });
+        console.log(`Highlighted ${localIds.length} panels in model`);
+      } catch (error) {
+        console.warn("Could not highlight panels in this model:", error);
+      }
+    }
+
+    // Focus camera on the highlighted elements (exact same as tree node click)
+    const selectedBbox = new THREE.Box3();
+
+    // Calculate bounding box specifically for the selected elements
+    if (localIds.length > 0) {
+      const firstModel = models.values().next().value;
+      if (firstModel) {
+        firstModel.object.traverse((child) => {
+          if (child instanceof THREE.Mesh || child instanceof THREE.InstancedMesh) {
+            const bbox = new THREE.Box3().setFromObject(child);
+            if (!bbox.isEmpty()) {
+              selectedBbox.union(bbox);
+            }
+          }
+        });
+      }
+    }
+
+    if (!selectedBbox.isEmpty()) {
+      const center = new THREE.Vector3();
+      selectedBbox.getCenter(center);
+      const size = new THREE.Vector3();
+      selectedBbox.getSize(size);
+      const maxDim = Math.max(size.x, size.y, size.z);
+
+      // Closer distance for tighter framing
+      const distance = Math.max(maxDim * 1.2, 5);
+
+      // Position camera at a 45-degree angle for better perspective
+      const cameraPos = new THREE.Vector3(
+        center.x + distance * 0.6,
+        center.y + distance * 0.4,
+        center.z + distance * 0.6
+      );
+
+      // Smooth animated transition
+      world.camera.controls.setLookAt(
+        cameraPos.x, cameraPos.y, cameraPos.z,
+        center.x, center.y, center.z,
+        true
+      );
+      
+      console.log("Camera focused on highlighted panels");
+    }
+
+    // Update fragments (same as tree structure)
+    await fragments.update(true);
+
+    console.log("Status panels highlighted successfully");
+  } catch (error) {
+    console.error("Error highlighting status panels:", error);
+  }
+};
+
+// Fallback function: Highlight status panels by tag name (legacy method)
+const highlightStatusPanelsByTag = async (status: any) => {
+  try {
+    console.log(`Highlighting panels by tag for status: ${status.name}`);
+
+    const panelTags: string[] = [];
+
+    if (status.panelStatuses && status.panelStatuses.length > 0) {
+      status.panelStatuses.forEach((ps: any) => {
+        if (ps.panel && ps.panel.tag) {
+          panelTags.push(ps.panel.tag.trim());
+        }
+      });
+    }
+
+    if (panelTags.length === 0) {
+      console.log("No panel tags found in this status");
+      return;
+    }
+
+    console.log(`Found ${panelTags.length} panel tags:`, panelTags);
+
+    const localIds: number[] = [];
+    const treeContainer = document.getElementById("tree-container");
+
+    if (treeContainer) {
+      const allTreeNodes = treeContainer.querySelectorAll(".tree-node");
+      allTreeNodes.forEach((node) => {
+        const label = node.querySelector(".tree-label");
+        if (label) {
+          const nodeName = label.textContent?.trim() || "";
+          if (panelTags.some(tag => nodeName === tag || nodeName.includes(tag))) {
+            const localIdStr = (node as HTMLElement).dataset.localId;
+            if (localIdStr) {
+              const localId = parseInt(localIdStr);
+              if (!isNaN(localId)) {
+                localIds.push(localId);
+              }
+            }
+          }
+        }
+      });
+    }
+
+    if (localIds.length === 0) {
+      console.log("Could not find any matching elements by tag");
+      return;
+    }
+
+    console.log(`Found ${localIds.length} matching elements by tag`);
+
+    // Reset and highlight
+    const highlightPromises = [];
+    for (const [_, m] of models.entries()) {
+      highlightPromises.push(m.resetHighlight(undefined));
+    }
+    await Promise.all(highlightPromises);
+    highlightPromises.length = 0;
+
+    for (const [_, m] of models.entries()) {
+      highlightPromises.push(
+        m.highlight(undefined, {
+          color: new THREE.Color(0xcccccc),
+          opacity: 0.2,
+          transparent: true,
+          renderedFaces: FRAGS.RenderedFaces.TWO,
+        })
+      );
+    }
+    await Promise.all(highlightPromises);
+
+    const statusColor = new THREE.Color(status.color || '#3b82f6');
+    for (const [_, model] of models.entries()) {
+      try {
+        await model.highlight(localIds, {
+          color: statusColor,
+          opacity: 1,
+          transparent: false,
+          renderedFaces: FRAGS.RenderedFaces.TWO,
+        });
+      } catch (error) {
+        console.warn("Could not highlight panels in this model:", error);
+      }
+    }
+
+    console.log("Status panels highlighted by tag successfully");
+  } catch (error) {
+    console.error("Error highlighting status panels by tag:", error);
+  }
+};
+
+// Fallback function: Highlight panels by tag name (legacy method)
+const highlightGroupPanelsByTag = async (group: DatabaseGroup) => {
+  try {
+    console.log(`Highlighting panels by tag for group: ${group.name}`);
+
+    // Get panel tags from the group
+    const panelTags: string[] = [];
+
+    if (group.panelGroups && group.panelGroups.length > 0) {
+      group.panelGroups.forEach(pg => {
+        if (pg.panel && pg.panel.tag) {
+          panelTags.push(pg.panel.tag.trim());
+        }
+      });
+    }
+    else if (group.panels && group.panels.length > 0) {
+      group.panels.forEach(panel => {
+        if (panel.tag) {
+          panelTags.push(panel.tag.trim());
+        }
+      });
+    }
+
+    if (panelTags.length === 0) {
+      console.log("No panel tags found in this group");
+      return;
+    }
+
+    console.log(`Found ${panelTags.length} panel tags:`, panelTags);
+
+    // Find all tree nodes that match the panel tags
+    const localIds: number[] = [];
+    const treeContainer = document.getElementById("tree-container");
+
+    if (treeContainer) {
+      const allTreeNodes = treeContainer.querySelectorAll(".tree-node");
+      allTreeNodes.forEach((node) => {
+        const label = node.querySelector(".tree-label");
+        if (label) {
+          const nodeName = label.textContent?.trim() || "";
+          if (panelTags.some(tag => nodeName === tag || nodeName.includes(tag))) {
+            const localIdStr = (node as HTMLElement).dataset.localId;
+            if (localIdStr) {
+              const localId = parseInt(localIdStr);
+              if (!isNaN(localId)) {
+                localIds.push(localId);
+              }
+            }
+          }
+        }
+      });
+    }
+
+    if (localIds.length === 0) {
+      console.log("Could not find any matching elements by tag");
+      return;
+    }
+
+    console.log(`Found ${localIds.length} matching elements by tag`);
+
+    // Reset all highlights first
+    const highlightPromises = [];
+    for (const [_, m] of models.entries()) {
+      highlightPromises.push(m.resetHighlight(undefined));
+    }
+    await Promise.all(highlightPromises);
+    highlightPromises.length = 0;
+
+    // Make all elements semi-transparent
+    for (const [_, m] of models.entries()) {
+      highlightPromises.push(
+        m.highlight(undefined, {
+          color: new THREE.Color(0xcccccc),
+          opacity: 0.2,
+          transparent: true,
+          renderedFaces: FRAGS.RenderedFaces.TWO,
+        })
+      );
+    }
+    await Promise.all(highlightPromises);
+
+    // Highlight the group's panels
+    for (const [_, model] of models.entries()) {
+      try {
+        await model.highlight(localIds, {
+          color: new THREE.Color('gold'),
+          opacity: 1,
+          transparent: false,
+          renderedFaces: FRAGS.RenderedFaces.TWO,
+        });
+      } catch (error) {
+        console.warn("Could not highlight panels in this model:", error);
+      }
+    }
+
+    console.log("Group panels highlighted by tag successfully");
+  } catch (error) {
+    console.error("Error highlighting group panels by tag:", error);
   }
 };
 
@@ -1559,15 +2435,947 @@ const updateElementInfoPanel = (nodeData: TreeNodeData) => {
 
   if (!groupsList || !statusList) return;
 
-  // Render groups
-  renderElementGroups(connections);
+  // Check if we have panel data from database (new tree structure)
+  if ((nodeData as any).panelData) {
+    const panelData = (nodeData as any).panelData;
+    console.log('📦 Panel data from database:', panelData);
+    console.log('📦 Panel groups:', panelData.groups);
+    console.log('📦 Panel statuses:', panelData.statuses);
+    
+    // Render groups from panel data
+    renderElementGroupsFromPanel(panelData, groupsList);
+    
+    // Render statuses from panel data
+    renderElementStatusFromPanel(panelData, statusList);
+    
+    // Update active status dropdown
+    updateActiveStatusDropdownFromPanel(panelData);
+  } else {
+    console.log('⚠️ No panel data from database, using fallback method');
+    // Fallback to old method for IFC tree structure
+    renderElementGroups(connections);
+    renderElementStatus(connections);
+    updateActiveStatusDropdown(connections);
+  }
 
-  // Render status
-  renderElementStatus(connections);
-
-  // Update active status dropdown and submission count
-  updateActiveStatusDropdown(connections);
   updateSubmissionCount(nodeData.localId);
+};
+
+// Render groups from panel data (database tree)
+const renderElementGroupsFromPanel = (panelData: any, groupsList: HTMLElement) => {
+  groupsList.innerHTML = "";
+
+  // Add "Assign Group" button at the top
+  const assignGroupBtn = document.createElement("button");
+  assignGroupBtn.className = "assign-btn";
+  assignGroupBtn.style.cssText = `
+    width: 100%;
+    padding: 8px 12px;
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin-bottom: 12px;
+    transition: all 0.2s;
+  `;
+  assignGroupBtn.innerHTML = `<i class="fas fa-plus"></i> Assign Group`;
+  assignGroupBtn.onmouseover = () => assignGroupBtn.style.background = "var(--primary-dark)";
+  assignGroupBtn.onmouseout = () => assignGroupBtn.style.background = "var(--primary)";
+  assignGroupBtn.onclick = async () => {
+    console.log("Assign group clicked for panel:", panelData.id);
+    await showGroupAssignmentModal(panelData);
+  };
+  groupsList.appendChild(assignGroupBtn);
+
+  const panelGroups = panelData.groups || [];
+  
+  if (panelGroups.length === 0) {
+    const emptyState = document.createElement("div");
+    emptyState.className = "empty-state";
+    emptyState.style.cssText = "padding: 20px; text-align: center;";
+    emptyState.innerHTML = `
+      <i class="fas fa-layer-group" style="font-size: 32px; opacity: 0.3; margin-bottom: 8px;"></i>
+      <p style="font-size: 13px; color: var(--slate-500);">Not assigned to any groups</p>
+    `;
+    groupsList.appendChild(emptyState);
+  } else {
+    panelGroups.forEach((pg: any) => {
+      const group = pg.group;
+      const tag = document.createElement("div");
+      tag.className = "element-group-tag";
+      tag.style.cssText = `
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 12px;
+        background: var(--slate-100);
+        border: 1px solid var(--slate-200);
+        border-radius: 6px;
+        margin-bottom: 8px;
+      `;
+      tag.innerHTML = `
+        <div class="element-tag-content" style="display: flex; align-items: center; gap: 8px;">
+          <i class="fas fa-layer-group element-tag-icon"></i>
+          <span>${group.name}</span>
+        </div>
+        <button class="remove-btn" style="
+          background: transparent;
+          border: none;
+          color: var(--red-500);
+          cursor: pointer;
+          padding: 4px 8px;
+          border-radius: 4px;
+          transition: all 0.2s;
+        " title="Remove from group">
+          <i class="fas fa-times"></i>
+        </button>
+      `;
+      
+      // Add remove button handler
+      const removeBtn = tag.querySelector(".remove-btn");
+      if (removeBtn) {
+        removeBtn.addEventListener("mouseover", () => {
+          (removeBtn as HTMLElement).style.background = "var(--red-100)";
+        });
+        removeBtn.addEventListener("mouseout", () => {
+          (removeBtn as HTMLElement).style.background = "transparent";
+        });
+        removeBtn.addEventListener("click", async () => {
+          console.log("Remove from group:", group.name, "panel:", panelData.id);
+          showRemoveConfirmModal(
+            'Remove Group from Selected Panels',
+            `Remove group "${group.name}" from panel(s)?`,
+            async () => await removePanelFromGroup(panelData.id, group.id)
+          );
+        });
+      }
+      
+      groupsList.appendChild(tag);
+    });
+  }
+};
+
+// Map icon names to Lucide icons for vanilla JS
+// This matches the icon mapping in /utils/iconMapping.ts
+// Database stores icons in kebab-case format, we map them to Lucide PascalCase
+const getIconComponent = (iconName: string): string => {
+  if (!iconName) return 'circle';
+  
+  // Icon mapping from kebab-case to Lucide names (matching /utils/iconMapping.ts)
+  const iconMap: Record<string, string> = {
+    'angle-double-down': 'chevrons-down',
+    'angle-double-left': 'chevrons-left',
+    'angle-double-right': 'chevrons-right',
+    'angle-double-up': 'chevrons-up',
+    'angle-down': 'chevron-down',
+    'angle-left': 'chevron-left',
+    'angle-right': 'chevron-right',
+    'angle-up': 'chevron-up',
+    'bell': 'bell',
+    'bookmark': 'bookmark',
+    'box': 'box',
+    'check': 'check',
+    'circle': 'circle',
+    'clock': 'clock',
+    'code': 'code',
+    'exclamation': 'alert-triangle',
+    'eye': 'eye',
+    'file': 'file',
+    'folder': 'folder',
+    'forward': 'forward',
+    'hashtag': 'hash',
+    'info': 'info',
+    'lightbulb': 'lightbulb',
+    'lock': 'lock',
+    'lock-open': 'lock-open',
+    'map-marker': 'map-pin',
+    'minus': 'minus',
+    'pause': 'pause',
+    'pen-to-square': 'edit',
+    'phone': 'phone',
+    'play': 'play',
+    'plus': 'plus',
+    'reply': 'reply',
+    'save': 'save',
+    'search': 'search',
+    'send': 'send',
+    'server': 'server',
+    'share-alt': 'share-2',
+    'shield': 'shield',
+    'shop': 'shopping-bag',
+    'sign-in': 'log-in',
+    'sign-out': 'log-out',
+    'sliders-h': 'sliders-horizontal',
+    'sort': 'arrow-up-down',
+    'spinner': 'loader',
+    'star': 'star',
+    'stop-circle': 'stop-circle',
+    'stopwatch': 'timer',
+    'tag': 'tag',
+    'thumbs-down': 'thumbs-down',
+    'thumbs-up': 'thumbs-up',
+    'thumbtack': 'pin',
+    'th-large': 'grid-3x3',
+    'ticket': 'ticket',
+    'times': 'x',
+    'times-circle': 'x-circle',
+    'trash': 'trash-2',
+    'undo': 'undo',
+    'unlock': 'unlock',
+    'user': 'user',
+    'users': 'users',
+    'verified': 'badge-check',
+    'warehouse': 'warehouse',
+    'maximize': 'maximize',
+    'minimize': 'minimize',
+    'wrench': 'wrench',
+    'package': 'package',
+  };
+  
+  // Return Lucide icon name (kebab-case for data-lucide attribute)
+  return iconMap[iconName.toLowerCase()] || iconName.toLowerCase();
+};
+
+// Helper to initialize Lucide icons after DOM updates
+const initializeLucideIcons = () => {
+  if ((window as any).lucide) {
+    (window as any).lucide.createIcons();
+  }
+};
+
+// Render statuses from panel data (database tree)
+const renderElementStatusFromPanel = (panelData: any, statusList: HTMLElement) => {
+  statusList.innerHTML = "";
+
+  // Add "Assign Status" button at the top
+  const assignStatusBtn = document.createElement("button");
+  assignStatusBtn.className = "assign-btn";
+  assignStatusBtn.style.cssText = `
+    width: 100%;
+    padding: 8px 12px;
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin-bottom: 12px;
+    transition: all 0.2s;
+  `;
+  assignStatusBtn.innerHTML = `<i class="fas fa-plus"></i> Assign Status`;
+  assignStatusBtn.onmouseover = () => assignStatusBtn.style.background = "var(--primary-dark)";
+  assignStatusBtn.onmouseout = () => assignStatusBtn.style.background = "var(--primary)";
+  assignStatusBtn.onclick = async () => {
+    console.log("Assign status clicked for panel:", panelData.id);
+    await showStatusAssignmentModal(panelData);
+  };
+  statusList.appendChild(assignStatusBtn);
+
+  const panelStatuses = panelData.statuses || [];
+  
+  if (panelStatuses.length === 0) {
+    const emptyState = document.createElement("div");
+    emptyState.className = "empty-state";
+    emptyState.style.cssText = "padding: 20px; text-align: center;";
+    emptyState.innerHTML = `
+      <i class="fas fa-circle-notch" style="font-size: 32px; opacity: 0.3; margin-bottom: 8px;"></i>
+      <p style="font-size: 13px; color: var(--slate-500);">No status assigned</p>
+    `;
+    statusList.appendChild(emptyState);
+  } else {
+    panelStatuses.forEach((ps: any) => {
+      const status = ps.status;
+      const tag = document.createElement("div");
+      tag.className = "element-status-tag";
+      tag.style.cssText = `
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 8px 12px;
+        background: ${status.color}15;
+        border: 1px solid ${status.color}40;
+        border-radius: 6px;
+        margin-bottom: 8px;
+      `;
+      const iconClass = getIconComponent(status.icon);
+      console.log(`📊 Status: ${status.name}, Icon: ${status.icon}, Lucide: ${iconClass}`);
+      tag.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
+          <i data-lucide="${iconClass}" style="color: ${status.color}; width: 16px; height: 16px;"></i>
+          <span style="font-weight: 500;">${status.name}</span>
+          ${status.description ? `<span style="font-size: 11px; color: var(--slate-500);">${status.description}</span>` : ''}
+        </div>
+        <button class="remove-btn" style="
+          background: transparent;
+          border: none;
+          color: var(--red-500);
+          cursor: pointer;
+          padding: 4px 8px;
+          border-radius: 4px;
+          transition: all 0.2s;
+        " title="Remove status">
+          <i class="fas fa-times"></i>
+        </button>
+      `;
+      
+      // Add remove button handler
+      const removeBtn = tag.querySelector(".remove-btn");
+      if (removeBtn) {
+        removeBtn.addEventListener("mouseover", () => {
+          (removeBtn as HTMLElement).style.background = "var(--red-100)";
+        });
+        removeBtn.addEventListener("mouseout", () => {
+          (removeBtn as HTMLElement).style.background = "transparent";
+        });
+        removeBtn.addEventListener("click", async () => {
+          console.log("Remove status:", status.name, "from panel:", panelData.id);
+          showRemoveConfirmModal(
+            'Remove Status from Selected Panels',
+            `Remove status "${status.name}" from panel(s)?`,
+            async () => await removePanelStatus(panelData.id, status.id)
+          );
+        });
+      }
+      
+      statusList.appendChild(tag);
+    });
+  }
+  
+  // Initialize Lucide icons after rendering
+  setTimeout(() => initializeLucideIcons(), 100);
+};
+
+// Show remove confirmation modal
+const showRemoveConfirmModal = (title: string, message: string, onConfirm: () => Promise<void>) => {
+  const modalContent = `
+    <p style="color: var(--slate-500); margin-bottom: 24px; font-size: 15px;">${message}</p>
+    <div style="display: flex; gap: 12px; justify-content: flex-end;">
+      <button class="modal-cancel" style="
+        padding: 10px 24px;
+        border: 1px solid var(--slate-200);
+        background: var(--panel-bg);
+        color: var(--slate-600);
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+      ">✕ Cancel</button>
+      <button class="modal-remove" style="
+        padding: 10px 24px;
+        border: none;
+        background: var(--accent);
+        color: white;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+      ">✓ Remove</button>
+    </div>
+  `;
+  
+  const modal = createModal(title, modalContent);
+  document.body.appendChild(modal);
+  
+  const removeBtn = modal.querySelector('.modal-remove') as HTMLButtonElement;
+  const cancelBtn = modal.querySelector('.modal-cancel') as HTMLButtonElement;
+  
+  removeBtn.addEventListener('click', async () => {
+    modal.remove();
+    await onConfirm();
+  });
+  
+  cancelBtn.addEventListener('click', () => modal.remove());
+};
+
+// Create modal HTML structure
+const createModal = (title: string, content: string): HTMLElement => {
+  const modal = document.createElement('div');
+  modal.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(15, 23, 42, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    backdrop-filter: blur(4px);
+  `;
+  
+  modal.innerHTML = `
+    <div style="
+      background: var(--panel-bg);
+      border-radius: 12px;
+      padding: 32px;
+      max-width: 500px;
+      width: 90%;
+      box-shadow: 0 20px 60px rgba(15, 23, 42, 0.3);
+      position: relative;
+      border: 1px solid var(--panel-border);
+    ">
+      <button class="modal-close" style="
+        position: absolute;
+        top: 16px;
+        right: 16px;
+        background: transparent;
+        border: none;
+        font-size: 24px;
+        color: var(--slate-500);
+        cursor: pointer;
+        padding: 4px 8px;
+        line-height: 1;
+        transition: color 0.2s;
+      ">×</button>
+      <h2 style="
+        font-size: 24px;
+        font-weight: 600;
+        color: var(--slate-800);
+        margin: 0 0 24px 0;
+      ">${title}</h2>
+      ${content}
+    </div>
+  `;
+  
+  // Close on background click
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      modal.remove();
+    }
+  });
+  
+  // Close button hover effect
+  const closeBtn = modal.querySelector('.modal-close') as HTMLElement;
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => modal.remove());
+    closeBtn.addEventListener('mouseover', () => {
+      closeBtn.style.color = 'var(--slate-700)';
+    });
+    closeBtn.addEventListener('mouseout', () => {
+      closeBtn.style.color = 'var(--slate-500)';
+    });
+  }
+  
+  return modal;
+};
+
+// Show group assignment modal
+const showGroupAssignmentModal = async (panelData: any) => {
+  // Get project ID from URL
+  const pathParts = window.location.pathname.split('/');
+  const projectsIndex = pathParts.indexOf('projects');
+  const projectId = projectsIndex >= 0 ? pathParts[projectsIndex + 1] : null;
+  
+  if (!projectId) {
+    alert('Project ID not found');
+    return;
+  }
+  
+  // Fetch all groups for this project
+  const token = localStorage.getItem('auth_token');
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  
+  try {
+    const response = await fetch(`${API_BASE_URL}/groups/${projectId}`, {
+      method: 'GET',
+      headers: headers,
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch groups: ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    const availableGroups = data.groups || [];
+    
+    // Get currently assigned group IDs
+    const assignedGroupIds = (panelData.groups || []).map((pg: any) => pg.group.id);
+    const unassignedGroups = availableGroups.filter((g: any) => !assignedGroupIds.includes(g.id));
+    
+    // Create modal content
+    let modalContent = '';
+    
+    if (unassignedGroups.length === 0) {
+      // Show message when all groups are assigned
+      modalContent = `
+        <div style="text-align: center; padding: 20px 0;">
+          <i class="fas fa-check-circle" style="font-size: 48px; color: var(--success); margin-bottom: 16px;"></i>
+          <p style="color: var(--slate-500); font-size: 15px; margin-bottom: 24px;">All groups are already assigned to this panel</p>
+        </div>
+        <div style="display: flex; justify-content: center;">
+          <button class="modal-close-btn" style="
+            padding: 10px 24px;
+            border: 1px solid var(--slate-200);
+            background: var(--panel-bg);
+            color: var(--slate-600);
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+          ">Close</button>
+        </div>
+      `;
+      
+      const modal = createModal('Add Group to Selected Panels', modalContent);
+      document.body.appendChild(modal);
+      
+      const closeBtn = modal.querySelector('.modal-close-btn') as HTMLButtonElement;
+      closeBtn.addEventListener('click', () => modal.remove());
+      return;
+    }
+    
+    // Show dropdown when there are unassigned groups
+    modalContent = `
+      <label style="display: block; margin-bottom: 8px; font-weight: 500; color: var(--slate-700);">Group to Add</label>
+      <select id="group-select" style="
+        width: 100%;
+        padding: 12px;
+        border: 2px solid var(--slate-200);
+        border-radius: 8px;
+        font-size: 14px;
+        color: var(--slate-800);
+        background: var(--panel-bg);
+        cursor: pointer;
+        margin-bottom: 24px;
+      ">
+        <option value="">Select group to add</option>
+        ${unassignedGroups.map((g: any) => `<option value="${g.id}">${g.name}</option>`).join('')}
+      </select>
+      <div style="display: flex; gap: 12px; justify-content: flex-end;">
+        <button class="modal-cancel" style="
+          padding: 10px 24px;
+          border: 1px solid var(--slate-200);
+          background: var(--panel-bg);
+          color: var(--slate-600);
+          border-radius: 8px;
+          font-size: 14px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.2s;
+        ">✕ Cancel</button>
+        <button class="modal-assign" style="
+          padding: 10px 24px;
+          border: none;
+          background: var(--primary);
+          color: white;
+          border-radius: 8px;
+          font-size: 14px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.2s;
+        ">✓ Assign</button>
+      </div>
+    `;
+    
+    const modal = createModal('Add Group to Selected Panels', modalContent);
+    document.body.appendChild(modal);
+    
+    // Handle assign button
+    const assignBtn = modal.querySelector('.modal-assign') as HTMLButtonElement;
+    const cancelBtn = modal.querySelector('.modal-cancel') as HTMLButtonElement;
+    const selectEl = modal.querySelector('#group-select') as HTMLSelectElement;
+    
+    assignBtn.addEventListener('click', async () => {
+      const selectedGroupId = selectEl.value;
+      if (selectedGroupId) {
+        modal.remove();
+        await assignPanelToGroup(panelData.id, selectedGroupId, projectId);
+      } else {
+        alert('Please select a group');
+      }
+    });
+    
+    cancelBtn.addEventListener('click', () => modal.remove());
+  } catch (error) {
+    console.error('Error fetching groups:', error);
+    alert('Failed to fetch groups');
+  }
+};
+
+// Assign panel to group
+const assignPanelToGroup = async (panelId: string, groupId: string, projectId: string) => {
+  const token = localStorage.getItem('auth_token');
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  
+  try {
+    const response = await fetch(`${API_BASE_URL}/groups/${projectId}/${groupId}/panels`, {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify({ panelIds: [panelId] }),
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to assign panel to group: ${response.statusText}`);
+    }
+    
+    console.log('✅ Panel assigned to group successfully');
+    
+    // Refresh the panel data and UI without full page reload
+    await refreshPanelData(panelId);
+  } catch (error) {
+    console.error('Error assigning panel to group:', error);
+    alert('Failed to assign panel to group');
+  }
+};
+
+// Remove panel from group
+const removePanelFromGroup = async (panelId: string, groupId: string) => {
+  const pathParts = window.location.pathname.split('/');
+  const projectsIndex = pathParts.indexOf('projects');
+  const projectId = projectsIndex >= 0 ? pathParts[projectsIndex + 1] : null;
+  
+  if (!projectId) {
+    alert('Project ID not found');
+    return;
+  }
+  
+  const token = localStorage.getItem('auth_token');
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  
+  try {
+    const response = await fetch(`${API_BASE_URL}/groups/${projectId}/${groupId}/panels`, {
+      method: 'DELETE',
+      headers: headers,
+      body: JSON.stringify({ panelIds: [panelId] }),
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to remove panel from group: ${response.statusText}`);
+    }
+    
+    console.log('✅ Panel removed from group successfully');
+    
+    // Refresh the panel data and UI without full page reload
+    await refreshPanelData(panelId);
+  } catch (error) {
+    console.error('Error removing panel from group:', error);
+    alert('Failed to remove panel from group');
+  }
+};
+
+// Show status assignment modal
+const showStatusAssignmentModal = async (panelData: any) => {
+  // Get project ID from URL
+  const pathParts = window.location.pathname.split('/');
+  const projectsIndex = pathParts.indexOf('projects');
+  const projectId = projectsIndex >= 0 ? pathParts[projectsIndex + 1] : null;
+  
+  if (!projectId) {
+    alert('Project ID not found');
+    return;
+  }
+  
+  // Get currently assigned status IDs
+  const assignedStatusIds = (panelData.statuses || []).map((ps: any) => ps.status.id);
+  const unassignedStatuses = elementStatuses.filter((s: any) => !assignedStatusIds.includes(s.id));
+  
+  // Create modal content
+  let modalContent = '';
+  
+  if (unassignedStatuses.length === 0) {
+    // Show message when all statuses are assigned
+      modalContent = `
+        <div style="text-align: center; padding: 20px 0;">
+          <i class="fas fa-check-circle" style="font-size: 48px; color: var(--success); margin-bottom: 16px;"></i>
+          <p style="color: var(--slate-500); font-size: 15px; margin-bottom: 24px;">All statuses are already assigned to this panel</p>
+        </div>
+        <div style="display: flex; justify-content: center;">
+          <button class="modal-close-btn" style="
+            padding: 10px 24px;
+            border: 1px solid var(--slate-200);
+            background: var(--panel-bg);
+            color: var(--slate-600);
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+          ">Close</button>
+        </div>
+      `;
+    
+    const modal = createModal('Add Status to Selected Panels', modalContent);
+    document.body.appendChild(modal);
+    
+    const closeBtn = modal.querySelector('.modal-close-btn') as HTMLButtonElement;
+    closeBtn.addEventListener('click', () => modal.remove());
+    return;
+  }
+  
+  // Show dropdown when there are unassigned statuses
+  modalContent = `
+    <label style="display: block; margin-bottom: 8px; font-weight: 500; color: var(--slate-700);">Status to Add</label>
+    <select id="status-select" style="
+      width: 100%;
+      padding: 12px;
+      border: 2px solid var(--slate-200);
+      border-radius: 8px;
+      font-size: 14px;
+      color: var(--slate-800);
+      background: var(--panel-bg);
+      cursor: pointer;
+      margin-bottom: 24px;
+    ">
+      <option value="">Select status to add</option>
+      ${unassignedStatuses.map((s: any) => `<option value="${s.id}" style="color: ${s.color};">${s.name}</option>`).join('')}
+    </select>
+    <div style="display: flex; gap: 12px; justify-content: flex-end;">
+      <button class="modal-cancel" style="
+        padding: 10px 24px;
+        border: 1px solid var(--slate-200);
+        background: var(--panel-bg);
+        color: var(--slate-600);
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+      ">✕ Cancel</button>
+      <button class="modal-assign" style="
+        padding: 10px 24px;
+        border: none;
+        background: var(--primary);
+        color: white;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+      ">✓ Assign</button>
+    </div>
+  `;
+  
+  const modal = createModal('Add Status to Selected Panels', modalContent);
+  document.body.appendChild(modal);
+  
+  // Handle assign button
+  const assignBtn = modal.querySelector('.modal-assign') as HTMLButtonElement;
+  const cancelBtn = modal.querySelector('.modal-cancel') as HTMLButtonElement;
+  const selectEl = modal.querySelector('#status-select') as HTMLSelectElement;
+  
+  assignBtn.addEventListener('click', async () => {
+    const selectedStatusId = selectEl.value;
+    if (selectedStatusId) {
+      modal.remove();
+      await assignPanelStatus(panelData.id, selectedStatusId, projectId);
+    } else {
+      alert('Please select a status');
+    }
+  });
+  
+  cancelBtn.addEventListener('click', () => modal.remove());
+};
+
+// Assign status to panel
+const assignPanelStatus = async (panelId: string, statusId: string, projectId: string) => {
+  const token = localStorage.getItem('auth_token');
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  
+  try {
+    const response = await fetch(`${API_BASE_URL}/status-management/assign-to-panels`, {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify({ 
+        panelIds: [panelId],
+        statusId: statusId,
+        projectId: parseInt(projectId)
+      }),
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to assign status to panel: ${response.statusText}`);
+    }
+    
+    console.log('✅ Status assigned to panel successfully');
+    
+    // Refresh the panel data and UI without full page reload
+    await refreshPanelData(panelId);
+  } catch (error) {
+    console.error('Error assigning status to panel:', error);
+    alert('Failed to assign status to panel');
+  }
+};
+
+// Remove status from panel
+const removePanelStatus = async (panelId: string, statusId: string) => {
+  const pathParts = window.location.pathname.split('/');
+  const projectsIndex = pathParts.indexOf('projects');
+  const projectId = projectsIndex >= 0 ? pathParts[projectsIndex + 1] : null;
+  
+  if (!projectId) {
+    alert('Project ID not found');
+    return;
+  }
+  
+  const token = localStorage.getItem('auth_token');
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  
+  try {
+    // Use PanelStatus delete endpoint
+    const response = await fetch(`${API_BASE_URL}/status-management/remove-from-panels`, {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify({ 
+        panelIds: [panelId],
+        projectId: parseInt(projectId)
+      }),
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to remove status from panel: ${response.statusText}`);
+    }
+    
+    console.log('✅ Status removed from panel successfully');
+    
+    // Refresh the panel data and UI without full page reload
+    await refreshPanelData(panelId);
+  } catch (error) {
+    console.error('Error removing status from panel:', error);
+    alert('Failed to remove status from panel');
+  }
+};
+
+// Refresh panel data after assignment/removal (no page reload)
+const refreshPanelData = async (panelId: string) => {
+  const pathParts = window.location.pathname.split('/');
+  const projectsIndex = pathParts.indexOf('projects');
+  const projectId = projectsIndex >= 0 ? pathParts[projectsIndex + 1] : null;
+  
+  if (!projectId) {
+    console.error('Project ID not found');
+    return;
+  }
+  
+  try {
+    // Fetch updated panel data from database
+    const token = localStorage.getItem('auth_token');
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    
+    const response = await fetch(`${API_BASE_URL}/panels/${projectId}/all`, {
+      method: 'GET',
+      headers: headers,
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch panel data: ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    const updatedPanel = data.panels?.find((p: any) => p.id === panelId);
+    
+    if (updatedPanel) {
+      console.log('✅ Panel data refreshed:', updatedPanel);
+      
+      // Update the Element Information panel with fresh data
+      const nodeData = {
+        localId: updatedPanel.metadata?.ifcElementId ? parseInt(updatedPanel.metadata.ifcElementId) : null,
+        name: updatedPanel.name || updatedPanel.tag || 'Unnamed',
+        type: updatedPanel.objectType || 'Unknown',
+        tag: updatedPanel.tag,
+        id: updatedPanel.id,
+        elementId: updatedPanel.elementId,
+        metadata: updatedPanel.metadata,
+        category: 'element',
+        children: [],
+        panelData: updatedPanel,
+      } as any;
+      
+      // Re-render the groups and status sections
+      const groupsList = document.getElementById('element-groups-list');
+      const statusList = document.getElementById('element-status-list');
+      
+      if (groupsList && statusList) {
+        renderElementGroupsFromPanel(updatedPanel, groupsList);
+        renderElementStatusFromPanel(updatedPanel, statusList);
+        console.log('✅ UI updated successfully');
+      }
+    } else {
+      console.error('Panel not found in response');
+    }
+  } catch (error) {
+    console.error('Error refreshing panel data:', error);
+    alert('Failed to refresh panel data. Please refresh the page.');
+  }
+};
+
+// Update active status dropdown from panel data
+const updateActiveStatusDropdownFromPanel = (panelData: any) => {
+  const activeStatusSelect = document.getElementById("element-active-status") as HTMLSelectElement;
+  if (!activeStatusSelect) return;
+
+  // Clear existing options
+  activeStatusSelect.innerHTML = '<option value="">No status assigned</option>';
+
+  // Get all available statuses from elementStatuses (fetched from database)
+  if (elementStatuses && elementStatuses.length > 0) {
+    elementStatuses.forEach((status: any) => {
+      const option = document.createElement("option");
+      option.value = status.id;
+      option.textContent = status.name;
+      option.style.color = status.color;
+      
+      // Check if this status is assigned to the panel
+      const isAssigned = panelData.statuses?.some((ps: any) => ps.status.id === status.id);
+      if (isAssigned) {
+        option.selected = true;
+      }
+      
+      activeStatusSelect.appendChild(option);
+    });
+  }
 };
 
 // Render element groups
@@ -1877,9 +3685,22 @@ const qrCanvas = document.getElementById("qr-canvas") as HTMLCanvasElement;
 const showQRCode = async (elementId: number) => {
   if (!qrModal || !qrCanvas) return;
 
-  // Generate URL for the report page
-  const baseUrl = window.location.origin + window.location.pathname.replace('index.html', '');
-  const reportUrl = `${baseUrl}element-report.html?id=${elementId}`;
+  // Extract project ID from current URL
+  const pathParts = window.location.pathname.split('/').filter(part => part.length > 0);
+  const projectsIndex = pathParts.indexOf('projects');
+  const projectId = projectsIndex !== -1 && pathParts[projectsIndex + 1] 
+    ? pathParts[projectsIndex + 1] 
+    : '1';
+
+  console.log('📍 Current URL:', window.location.pathname);
+  console.log('📍 Path parts:', pathParts);
+  console.log('📍 Extracted project ID:', projectId);
+
+  // Generate URL for the new React report page (inside projects route)
+  const baseUrl = window.location.origin;
+  const reportUrl = `${baseUrl}/projects/${projectId}/element-report/${elementId}`;
+  
+  console.log('🔲 Generating QR code for:', reportUrl);
 
   try {
     await QRCode.toCanvas(qrCanvas, reportUrl, {

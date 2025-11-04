@@ -610,8 +610,8 @@ body {
 /* Model children container */
 .model-children {
   margin-left: 0;
-  overflow: hidden;
-  max-height: 2000px;
+  overflow: visible;
+  max-height: none;
   opacity: 1;
   transition: max-height 0.3s ease, opacity 0.3s ease;
 }
@@ -619,6 +619,23 @@ body {
 .model-children.collapsed {
   max-height: 0;
   opacity: 0;
+  overflow: hidden;
+}
+
+/* Storey children container */
+.storey-children {
+  margin-left: 0;
+  overflow: visible;
+  max-height: none;
+  opacity: 1;
+  transition: max-height 0.3s ease, opacity 0.3s ease;
+}
+
+.storey-children.collapsed {
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
 }
 
 /* Responsive adjustments */

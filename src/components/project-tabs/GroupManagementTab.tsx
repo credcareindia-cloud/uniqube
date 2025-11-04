@@ -28,9 +28,10 @@ interface GroupManagementTabProps {
   projectId: number
   onCreateGroup: () => void
   onViewGroup: (group: Group) => void
+  onDataChange?: () => void
 }
 
-export function GroupManagementTab({ projectId, onCreateGroup, onViewGroup }: GroupManagementTabProps) {
+export function GroupManagementTab({ projectId, onCreateGroup, onViewGroup, onDataChange }: GroupManagementTabProps) {
   const [groups, setGroups] = useState<Group[]>([])
   const [loading, setLoading] = useState(true)
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
@@ -103,6 +104,7 @@ export function GroupManagementTab({ projectId, onCreateGroup, onViewGroup }: Gr
 
       if (response.ok) {
         await loadGroups()
+        onDataChange?.()
         setShowDeleteModal(false)
         setDeletingGroup(null)
         toast({
@@ -139,6 +141,7 @@ export function GroupManagementTab({ projectId, onCreateGroup, onViewGroup }: Gr
 
       if (response.ok) {
         await loadGroups()
+        onDataChange?.()
         setShowEditModal(false)
         setEditingGroup(null)
       } else {
