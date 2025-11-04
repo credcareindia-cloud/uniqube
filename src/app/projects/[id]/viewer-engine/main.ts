@@ -338,6 +338,61 @@ const spatialStructureCache = new Map<string, any>();
 const lazyLoadedNodes = new Map<string, TreeNodeData>();
 
 // Build tree structure from spatial data (FULL TREE - no lazy loading)
+// Helper function to collect parent + all child IDs from spatial structure
+const collectParentAndChildIds = (spatialData: any, targetId: number): number[] => {
+  const collected: number[] = [];
+  
+  const traverse = (node: any, foundTarget: boolean = false): boolean => {
+    if (!node) return false;
+    
+    const nodeId = node.localId || node.expressID;
+    
+    // Check if this is the target node
+    if (nodeId === targetId) {
+      // Found the target! Collect this ID
+      collected.push(nodeId);
+      
+      // Collect ALL children recursively
+      if (node.children && Array.isArray(node.children)) {
+        const collectAllChildren = (childNode: any) => {
+          const childId = childNode.localId || childNode.expressID;
+          if (childId !== null && childId !== undefined) {
+            collected.push(childId);
+          }
+          if (childNode.children && Array.isArray(childNode.children)) {
+            childNode.children.forEach(collectAllChildren);
+          }
+        };
+        node.children.forEach(collectAllChildren);
+      }
+      
+      return true;
+    }
+    
+    // Continue searching in children
+    if (node.children && Array.isArray(node.children)) {
+      for (const child of node.children) {
+        if (traverse(child, foundTarget)) {
+          return true;
+        }
+      }
+    }
+    
+    return false;
+  };
+  
+  // Handle both array and single object spatial data
+  if (Array.isArray(spatialData)) {
+    for (const root of spatialData) {
+      if (traverse(root)) break;
+    }
+  } else {
+    traverse(spatialData);
+  }
+  
+  return collected;
+};
+
 const buildTreeStructureForModel = async (
   model: FRAGS.FragmentsModel,
   spatialData: any,
@@ -1052,11 +1107,34 @@ const renderDatabasePanelNode = (panel: any, container: HTMLElement) => {
       }
       await Promise.all(highlightPromises);
 
-      // Highlight selected panel
+      // Highlight selected panel with parent-child relationships
       const firstModel = models.values().next().value;
       if (firstModel) {
         try {
-          await firstModel.highlight([panel.localId], {
+          // Get all related IDs (parent + children) for highlighting
+          let idsToHighlight: number[] = [panel.localId];
+          
+          try {
+            // Get the spatial structure from the model
+            const spatialStructure = await firstModel.getSpatialStructure();
+            
+            if (spatialStructure) {
+              // Collect parent + all children IDs
+              const relatedIds = collectParentAndChildIds(spatialStructure, panel.localId);
+              
+              if (relatedIds.length > 0) {
+                idsToHighlight = relatedIds;
+                console.log(`📦 Found ${relatedIds.length} related elements (parent + children) for highlighting`);
+              } else {
+                console.log(`⚠️ No related elements found, using localId only`);
+              }
+            }
+          } catch (structureError) {
+            console.log(`⚠️ Could not get spatial structure, using localId only:`, structureError);
+          }
+          
+          // Highlight ALL collected IDs (parent + children)
+          await firstModel.highlight(idsToHighlight, {
             color: new THREE.Color('gold'),
             opacity: 1,
             transparent: false,
