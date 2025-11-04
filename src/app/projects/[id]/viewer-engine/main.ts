@@ -1995,16 +1995,44 @@ const highlightGroupPanels = async (group: DatabaseGroup) => {
     }
     await Promise.all(highlightPromises);
 
-    // Highlight the group's panels in gold with full opacity
+    // Highlight the group's panels with parent-child relationships
     for (const [_, model] of models.entries()) {
       try {
-        await model.highlight(localIds, {
+        // Collect all IDs including parent-child relationships
+        let allIdsToHighlight: number[] = [];
+        
+        try {
+          const spatialStructure = await model.getSpatialStructure();
+          
+          if (spatialStructure) {
+            // For each panel ID, collect parent + children
+            for (const localId of localIds) {
+              const relatedIds = collectParentAndChildIds(spatialStructure, localId);
+              if (relatedIds.length > 0) {
+                allIdsToHighlight.push(...relatedIds);
+              } else {
+                allIdsToHighlight.push(localId);
+              }
+            }
+            
+            // Remove duplicates
+            allIdsToHighlight = [...new Set(allIdsToHighlight)];
+            console.log(`📦 Expanded ${localIds.length} panels to ${allIdsToHighlight.length} elements (with parent-child relationships)`);
+          } else {
+            allIdsToHighlight = localIds;
+          }
+        } catch (structureError) {
+          console.log(`⚠️ Could not get spatial structure, using original IDs`);
+          allIdsToHighlight = localIds;
+        }
+        
+        await model.highlight(allIdsToHighlight, {
           color: new THREE.Color('gold'),
           opacity: 1,
           transparent: false,
           renderedFaces: FRAGS.RenderedFaces.TWO,
         });
-        console.log(`Highlighted ${localIds.length} panels in model`);
+        console.log(`Highlighted ${allIdsToHighlight.length} elements in model`);
       } catch (error) {
         console.warn("Could not highlight panels in this model:", error);
       }
@@ -2140,17 +2168,45 @@ const highlightStatusPanels = async (status: any) => {
     }
     await Promise.all(highlightPromises);
 
-    // Highlight the status's panels in the status color with full opacity
+    // Highlight the status's panels with parent-child relationships
     const statusColor = new THREE.Color(status.color || '#3b82f6');
     for (const [_, model] of models.entries()) {
       try {
-        await model.highlight(localIds, {
+        // Collect all IDs including parent-child relationships
+        let allIdsToHighlight: number[] = [];
+        
+        try {
+          const spatialStructure = await model.getSpatialStructure();
+          
+          if (spatialStructure) {
+            // For each panel ID, collect parent + children
+            for (const localId of localIds) {
+              const relatedIds = collectParentAndChildIds(spatialStructure, localId);
+              if (relatedIds.length > 0) {
+                allIdsToHighlight.push(...relatedIds);
+              } else {
+                allIdsToHighlight.push(localId);
+              }
+            }
+            
+            // Remove duplicates
+            allIdsToHighlight = [...new Set(allIdsToHighlight)];
+            console.log(`📦 Expanded ${localIds.length} panels to ${allIdsToHighlight.length} elements (with parent-child relationships)`);
+          } else {
+            allIdsToHighlight = localIds;
+          }
+        } catch (structureError) {
+          console.log(`⚠️ Could not get spatial structure, using original IDs`);
+          allIdsToHighlight = localIds;
+        }
+        
+        await model.highlight(allIdsToHighlight, {
           color: statusColor,
           opacity: 1,
           transparent: false,
           renderedFaces: FRAGS.RenderedFaces.TWO,
         });
-        console.log(`Highlighted ${localIds.length} panels in model`);
+        console.log(`Highlighted ${allIdsToHighlight.length} elements in model`);
       } catch (error) {
         console.warn("Could not highlight panels in this model:", error);
       }
