@@ -45,8 +45,6 @@ export async function initializeViewer(containerId: string = "container") {
   // Memory optimization: Configure renderer for lower memory usage
   const renderer = world.renderer.three;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // Limit pixel ratio
-  renderer.powerPreference = 'high-performance';
-  renderer.precision = 'mediump'; // Use medium precision for better performance
 
 world.camera = new OBC.SimpleCamera(components);
 world.camera.controls.setLookAt(50, 30, 50, 0, 0, 0);
@@ -86,6 +84,41 @@ world.camera.controls.addEventListener("rest", () => {
 // Also, we add the model to the 3D scene.
 fragments.models.list.onItemSet.add(({ value: model }) => {
   model.useCamera(world.camera.three);
+  
+  // Performance optimization: Simplify materials for large models
+  model.object.traverse((child) => {
+    if (child instanceof THREE.Mesh) {
+      // Enable frustum culling
+      child.frustumCulled = true;
+      
+      // Simplify materials to MeshStandardMaterial for better performance
+      if (child.material && !(child.material instanceof THREE.MeshStandardMaterial)) {
+        const oldMaterial = Array.isArray(child.material) ? child.material[0] : child.material;
+        const simplifiedMaterial = new THREE.MeshStandardMaterial({
+          color: oldMaterial.color || 0xcccccc,
+          metalness: 0.1,
+          roughness: 0.8,
+          side: THREE.DoubleSide,
+        });
+        
+        // Dispose old material
+        if (Array.isArray(child.material)) {
+          child.material.forEach(m => m.dispose());
+        } else {
+          child.material.dispose();
+        }
+        
+        child.material = simplifiedMaterial;
+      }
+      
+      // Optimize geometry
+      if (child.geometry) {
+        child.geometry.computeBoundingSphere();
+        child.geometry.computeBoundingBox();
+      }
+    }
+  });
+  
   world.scene.three.add(model.object);
   // At the end, you tell fragments to update so the model can be seen given
   // the initial camera position
@@ -118,6 +151,145 @@ const fetchProjectModels = async (projectId: string) => {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json'
     };
+
+// [local] duplicate helper (unused)
+const __findPathToLocalId_LOCAL_1 = (spatialData: any, targetId: number): any[] | null => {
+  const path: any[] = [];
+  const visit = (node: any): boolean => {
+    if (!node) return false;
+    const nodeId = node.localId || node.expressID;
+    path.push(node);
+    if (nodeId === targetId) return true;
+    if (node.children && Array.isArray(node.children)) {
+      for (const child of node.children) {
+        if (visit(child)) return true;
+      }
+    }
+    path.pop();
+    return false;
+  };
+  if (Array.isArray(spatialData)) {
+    for (const root of spatialData) {
+      if (visit(root)) return [...path];
+    }
+    return null;
+  } else {
+    return visit(spatialData) ? [...path] : null;
+  }
+};
+
+// [local] duplicate helper (unused)
+const __resolvePanelByHierarchy_LOCAL_1 = async (model: FRAGS.FragmentsModel, localId: number): Promise<{ panelData: any, mappedLocalId: number } | null> => {
+  try {
+    const cacheKey = (model as any).modelId || (model as any).threads?.modelId || 'default';
+    let spatialStructure = spatialStructureCache.get(cacheKey);
+    if (!spatialStructure) {
+      spatialStructure = await model.getSpatialStructure();
+      spatialStructureCache.set(cacheKey, spatialStructure);
+    }
+    const path = findPathToLocalId(spatialStructure, localId);
+    if (path && path.length) {
+      // Try ancestors first (closest upwards)
+      for (let i = path.length - 1; i >= 0; i--) {
+        const pid = path[i].localId || path[i].expressID;
+        if (pid !== null && pid !== undefined && localIdPanelMap.has(pid)) {
+          return { panelData: localIdPanelMap.get(pid), mappedLocalId: pid };
+        }
+      }
+      // Limited descendant scan
+      const targetNode = path[path.length - 1];
+      const q: any[] = [...(targetNode.children || [])];
+      let visited = 0;
+      while (q.length && visited < 1000) {
+        const n = q.shift();
+        visited++;
+        const nid = n.localId || n.expressID;
+        if (nid !== null && nid !== undefined && localIdPanelMap.has(nid)) {
+          return { panelData: localIdPanelMap.get(nid), mappedLocalId: nid };
+        }
+        if (n.children && Array.isArray(n.children)) q.push(...n.children);
+      }
+    }
+  } catch (e) {
+    console.warn('resolvePanelByHierarchy failed', e);
+  }
+  return null;
+};
+
+// [local] duplicate helper (unused)
+const __buildLocationText_LOCAL_1 = (panelData: any, infoLocalId: number): string => {
+  if (panelData) {
+    const modelName = (panelData.modelName || 'Model').replace(/\.frag$/i, '');
+    const storey = panelData.metadata?.storeyName || 'Storey';
+    const name = panelData.name || panelData.tag || `Element ${infoLocalId}`;
+    return `${modelName} > ${storey} > ${name}`;
+  }
+  return `Element ${infoLocalId}`;
+};
+
+// [local] duplicate helper (unused)
+const __findPathToLocalId_LOCAL_2 = (spatialData: any, targetId: number): any[] | null => {
+  const path: any[] = [];
+  const visit = (node: any): boolean => {
+    if (!node) return false;
+    const nodeId = node.localId || node.expressID;
+    path.push(node);
+    if (nodeId === targetId) return true;
+    if (node.children && Array.isArray(node.children)) {
+      for (const child of node.children) {
+        if (visit(child)) return true;
+      }
+    }
+    path.pop();
+    return false;
+  };
+  if (Array.isArray(spatialData)) {
+    for (const root of spatialData) {
+      if (visit(root)) return [...path];
+    }
+    return null;
+  } else {
+    return visit(spatialData) ? [...path] : null;
+  }
+};
+
+// [local] duplicate helper (unused)
+const __resolvePanelByHierarchy_LOCAL_2 = async (model: FRAGS.FragmentsModel, localId: number): Promise<{ panelData: any, mappedLocalId: number } | null> => {
+  try {
+    const cacheKey = (model as any).modelId || (model as any).threads?.modelId || 'default';
+    let spatialStructure = spatialStructureCache.get(cacheKey);
+    if (!spatialStructure) {
+      spatialStructure = await model.getSpatialStructure();
+      spatialStructureCache.set(cacheKey, spatialStructure);
+    }
+    const path = findPathToLocalId(spatialStructure, localId);
+    if (path && path.length) {
+      // 1) Try ancestors (closest first)
+      for (let i = path.length - 1; i >= 0; i--) {
+        const pid = path[i].localId || path[i].expressID;
+        if (pid !== null && pid !== undefined && localIdPanelMap.has(pid)) {
+          return { panelData: localIdPanelMap.get(pid), mappedLocalId: pid };
+        }
+      }
+      // 2) Try limited search among descendants (up to 1000)
+      const targetNode = path[path.length - 1];
+      const q: any[] = [...(targetNode.children || [])];
+      let visited = 0;
+      while (q.length && visited < 1000) {
+        const n = q.shift();
+        visited++;
+        const nid = n.localId || n.expressID;
+        if (nid !== null && nid !== undefined && localIdPanelMap.has(nid)) {
+          return { panelData: localIdPanelMap.get(nid), mappedLocalId: nid };
+        }
+        if (n.children && Array.isArray(n.children)) q.push(...n.children);
+      }
+    }
+  } catch (e) {
+    console.warn('resolvePanelByHierarchy failed', e);
+  }
+  return null;
+};
     
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
@@ -296,6 +468,13 @@ let treeNodeMap = new Map<number, HTMLElement>();
 let selectedTreeNode: number | null = null;
 let currentModel: FRAGS.FragmentsModel | null = null;
 
+// Global cache for panel data (keyed by panel ID)
+const panelDataCache = new Map<string, any>();
+// Map localId -> panel data (for quick lookup from selection)
+const localIdPanelMap = new Map<number, any>();
+// Toggle: synchronize tree selection when selecting in canvas
+let SYNC_TREE_ON_SELECT = true;
+
 // Get icon based on IFC type
 const getIconForType = (type: string): string => {
   const typeUpper = type.toUpperCase();
@@ -336,6 +515,225 @@ const isStoreyChild = (parentCategory: string | null): boolean => {
 // Cache for spatial structures to avoid re-parsing
 const spatialStructureCache = new Map<string, any>();
 const lazyLoadedNodes = new Map<string, TreeNodeData>();
+
+// Hoisted helpers (function declarations avoid TDZ issues)
+function findPathToLocalId(spatialData: any, targetId: number): any[] | null {
+  const path: any[] = [];
+  const visit = (node: any): boolean => {
+    if (!node) return false;
+    const nodeId = node.localId || node.expressID;
+    path.push(node);
+    if (nodeId === targetId) return true;
+    if (node.children && Array.isArray(node.children)) {
+      for (const child of node.children) {
+        if (visit(child)) return true;
+      }
+    }
+    path.pop();
+    return false;
+  };
+  if (Array.isArray(spatialData)) {
+    for (const root of spatialData) {
+      if (visit(root)) return [...path];
+    }
+    return null;
+  } else {
+    return visit(spatialData) ? [...path] : null;
+  }
+}
+
+async function resolvePanelByHierarchy(model: FRAGS.FragmentsModel, localId: number): Promise<{ panelData: any, mappedLocalId: number } | null> {
+  try {
+    const cacheKey = (model as any).modelId || (model as any).threads?.modelId || 'default';
+    let spatialStructure = spatialStructureCache.get(cacheKey);
+    if (!spatialStructure) {
+      spatialStructure = await model.getSpatialStructure();
+      spatialStructureCache.set(cacheKey, spatialStructure);
+    }
+    const path = findPathToLocalId(spatialStructure, localId);
+    if (path && path.length) {
+      // Try ancestors first (closest upwards)
+      for (let i = path.length - 1; i >= 0; i--) {
+        const pid = path[i].localId || path[i].expressID;
+        if (pid !== null && pid !== undefined && localIdPanelMap.has(pid)) {
+          return { panelData: localIdPanelMap.get(pid), mappedLocalId: pid };
+        }
+      }
+      // Limited descendant scan
+      const targetNode = path[path.length - 1];
+      const q: any[] = [...(targetNode.children || [])];
+      let visited = 0;
+      while (q.length && visited < 1000) {
+        const n = q.shift();
+        visited++;
+        const nid = n.localId || n.expressID;
+        if (nid !== null && nid !== undefined && localIdPanelMap.has(nid)) {
+          return { panelData: localIdPanelMap.get(nid), mappedLocalId: nid };
+        }
+        if (n.children && Array.isArray(n.children)) q.push(...n.children);
+      }
+    }
+  } catch (e) {
+    console.warn('resolvePanelByHierarchy failed', e);
+  }
+  return null;
+}
+
+function buildLocationText(panelData: any, infoLocalId: number): string {
+  if (panelData) {
+    const modelName = (panelData.modelName || 'Model').replace(/\.frag$/i, '');
+    const storey = panelData.metadata?.storeyName || 'Storey';
+    const name = panelData.name || panelData.tag || `Element ${infoLocalId}`;
+    return `${modelName} > ${storey} > ${name}`;
+  }
+  return `Element ${infoLocalId}`;
+}
+// Helper: find model that contains a given localId
+const findModelForLocalId = async (localId: number): Promise<FRAGS.FragmentsModel | null> => {
+  for (const [_, m] of models.entries()) {
+    try {
+      const boxes = await m.getBoxes([localId]);
+      if (boxes && boxes.length > 0 && !boxes[0].isEmpty()) return m;
+    } catch {
+      // not in this model
+    }
+  }
+  return null;
+};
+
+// Helper: select corresponding tree node and ensure it is visible
+const selectTreeNodeByLocalId = (localId: number) => {
+  const treeContainer = document.getElementById("tree-container");
+  if (!treeContainer) return;
+  const target = treeContainer.querySelector(`.tree-node.panel-node[data-local-id="${localId}"]`) as HTMLElement | null;
+  if (!target) return;
+  // Clear previous selection
+  treeContainer.querySelectorAll('.tree-node.selected').forEach(n => n.classList.remove('selected'));
+  target.classList.add('selected');
+  // Expand its parent storey if collapsed
+  const storeyChildren = target.closest('.storey-children') as HTMLElement | null;
+  if (storeyChildren && storeyChildren.classList.contains('collapsed')) {
+    storeyChildren.classList.remove('collapsed');
+    const storeyNode = storeyChildren.previousElementSibling as HTMLElement | null;
+    const toggle = storeyNode?.querySelector('.tree-toggle-icon');
+    toggle?.classList.add('expanded');
+  }
+  // Ensure model root is expanded
+  const modelRoot = target.closest('.model-root') as HTMLElement | null;
+  if (modelRoot) {
+    const modelChildren = modelRoot.querySelector('.model-children') as HTMLElement | null;
+    const modelToggle = modelRoot.querySelector('.tree-toggle-icon') as HTMLElement | null;
+    if (modelChildren && modelChildren.classList.contains('collapsed')) {
+      modelChildren.classList.remove('collapsed');
+      modelToggle?.classList.add('expanded');
+    }
+  }
+  (target as HTMLElement).scrollIntoView({ block: 'nearest' });
+  // Ensure tree panel is open
+  const treePanel = document.getElementById('tree-panel');
+  treePanel?.classList.remove('panel-hidden');
+};
+
+// Helper: select element by localId (highlight + camera + info panel)
+const selectElementByLocalId = async (localId: number) => {
+  try {
+    // Determine which model contains this localId
+    const model = await findModelForLocalId(localId);
+    if (!model) {
+      console.warn('No model found for localId', localId);
+      return;
+    }
+
+    // Reset highlights and ghost all models
+    const tasks: Promise<any>[] = [];
+    for (const [_, m] of models.entries()) {
+      tasks.push(m.resetHighlight(undefined));
+    }
+    await Promise.all(tasks);
+    tasks.length = 0;
+    for (const [_, m] of models.entries()) {
+      tasks.push(m.highlight(undefined, {
+        color: new THREE.Color(0xcccccc),
+        opacity: 0.2,
+        transparent: true,
+        renderedFaces: FRAGS.RenderedFaces.TWO,
+      }));
+    }
+    await Promise.all(tasks);
+
+    // Parent + children IDs
+    let idsToHighlight: number[] = [localId];
+    try {
+      const cacheKey = (model as any).modelId || (model as any).threads?.modelId || 'default';
+      let spatialStructure = spatialStructureCache.get(cacheKey);
+      if (!spatialStructure) {
+        spatialStructure = await model.getSpatialStructure();
+        spatialStructureCache.set(cacheKey, spatialStructure);
+      }
+      if (spatialStructure) {
+        const related = collectParentAndChildIds(spatialStructure, localId);
+        if (related.length > 0) idsToHighlight = related;
+      }
+    } catch (e) {
+      console.warn('Could not compute parent/children for localId', localId, e);
+    }
+
+    // Highlight selected ids in gold in owning model
+    await model.highlight(idsToHighlight, {
+      color: new THREE.Color('gold'),
+      opacity: 1,
+      transparent: false,
+      renderedFaces: FRAGS.RenderedFaces.TWO,
+    });
+
+    // Focus camera close to selection
+    await focusCameraOnLocalIds(idsToHighlight, { closer: 0.9 });
+    await fragments.update(true);
+
+    // Info panel data (from DB cache if available) with hierarchy resolution
+    let infoLocalId = localId;
+    let panelData = localIdPanelMap.get(localId);
+    if (!panelData) {
+      const resolved = await resolvePanelByHierarchy(model, localId);
+      if (resolved) {
+        panelData = resolved.panelData;
+        infoLocalId = resolved.mappedLocalId;
+      }
+    }
+
+    let nodeData: any = { localId: infoLocalId, name: `Element ${infoLocalId}`, category: 'element', children: [] };
+    if (panelData) {
+      nodeData = {
+        localId: infoLocalId,
+        name: panelData.name || panelData.tag || 'Unnamed',
+        type: panelData.type,
+        tag: panelData.tag,
+        id: panelData.id,
+        elementId: panelData.elementId,
+        metadata: panelData.metadata,
+        category: 'element',
+        children: [],
+        panelData,
+      };
+    } else {
+      try {
+        const [itemData] = await model.getItemsData([infoLocalId], { attributesDefault: false, attributes: ["Name", "Tag", "ObjectType"] });
+        nodeData.name = (itemData?.Name as any)?.value || (itemData?.Tag as any)?.value || (itemData?.ObjectType as any)?.value || `Element ${infoLocalId}`;
+        nodeData.type = (itemData?.ObjectType as any)?.value || 'Unknown';
+      } catch {}
+    }
+    // Open Info Panel and fill (use same logic as tree click)
+    updateInfoPanel(nodeData);
+
+    // Optionally open/select model structure on canvas selection
+    if (SYNC_TREE_ON_SELECT || openTreeNextSelection) {
+      selectTreeNodeByLocalId(infoLocalId);
+    }
+    openTreeNextSelection = false;
+  } catch (e) {
+    console.error('Error selecting element by localId:', e);
+  }
+};
 
 // Build tree structure from spatial data (FULL TREE - no lazy loading)
 // Helper function to collect parent + all child IDs from spatial structure
@@ -391,6 +789,220 @@ const collectParentAndChildIds = (spatialData: any, targetId: number): number[] 
   }
   
   return collected;
+};
+
+// Duplicate helper block removed; hoisted function declarations above are used
+
+// Focus the camera on a set of localIds (across all loaded models)
+const focusCameraOnLocalIds = async (
+  localIds: number[],
+  opts?: { padding?: number; closer?: number; minDistance?: number }
+) => {
+  if (!localIds || localIds.length === 0) return;
+
+  const padding = opts?.padding ?? 1.15; // 15% padding
+  const closer = opts?.closer ?? 0.9;    // move a bit closer than perfect fit
+  const minDistance = opts?.minDistance ?? 2;
+
+  // 1) Union the boxes of only the selected IDs across all models
+  let hasAny = false;
+  const union = new THREE.Box3();
+  for (const [_, m] of models.entries()) {
+    try {
+      const boxes = await m.getBoxes(localIds);
+      if (boxes && boxes.length) {
+        for (const b of boxes) {
+          if (!b.isEmpty()) {
+            union.union(b);
+            hasAny = true;
+          }
+        }
+      }
+    } catch (e) {
+      // Some ids may not belong to this model; ignore
+    }
+  }
+
+  if (!hasAny) return;
+
+  const center = new THREE.Vector3();
+  union.getCenter(center);
+  const size = new THREE.Vector3();
+  union.getSize(size);
+
+  const controls: any = world.camera.controls as any;
+
+  // 2) Prefer fitToBox if available (camera-controls provides this)
+  if (controls && typeof controls.fitToBox === "function") {
+    await controls.fitToBox(union, true, {
+      paddingLeft: 0.06,
+      paddingRight: 0.06,
+      paddingTop: 0.06,
+      paddingBottom: 0.06,
+    });
+
+    // Move slightly closer along view direction
+    const cam = world.camera.three as THREE.PerspectiveCamera;
+    const currentPos = cam.position.clone();
+    const curDist = currentPos.distanceTo(center);
+    // Always switch to a pleasant diagonal angle to better see distributed panels
+    const diagDir = new THREE.Vector3(0.7, 0.45, 0.7).normalize();
+    const newPos = center.clone().add(diagDir.multiplyScalar(Math.max(curDist * closer, minDistance)));
+    controls.setLookAt(newPos.x, newPos.y, newPos.z, center.x, center.y, center.z, true);
+  } else {
+    // 3) Fallback: compute distance from FOV and setLookAt
+    const cam = world.camera.three as THREE.PerspectiveCamera;
+    const vfov = THREE.MathUtils.degToRad(cam.fov);
+    const aspect = cam.aspect || (window.innerWidth / window.innerHeight);
+    const distanceForHeight = (size.y * 0.5) / Math.tan(vfov / 2);
+    const hfov = 2 * Math.atan(Math.tan(vfov / 2) * aspect);
+    const distanceForWidth = (size.x * 0.5) / Math.tan(hfov / 2);
+    const fitDistance = Math.max(distanceForHeight, distanceForWidth, size.z) * padding;
+
+    // Move slightly closer than the exact fit distance
+    const camPos = cam.position.clone();
+    const dir = camPos.sub(center).normalize();
+    const newPos = center.clone().add(dir.multiplyScalar(Math.max(fitDistance * closer, minDistance)));
+    world.camera.controls.setLookAt(newPos.x, newPos.y, newPos.z, center.x, center.y, center.z, true);
+  }
+
+  await fragments.update(true);
+};
+
+// Keep the whole model in view but center the framing toward the selected items.
+// Useful when selected panels are spread out: we use the model's distance but aim near the selection.
+const focusCameraForDistributedSelection = async (
+  localIds: number[],
+  opts?: { padding?: number; farther?: number; aimBias?: number; minDistance?: number }
+) => {
+  if (!localIds || localIds.length === 0) return;
+
+  const padding = opts?.padding ?? 1.1;     // small padding for full model fit
+  const farther = opts?.farther ?? 1.2;     // back off more than perfect fit
+  const aimBias = opts?.aimBias ?? 0.25;    // how much to bias target toward model center (0..1)
+  const minDistance = opts?.minDistance ?? 5;
+
+  // Build union box of entire model(s)
+  const modelBox = new THREE.Box3();
+  for (const [_, m] of models.entries()) {
+    const bbox = new THREE.Box3().setFromObject(m.object);
+    if (!bbox.isEmpty()) modelBox.union(bbox);
+  }
+  if (modelBox.isEmpty()) return;
+
+  // Build union box of selected items
+  let selectedBox = new THREE.Box3();
+  let hasSelected = false;
+  for (const [_, m] of models.entries()) {
+    try {
+      const boxes = await m.getBoxes(localIds);
+      for (const b of boxes) {
+        if (!b.isEmpty()) { selectedBox.union(b); hasSelected = true; }
+      }
+    } catch (e) { /* ignore ids not in this model */ }
+  }
+  if (!hasSelected) selectedBox = modelBox.clone();
+
+  const modelCenter = new THREE.Vector3();
+  modelBox.getCenter(modelCenter);
+  const size = new THREE.Vector3();
+  modelBox.getSize(size);
+
+  const selectedCenter = new THREE.Vector3();
+  selectedBox.getCenter(selectedCenter);
+
+  // Aim a bit toward selection but keep bias to model center so the whole stays visible
+  const aim = selectedCenter.clone().lerp(modelCenter, aimBias);
+
+  const controls: any = world.camera.controls as any;
+  if (controls && typeof controls.fitToBox === 'function') {
+    // Fit to whole model to compute a safe distance first
+    await controls.fitToBox(modelBox, true, {
+      paddingLeft: 0.08, paddingRight: 0.08, paddingTop: 0.08, paddingBottom: 0.08,
+    });
+    const cam = world.camera.three as THREE.PerspectiveCamera;
+    const curDist = cam.position.distanceTo(modelCenter);
+    const distance = Math.max(curDist * farther, minDistance);
+    const diag = new THREE.Vector3(0.7, 0.45, 0.7).normalize();
+    const newPos = aim.clone().add(diag.multiplyScalar(distance));
+    controls.setLookAt(newPos.x, newPos.y, newPos.z, aim.x, aim.y, aim.z, true);
+  } else {
+    // Fallback: compute a safe distance from full model size
+    const cam = world.camera.three as THREE.PerspectiveCamera;
+    const vfov = THREE.MathUtils.degToRad(cam.fov);
+    const aspect = cam.aspect || (window.innerWidth / window.innerHeight);
+    const distanceForHeight = (size.y * 0.5) / Math.tan(vfov / 2);
+    const hfov = 2 * Math.atan(Math.tan(vfov / 2) * aspect);
+    const distanceForWidth = (size.x * 0.5) / Math.tan(hfov / 2);
+    const fitDistance = Math.max(distanceForHeight, distanceForWidth, size.z) * padding;
+    const distance = Math.max(fitDistance * farther, minDistance);
+    const diag = new THREE.Vector3(0.7, 0.45, 0.7).normalize();
+    const newPos = aim.clone().add(diag.multiplyScalar(distance));
+    world.camera.controls.setLookAt(newPos.x, newPos.y, newPos.z, aim.x, aim.y, aim.z, true);
+  }
+
+  await fragments.update(true);
+};
+
+// Focus the camera on the entire model(s) at a good isometric angle
+const focusCameraOnWholeModel = async (
+  opts?: { padding?: number; closer?: number; minDistance?: number }
+) => {
+  const padding = opts?.padding ?? 1.1;   // small frame padding
+  const closer = opts?.closer ?? 1.2;     // slightly farther than perfect fit
+  const minDistance = opts?.minDistance ?? 5;
+
+  const combinedBbox = new THREE.Box3();
+  for (const [_, m] of models.entries()) {
+    const bbox = new THREE.Box3().setFromObject(m.object);
+    if (!bbox.isEmpty()) combinedBbox.union(bbox);
+  }
+  if (combinedBbox.isEmpty()) return;
+
+  const center = new THREE.Vector3();
+  combinedBbox.getCenter(center);
+  const size = new THREE.Vector3();
+  combinedBbox.getSize(size);
+
+  const controls: any = world.camera.controls as any;
+  if (controls && typeof controls.fitToBox === "function") {
+    await controls.fitToBox(combinedBbox, true, {
+      paddingLeft: 0.08,
+      paddingRight: 0.08,
+      paddingTop: 0.08,
+      paddingBottom: 0.08,
+    });
+
+    const cam = world.camera.three as THREE.PerspectiveCamera;
+    const currentPos = cam.position.clone();
+    const dir = currentPos.clone().sub(center).normalize();
+    const curDist = currentPos.distanceTo(center);
+    const newPos = center.clone().add(dir.multiplyScalar(Math.max(curDist * closer, minDistance)));
+    controls.setLookAt(newPos.x, newPos.y, newPos.z, center.x, center.y, center.z, true);
+  } else {
+    // Fallback: compute distance from FOV and use a diagonal angle
+    const cam = world.camera.three as THREE.PerspectiveCamera;
+    const vfov = THREE.MathUtils.degToRad(cam.fov);
+    const aspect = cam.aspect || (window.innerWidth / window.innerHeight);
+    const distanceForHeight = (size.y * 0.5) / Math.tan(vfov / 2);
+    const hfov = 2 * Math.atan(Math.tan(vfov / 2) * aspect);
+    const distanceForWidth = (size.x * 0.5) / Math.tan(hfov / 2);
+    const fitDistance = Math.max(distanceForHeight, distanceForWidth, size.z) * padding;
+
+    const distance = Math.max(fitDistance * closer, minDistance);
+    const cameraPos = new THREE.Vector3(
+      center.x + distance * 0.7,
+      center.y + distance * 0.45,
+      center.z + distance * 0.7
+    );
+    world.camera.controls.setLookAt(
+      cameraPos.x, cameraPos.y, cameraPos.z,
+      center.x, center.y, center.z,
+      true
+    );
+  }
+
+  await fragments.update(true);
 };
 
 const buildTreeStructureForModel = async (
@@ -594,45 +1206,8 @@ const renderTreeNodeForModel = (
         }
       }
 
-      // Focus camera on the selected elements - calculate bounding box from selected IDs
-      const selectedBbox = new THREE.Box3();
-
-      // Calculate bounding box specifically for the selected elements (optimized)
-      if (targetIds.length > 0) {
-        model.object.traverse((child) => {
-          if (child instanceof THREE.Mesh || child instanceof THREE.InstancedMesh) {
-            const bbox = new THREE.Box3().setFromObject(child);
-            if (!bbox.isEmpty()) {
-              selectedBbox.union(bbox);
-            }
-          }
-        });
-      }
-
-      if (!selectedBbox.isEmpty()) {
-        const center = new THREE.Vector3();
-        selectedBbox.getCenter(center);
-        const size = new THREE.Vector3();
-        selectedBbox.getSize(size);
-        const maxDim = Math.max(size.x, size.y, size.z);
-
-        // Closer distance for tighter framing
-        const distance = Math.max(maxDim * 1.2, 5);
-
-        // Position camera at a 45-degree angle for better perspective
-        const cameraPos = new THREE.Vector3(
-          center.x + distance * 0.6,
-          center.y + distance * 0.4,
-          center.z + distance * 0.6
-        );
-
-        // Smooth animated transition
-        world.camera.controls.setLookAt(
-          cameraPos.x, cameraPos.y, cameraPos.z,
-          center.x, center.y, center.z,
-          true
-        );
-      }
+      // Focus camera precisely on the selected items (a bit closer than perfect fit)
+      await focusCameraOnLocalIds(targetIds, { closer: 0.9 });
 
       // Single update call at the end for better performance
       await fragments.update(true);
@@ -708,19 +1283,15 @@ const updateInfoPanel = (nodeData: TreeNodeData) => {
     infoSection.innerHTML = `
       <div class="info-row">
         <div class="info-label">Name</div>
-        <div class="info-value">${nodeData.name}</div>
+        <div class="info-value">${nodeData.name ?? '-'}</div>
       </div>
       <div class="info-row">
         <div class="info-label">ID</div>
-        <div class="info-value">${nodeData.localId}</div>
+        <div class="info-value">${nodeData.localId ?? '-'}</div>
       </div>
       <div class="info-row">
-        <div class="info-label">Active Status</div>
-        <div class="info-value">
-          <select id="element-active-status" class="status-select">
-            <option value="">No status assigned</option>
-          </select>
-        </div>
+        <div class="info-label">Type</div>
+        <div class="info-value">${(nodeData as any).type ?? '-'}</div>
       </div>
       <div class="info-actions">
         <button id="show-qr-btn" class="info-action-btn" title="Show QR Code">
@@ -826,7 +1397,7 @@ const fetchTreeStructureFromDatabase = async (projectId: string) => {
           }
           
           // Simplified panel object - only include essential data
-          storeyMap.get(storeyName)!.push({
+          const panelObj = {
             id: panel.id,
             name: panel.name,
             tag: panel.tag,
@@ -838,7 +1409,15 @@ const fetchTreeStructureFromDatabase = async (projectId: string) => {
             // Include full groups and statuses data for element info panel
             groups: panel.groups || [],
             statuses: panel.statuses || [],
-          });
+          };
+          
+          storeyMap.get(storeyName)!.push(panelObj);
+          
+          // Cache the panel data for quick lookup
+          panelDataCache.set(panel.id, panelObj);
+          if (panelObj.localId !== null && panelObj.localId !== undefined) {
+            localIdPanelMap.set(panelObj.localId as number, panelObj);
+          }
         });
         
         processedCount += batch.length;
@@ -1084,6 +1663,10 @@ const renderDatabasePanelNode = (panel: any, container: HTMLElement) => {
   // Click handler for highlighting and showing element info
   panelNode.onclick = async () => {
     if (panel.localId) {
+      // Visual select in tree
+      const treeContainer = document.getElementById("tree-container");
+      if (treeContainer) treeContainer.querySelectorAll('.tree-node.selected').forEach(n => n.classList.remove('selected'));
+      panelNode.classList.add('selected');
       console.log(`Clicked panel: ${panel.name}, localId: ${panel.localId}`);
       
       // Highlight in viewer
@@ -1141,37 +1724,8 @@ const renderDatabasePanelNode = (panel: any, container: HTMLElement) => {
             renderedFaces: FRAGS.RenderedFaces.TWO,
           });
           
-          // Focus camera
-          const selectedBbox = new THREE.Box3();
-          firstModel.object.traverse((child) => {
-            if (child instanceof THREE.Mesh || child instanceof THREE.InstancedMesh) {
-              const bbox = new THREE.Box3().setFromObject(child);
-              if (!bbox.isEmpty()) {
-                selectedBbox.union(bbox);
-              }
-            }
-          });
-          
-          if (!selectedBbox.isEmpty()) {
-            const center = new THREE.Vector3();
-            selectedBbox.getCenter(center);
-            const size = new THREE.Vector3();
-            selectedBbox.getSize(size);
-            const maxDim = Math.max(size.x, size.y, size.z);
-            const distance = Math.max(maxDim * 1.2, 5);
-            
-            const cameraPos = new THREE.Vector3(
-              center.x + distance * 0.6,
-              center.y + distance * 0.4,
-              center.z + distance * 0.6
-            );
-            
-            world.camera.controls.setLookAt(
-              cameraPos.x, cameraPos.y, cameraPos.z,
-              center.x, center.y, center.z,
-              true
-            );
-          }
+          // Focus camera on this panel (and keep it a little closer)
+          await focusCameraOnLocalIds(idsToHighlight, { closer: 0.9 });
           
           await fragments.update(true);
           
@@ -1456,6 +2010,98 @@ if (treeToggleBtn && treePanel) {
 if (treeCloseBtn && treePanel) {
   treeCloseBtn.addEventListener("click", () => {
     treePanel.classList.add("panel-hidden");
+  });
+}
+
+// Selection tool toggle and picking
+const selectionBtn = document.getElementById('selection-tool-btn');
+let selectionActive = false;
+let selectionHandler: any = null;
+let openTreeNextSelection = false;
+if (selectionBtn) {
+  const casters = components.get(OBC.Raycasters);
+  const caster = casters.get(world);
+  selectionBtn.addEventListener('click', () => {
+    selectionActive = !selectionActive;
+    selectionBtn.classList.toggle('active', selectionActive);
+    if (selectionActive) {
+      console.log('🖱️ Selection tool enabled');
+      selectionHandler = async (ev: MouseEvent) => {
+        // Always compute based on renderer canvas
+        const canvas = (world.renderer?.three as any)?.domElement as HTMLCanvasElement | undefined;
+        if (!canvas) {
+          console.warn('No renderer canvas found for picking');
+          return;
+        }
+        if (ev.type !== 'click') return; // ensure click only
+        console.log('🖱️ Click for selection at', ev.clientX, ev.clientY);
+        // If user holds Shift, also open the tree for this selection
+        openTreeNextSelection = !!ev.shiftKey;
+        const rect = canvas.getBoundingClientRect();
+        const ndc = new THREE.Vector2(
+          ((ev.clientX - rect.left) / rect.width) * 2 - 1,
+          -((ev.clientY - rect.top) / rect.height) * 2 + 1,
+        );
+        const px = new THREE.Vector2(
+          ev.clientX - rect.left,
+          ev.clientY - rect.top,
+        );
+        console.log('📐 NDC:', ndc.x.toFixed(3), ndc.y.toFixed(3), ' PX:', Math.round(px.x), Math.round(px.y));
+
+        // Try caster first (if it works, great)
+        try {
+          const result = await caster.castRay();
+          if (result && typeof (result as any).localId === 'number') {
+            console.log('Raycasters hit:', (result as any).localId);
+            await selectElementByLocalId((result as any).localId);
+            return;
+          }
+        } catch (e) {
+          // ignore and fall back to manual model.raycast
+        }
+
+        // Manual raycast against each loaded model; pick closest
+        let best: { localId: number; distance: number } | null = null;
+        for (const [, m] of models.entries()) {
+          try {
+            let hit = await m.raycast({
+              camera: world.camera.three,
+              dom: canvas,
+              mouse: ndc,
+            } as any);
+            if (!hit) {
+              // Try pixel coordinates in case implementation expects them
+              hit = await m.raycast({
+                camera: world.camera.three,
+                dom: canvas,
+                mouse: px,
+              } as any);
+            }
+            if (hit && typeof (hit as any).localId === 'number') {
+              const dist = (hit as any).distance ?? (hit as any).rayDistance ?? 0;
+              if (!best || dist < best.distance) {
+                best = { localId: (hit as any).localId, distance: dist };
+              }
+            }
+          } catch (e) {
+            // ignore models without the id
+          }
+        }
+        if (best) {
+          console.log('Manual raycast hit:', best.localId, 'dist:', best.distance);
+          await selectElementByLocalId(best.localId);
+        } else {
+          console.log('No element hit');
+        }
+      };
+      const canvas = (world.renderer?.three as any)?.domElement as HTMLCanvasElement | undefined;
+      if (canvas) canvas.addEventListener('click', selectionHandler);
+    } else {
+      const canvas = (world.renderer?.three as any)?.domElement as HTMLCanvasElement | undefined;
+      if (selectionHandler && canvas) canvas.removeEventListener('click', selectionHandler);
+      selectionHandler = null;
+      console.log('🛑 Selection tool disabled');
+    }
   });
 }
 
@@ -2157,50 +2803,32 @@ const highlightGroupPanels = async (group: DatabaseGroup) => {
         console.warn("Could not highlight panels in this model:", error);
       }
     }
-
-    // Focus camera on the highlighted elements (exact same as tree node click)
-    const selectedBbox = new THREE.Box3();
-
-    // Calculate bounding box specifically for the selected elements
-    if (localIds.length > 0) {
-      const firstModel = models.values().next().value;
-      if (firstModel) {
-        firstModel.object.traverse((child) => {
-          if (child instanceof THREE.Mesh || child instanceof THREE.InstancedMesh) {
-            const bbox = new THREE.Box3().setFromObject(child);
-            if (!bbox.isEmpty()) {
-              selectedBbox.union(bbox);
-            }
-          }
-        });
+    
+    // Show the whole model at a good angle (not too close)
+    // await focusCameraOnWholeModel({ closer: 1.3 });
+    
+    // frame entire model with fixed diagonal angle
+    {
+      const combinedBbox = new THREE.Box3();
+      models.forEach((m) => {
+        const bbox = new THREE.Box3().setFromObject(m.object);
+        if (!bbox.isEmpty()) combinedBbox.union(bbox);
+      });
+      if (!combinedBbox.isEmpty()) {
+        const center = new THREE.Vector3();
+        combinedBbox.getCenter(center);
+        const size = new THREE.Vector3();
+        combinedBbox.getSize(size);
+        const maxDim = Math.max(size.x, size.y, size.z);
+        const distance = maxDim * 1.2;
+        world.camera.controls.setLookAt(
+          center.x + distance * 0.7,
+          center.y + distance * 0.5,
+          center.z + distance * 0.7,
+          center.x, center.y, center.z,
+          true
+        );
       }
-    }
-
-    if (!selectedBbox.isEmpty()) {
-      const center = new THREE.Vector3();
-      selectedBbox.getCenter(center);
-      const size = new THREE.Vector3();
-      selectedBbox.getSize(size);
-      const maxDim = Math.max(size.x, size.y, size.z);
-
-      // Closer distance for tighter framing
-      const distance = Math.max(maxDim * 1.2, 5);
-
-      // Position camera at a 45-degree angle for better perspective
-      const cameraPos = new THREE.Vector3(
-        center.x + distance * 0.6,
-        center.y + distance * 0.4,
-        center.z + distance * 0.6
-      );
-
-      // Smooth animated transition
-      world.camera.controls.setLookAt(
-        cameraPos.x, cameraPos.y, cameraPos.z,
-        center.x, center.y, center.z,
-        true
-      );
-      
-      console.log("Camera focused on highlighted panels");
     }
 
     // Update fragments (same as tree structure)
@@ -2332,49 +2960,31 @@ const highlightStatusPanels = async (status: any) => {
       }
     }
 
-    // Focus camera on the highlighted elements (exact same as tree node click)
-    const selectedBbox = new THREE.Box3();
-
-    // Calculate bounding box specifically for the selected elements
-    if (localIds.length > 0) {
-      const firstModel = models.values().next().value;
-      if (firstModel) {
-        firstModel.object.traverse((child) => {
-          if (child instanceof THREE.Mesh || child instanceof THREE.InstancedMesh) {
-            const bbox = new THREE.Box3().setFromObject(child);
-            if (!bbox.isEmpty()) {
-              selectedBbox.union(bbox);
-            }
-          }
-        });
+    // Show the whole model at a good angle (not too close)
+    // await focusCameraOnWholeModel({ closer: 1.3 });
+    
+    // OLD FIXED-ANGLE METHOD (requested): frame entire model with fixed diagonal angle
+    {
+      const combinedBbox = new THREE.Box3();
+      models.forEach((m) => {
+        const bbox = new THREE.Box3().setFromObject(m.object);
+        if (!bbox.isEmpty()) combinedBbox.union(bbox);
+      });
+      if (!combinedBbox.isEmpty()) {
+        const center = new THREE.Vector3();
+        combinedBbox.getCenter(center);
+        const size = new THREE.Vector3();
+        combinedBbox.getSize(size);
+        const maxDim = Math.max(size.x, size.y, size.z);
+        const distance = maxDim * 1.2;
+        world.camera.controls.setLookAt(
+          center.x + distance * 0.7,
+          center.y + distance * 0.5,
+          center.z + distance * 0.7,
+          center.x, center.y, center.z,
+          true
+        );
       }
-    }
-
-    if (!selectedBbox.isEmpty()) {
-      const center = new THREE.Vector3();
-      selectedBbox.getCenter(center);
-      const size = new THREE.Vector3();
-      selectedBbox.getSize(size);
-      const maxDim = Math.max(size.x, size.y, size.z);
-
-      // Closer distance for tighter framing
-      const distance = Math.max(maxDim * 1.2, 5);
-
-      // Position camera at a 45-degree angle for better perspective
-      const cameraPos = new THREE.Vector3(
-        center.x + distance * 0.6,
-        center.y + distance * 0.4,
-        center.z + distance * 0.6
-      );
-
-      // Smooth animated transition
-      world.camera.controls.setLookAt(
-        cameraPos.x, cameraPos.y, cameraPos.z,
-        center.x, center.y, center.z,
-        true
-      );
-      
-      console.log("Camera focused on highlighted panels");
     }
 
     // Update fragments (same as tree structure)
@@ -2702,14 +3312,13 @@ const updateElementInfoPanel = (nodeData: TreeNodeData) => {
     // Render statuses from panel data
     renderElementStatusFromPanel(panelData, statusList);
     
-    // Update active status dropdown
-    updateActiveStatusDropdownFromPanel(panelData);
+    // Active Status dropdown disabled per requirements
   } else {
     console.log('⚠️ No panel data from database, using fallback method');
     // Fallback to old method for IFC tree structure
     renderElementGroups(connections);
     renderElementStatus(connections);
-    updateActiveStatusDropdown(connections);
+    // Active Status dropdown disabled per requirements
   }
 
   updateSubmissionCount(nodeData.localId);
@@ -3573,6 +4182,15 @@ const refreshPanelData = async (panelId: string) => {
     if (updatedPanel) {
       console.log('✅ Panel data refreshed:', updatedPanel);
       
+      // Update the cache with fresh panel data
+      const cachedPanel = panelDataCache.get(panelId);
+      if (cachedPanel) {
+        // Update the cached panel object with new groups and statuses
+        cachedPanel.groups = updatedPanel.groups || [];
+        cachedPanel.statuses = updatedPanel.statuses || [];
+        console.log('✅ Panel cache updated for ID:', panelId);
+      }
+      
       // Update the Element Information panel with fresh data
       const nodeData = {
         localId: updatedPanel.metadata?.ifcElementId ? parseInt(updatedPanel.metadata.ifcElementId) : null,
@@ -3587,15 +4205,20 @@ const refreshPanelData = async (panelId: string) => {
         panelData: updatedPanel,
       } as any;
       
-      // Re-render the groups and status sections
+      // Re-render the groups and status sections in Element Info Panel
       const groupsList = document.getElementById('element-groups-list');
       const statusList = document.getElementById('element-status-list');
       
       if (groupsList && statusList) {
         renderElementGroupsFromPanel(updatedPanel, groupsList);
         renderElementStatusFromPanel(updatedPanel, statusList);
-        console.log('✅ UI updated successfully');
+        console.log('✅ Element Info Panel UI updated successfully');
       }
+      
+      // Also refresh the Groups Panel and Status Panel on the left sidebar
+      await fetchGroupsFromDatabase(projectId);
+      await fetchStatusesFromDatabase(projectId);
+      console.log('✅ Groups and Status panels refreshed');
     } else {
       console.error('Panel not found in response');
     }
