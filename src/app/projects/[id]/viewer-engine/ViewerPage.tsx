@@ -289,8 +289,12 @@ export default function ViewerPage() {
         </button>
         <button id="selection-tool-btn" className="toolbar-button">
           <i className="fas fa-mouse-pointer"></i>
-          <span className="tooltip">Selection Tool (Debug)</span>
+          <span className="tooltip">Selection Tool</span>
         </button>
+        {/* <button id="plan-toggle-btn" className="toolbar-button">
+          <i className="fas fa-map"></i>
+          <span className="tooltip">2D Plan Mode</span>
+        </button> */}
         <button id="status-toggle-btn" className="toolbar-button">
           <i className="fas fa-tags"></i>
           <span className="tooltip">Status</span>

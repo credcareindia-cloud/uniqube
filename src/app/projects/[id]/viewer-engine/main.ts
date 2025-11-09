@@ -6,7 +6,7 @@ import * as FRAGS from "@thatopen/fragments";
 import QRCode from 'qrcode';
 
 // API Configuration - must be defined before any functions that use it
-const API_BASE_URL = 'http://localhost:4000/api';
+const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL ?? 'http://localhost:4000/api';
 
 /* MD
   ### 🌎 Setting up a Simple Scene
@@ -295,7 +295,7 @@ const __resolvePanelByHierarchy_LOCAL_2 = async (model: FRAGS.FragmentsModel, lo
       headers['Authorization'] = `Bearer ${token}`;
     }
     
-    const response = await fetch(`http://localhost:4000/api/projects/${projectId}`, {
+    const response = await fetch(`${API_BASE_URL}/projects/${projectId}`, {
       headers
     });
     
@@ -373,19 +373,27 @@ const loadModels = async () => {
     try {
       console.log(`📥 Loading model: ${modelInfo.name} (${modelInfo.id})`);
 
-      // Fetch model file from backend storage with authentication
-      const fileUrl = `http://localhost:4000/api/models/${modelInfo.id}/download`;
+      // Request a pre-signed URL from the backend (auth required)
       const token = localStorage.getItem('auth_token');
-      const headers: Record<string, string> = {};
-
+      const presignHeaders: Record<string, string> = {};
       if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
+        presignHeaders['Authorization'] = `Bearer ${token}`;
       }
 
-      const file = await fetch(fileUrl, { headers });
+      const presignRes = await fetch(`${API_BASE_URL}/models/${modelInfo.id}/download-url`, {
+        headers: presignHeaders
+      });
 
+      if (!presignRes.ok) {
+        throw new Error(`Failed to get download URL: ${presignRes.status} ${presignRes.statusText}`);
+      }
+
+      const { url: signedUrl } = await presignRes.json();
+
+      // Download the model file directly from S3/CloudFront (no auth header needed)
+      const file = await fetch(signedUrl);
       if (!file.ok) {
-        throw new Error(`Failed to download model: ${file.statusText}`);
+        throw new Error(`Failed to download model from storage: ${file.status} ${file.statusText}`);
       }
 
       const buffer = await file.arrayBuffer();
