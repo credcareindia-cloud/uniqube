@@ -2,9 +2,12 @@
 
 import { useState, useEffect } from 'react'
 import { Clock, User, Package, Layers, FileText, CheckCircle, AlertCircle, Info, Users, Tag, Plus, TrendingUp } from 'lucide-react'
+import { authenticatedFetch } from '@/utils/authenticatedFetch'
+import { getApiUrl } from '@/config/api'
 
+// DEPRECATED: Using centralized authenticatedFetch from utils
 // Helper function to make authenticated fetch requests
-const authenticatedFetch = async (url: string, options: RequestInit = {}) => {
+const authenticatedFetch_OLD = async (url: string, options: RequestInit = {}) => {
   const token = localStorage.getItem('auth_token')
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -68,7 +71,7 @@ export function OverviewTab({ projectId, totalPanels, groups, panels, groupsCoun
   const fetchActivities = async () => {
     try {
       setLoading(true)
-      const response = await authenticatedFetch(`http://localhost:4000/api/projects/${projectId}/activities`)
+      const response = await authenticatedFetch(getApiUrl(`projects/${projectId}/activities`))
       if (response.ok) {
         const data = await response.json()
         setActivities(data)
@@ -83,7 +86,7 @@ export function OverviewTab({ projectId, totalPanels, groups, panels, groupsCoun
   const fetchCustomStatuses = async () => {
     try {
       setLoadingStats(true)
-      const response = await authenticatedFetch(`http://localhost:4000/api/status-management/${projectId}`)
+      const response = await authenticatedFetch(getApiUrl(`status-management/${projectId}`))
       if (response.ok) {
         const data = await response.json()
         setCustomStatuses(Array.isArray(data) ? data : (data.statuses || []))
@@ -97,7 +100,7 @@ export function OverviewTab({ projectId, totalPanels, groups, panels, groupsCoun
 
   const fetchHealthStats = async () => {
     try {
-      const response = await authenticatedFetch(`http://localhost:4000/api/panels/${projectId}/health`)
+      const response = await authenticatedFetch(getApiUrl(`panels/${projectId}/health`))
       if (response.ok) {
         const data = await response.json()
         setHealthStats({

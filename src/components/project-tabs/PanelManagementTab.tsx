@@ -9,6 +9,7 @@ import { RemoveGroupModal } from '@/components/modals/RemoveGroupModal'
 import { PanelDetailModal } from '@/components/modals/PanelDetailModal'
 import { EditPanelModal } from '@/components/modals/EditPanelModal'
 import { toast } from '@/components/ui/use-toast'
+import { getApiUrl } from '@/config/api'
 
 // Icon name mapping from database names to Lucide React names
 // const ICON_NAME_MAP: Record<string, string> = {
@@ -223,7 +224,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
       setLoading(true)
       // Fetch ALL panels (no pagination on backend)
       const response = await authenticatedFetch(
-        `http://localhost:4000/api/panels/${projectId}/all`
+        getApiUrl(`panels/${projectId}/all`)
       )
       if (response.ok) {
         const data = await response.json()
@@ -243,7 +244,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
 
   const loadGroups = async () => {
     try {
-      const response = await authenticatedFetch(`http://localhost:4000/api/groups/${projectId}`)
+      const response = await authenticatedFetch(getApiUrl(`groups/${projectId}`))
       if (response.ok) {
         const data = await response.json()
         setGroups(data.groups || [])
@@ -255,7 +256,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
 
   const loadStatuses = async () => {
     try {
-      const response = await authenticatedFetch(`http://localhost:4000/api/status-management/${projectId}`)
+      const response = await authenticatedFetch(getApiUrl(`status-management/${projectId}`))
       if (response.ok) {
         const data = await response.json()
         setStatuses(data.statuses || [])
@@ -397,7 +398,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
 
     try {
       const panelIds = Array.from(selectedPanels)
-      const response = await authenticatedFetch(`http://localhost:4000/api/status-management/assign-to-panels`, {
+      const response = await authenticatedFetch(getApiUrl('status-management/assign-to-panels'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -436,7 +437,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
 
     try {
       const panelIds = Array.from(selectedPanels)
-      const response = await authenticatedFetch(`http://localhost:4000/api/groups/${projectId}/${groupId}/panels`, {
+      const response = await authenticatedFetch(getApiUrl(`groups/${projectId}/${groupId}/panels`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ panelIds })
@@ -474,7 +475,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
       
       // Remove each selected status from the panels
       for (const statusId of statusIds) {
-        await authenticatedFetch(`http://localhost:4000/api/status-management/remove-from-panels`, {
+        await authenticatedFetch(getApiUrl('status-management/remove-from-panels'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
@@ -510,7 +511,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
       
       // Remove panels from each selected group
       for (const groupId of groupIds) {
-        await authenticatedFetch(`http://localhost:4000/api/groups/${projectId}/${groupId}/panels`, {
+        await authenticatedFetch(getApiUrl(`groups/${projectId}/${groupId}/panels`), {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ panelIds })
@@ -857,7 +858,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
           availableGroups={groups as any}
           onUpdate={async (panelId: string, updates: any) => {
             try {
-              const response = await authenticatedFetch(`http://localhost:4000/api/panels/${panelId}`, {
+              const response = await authenticatedFetch(getApiUrl(`panels/${panelId}`), {
                 method: 'PATCH',
                 headers: {
                   'Content-Type': 'application/json',

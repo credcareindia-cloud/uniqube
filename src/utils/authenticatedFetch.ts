@@ -1,3 +1,5 @@
+import { API_BASE_URL } from '@/config/api'
+
 /**
  * Helper function to make authenticated fetch requests
  * Automatically includes JWT token from localStorage in Authorization header
@@ -6,8 +8,7 @@ export const authenticatedFetch = async (url: string, options: RequestInit = {})
   const token = localStorage.getItem('auth_token')
   
   // Prepend base URL if not already included
-  const baseUrl = 'http://localhost:4000/api'
-  const fullUrl = url.startsWith('http') ? url : `${baseUrl}${url.startsWith('/') ? url : `/${url}`}`
+  const fullUrl = url.startsWith('http') ? url : `${API_BASE_URL}${url.startsWith('/') ? url : `/${url}`}`
   
   // Start with existing headers or empty object
   const headers: Record<string, string> = {}

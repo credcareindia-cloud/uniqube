@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { authenticatedFetch } from '@/utils/authenticatedFetch'
 import { toast } from '@/components/ui/use-toast'
+import { getApiUrl } from '@/config/api'
 
 interface User {
   id: string
@@ -46,7 +47,7 @@ export default function AdminPage() {
   const loadUsers = async () => {
     try {
       setLoading(true)
-      const response = await authenticatedFetch('http://localhost:4000/api/admin/users')
+      const response = await authenticatedFetch(getApiUrl('admin/users'))
       
       if (response.ok) {
         const data = await response.json()
@@ -67,7 +68,7 @@ export default function AdminPage() {
     setCreateLoading(true)
 
     try {
-      const response = await authenticatedFetch('http://localhost:4000/api/admin/users', {
+      const response = await authenticatedFetch(getApiUrl('admin/users'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newUser)
@@ -93,7 +94,7 @@ export default function AdminPage() {
     if (!confirm('Are you sure you want to delete this user?')) return
 
     try {
-      const response = await authenticatedFetch(`http://localhost:4000/api/admin/users/${userId}`, {
+      const response = await authenticatedFetch(getApiUrl(`admin/users/${userId}`), {
         method: 'DELETE'
       })
 
@@ -134,7 +135,7 @@ export default function AdminPage() {
     setEditLoading(true)
 
     try {
-      const response = await authenticatedFetch(`http://localhost:4000/api/admin/users/${editUser.id}`, {
+      const response = await authenticatedFetch(getApiUrl(`admin/users/${editUser.id}`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

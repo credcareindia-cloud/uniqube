@@ -23,6 +23,7 @@ import { Label } from '@/components/ui/label'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { authenticatedFetch } from '@/utils/authenticatedFetch'
 import { useAuth } from '@/contexts/AuthContext'
+import { getApiUrl } from '@/config/api'
 
 export default function ProfilePage() {
   const { user } = useAuth()
@@ -53,7 +54,7 @@ export default function ProfilePage() {
   const loadUserProfile = async () => {
     try {
       setLoading(true)
-      const response = await authenticatedFetch('http://localhost:4000/api/user/profile')
+      const response = await authenticatedFetch(getApiUrl('user/profile'))
       
       if (response.ok) {
         const data = await response.json()
@@ -78,7 +79,7 @@ export default function ProfilePage() {
   const loadUserStats = async () => {
     try {
       // Fetch user's projects
-      const projectsResponse = await authenticatedFetch('http://localhost:4000/api/projects-simple')
+      const projectsResponse = await authenticatedFetch(getApiUrl('projects-simple'))
       if (projectsResponse.ok) {
         const projects = await projectsResponse.json()
         
@@ -90,7 +91,7 @@ export default function ProfilePage() {
         for (const project of projects) {
           // Fetch groups for each project
           try {
-            const groupsResponse = await authenticatedFetch(`http://localhost:4000/api/groups/${project.id}`)
+            const groupsResponse = await authenticatedFetch(getApiUrl(`groups/${project.id}`))
             if (groupsResponse.ok) {
               const groups = await groupsResponse.json()
               totalGroups += groups.length
@@ -101,7 +102,7 @@ export default function ProfilePage() {
           
           // Fetch panels statistics
           try {
-            const panelsResponse = await authenticatedFetch(`http://localhost:4000/api/panels/${project.id}/statistics`)
+            const panelsResponse = await authenticatedFetch(getApiUrl(`panels/${project.id}/statistics`))
             if (panelsResponse.ok) {
               const panelStats = await panelsResponse.json()
               totalPanels += panelStats.total || 0
@@ -129,7 +130,7 @@ export default function ProfilePage() {
   const handleSave = async () => {
     try {
       setSaving(true)
-      const response = await authenticatedFetch('http://localhost:4000/api/user/profile', {
+      const response = await authenticatedFetch(getApiUrl('user/profile'), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

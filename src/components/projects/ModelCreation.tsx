@@ -4,6 +4,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Upload, X, FileText, CheckCircle, AlertCircle, Loader2, AlertTriangle } from 'lucide-react'
+import { getApiUrl } from '@/config/api'
 
 interface ModelCreationProps {
   onProjectCreated?: (project: any) => void
@@ -153,7 +154,7 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
         xhr.addEventListener('error', () => reject(new Error('Upload failed')))
         xhr.addEventListener('abort', () => reject(new Error('Upload aborted')))
         
-        xhr.open('POST', 'http://localhost:4000/api/create-project-with-model')
+        xhr.open('POST', getApiUrl('create-project-with-model'))
         xhr.responseType = 'json'
         
         // Add authentication token to request

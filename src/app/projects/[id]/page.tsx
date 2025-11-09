@@ -39,6 +39,7 @@ import type { Group } from '@/types/group'
 import { PanelStatus, PANEL_STATUS_CONFIG } from '@/types/panel'
 import { GroupStatus, GROUP_STATUS_CONFIG } from '@/types/group'
 import { authenticatedFetch } from '@/utils/authenticatedFetch'
+import { getApiUrl } from '@/config/api'
 
 
 interface ProjectData {
@@ -321,7 +322,7 @@ export default function ProjectDetailPage() {
       setLoading(true)
       setError(null)
       
-      const response = await authenticatedFetch(`http://localhost:4000/api/projects/${id}`)
+      const response = await authenticatedFetch(getApiUrl(`projects/${id}`))
       if (!response.ok) {
         throw new Error(`Failed to fetch project: ${response.statusText}`)
       }
@@ -384,7 +385,7 @@ export default function ProjectDetailPage() {
       setMetadataLoading(true)
       console.log('📊 Loading model metadata from database...')
       
-      const response = await authenticatedFetch(`http://localhost:4000/api/models/${modelId}/metadata`)
+      const response = await authenticatedFetch(getApiUrl(`models/${modelId}/metadata`))
       if (!response.ok) {
         console.error('Failed to fetch model metadata:', response.status)
         return
@@ -410,7 +411,7 @@ export default function ProjectDetailPage() {
     try {
       setPanelsLoading(true)
       // Request with pagination
-      const response = await authenticatedFetch(`http://localhost:4000/api/panels/${id}?page=${page}&limit=${panelLimit}`)
+      const response = await authenticatedFetch(getApiUrl(`panels/${id}?page=${page}&limit=${panelLimit}`))
       
       if (!response.ok) {
         console.error('Failed to fetch panels:', response.status, response.statusText)
@@ -459,7 +460,7 @@ export default function ProjectDetailPage() {
     
     try {
       // Use the efficient statistics endpoint instead of fetching all panels
-      const response = await authenticatedFetch(`http://localhost:4000/api/panels/${id}/statistics`)
+      const response = await authenticatedFetch(getApiUrl(`panels/${id}/statistics`))
       
       if (!response.ok) {
         console.error('❌ Failed to fetch panel statistics:', response.status)
@@ -501,7 +502,7 @@ export default function ProjectDetailPage() {
     try {
       setGroupsLoading(true)
       // Request with pagination: 50 items per page
-      const response = await authenticatedFetch(`http://localhost:4000/api/groups/${id}?page=${page}&limit=50`)
+      const response = await authenticatedFetch(getApiUrl(`groups/${id}?page=${page}&limit=50`))
       if (response.ok) {
         const data = await response.json()
         console.log('✅ Groups data:', data)
@@ -533,7 +534,7 @@ export default function ProjectDetailPage() {
   // Calculate group progress from panel statuses
   const calculateGroupProgress = async (groupId: string): Promise<number> => {
     try {
-      const response = await authenticatedFetch(`http://localhost:4000/api/panels/${id}?groupId=${groupId}`)
+      const response = await authenticatedFetch(getApiUrl(`panels/${id}?groupId=${groupId}`))
       if (response.ok) {
         const data = await response.json()
         const panels = data.panels || []
@@ -574,7 +575,7 @@ export default function ProjectDetailPage() {
     
     try {
       setLoadingStatusPanels(true)
-      const response = await authenticatedFetch(`http://localhost:4000/api/panels/${id}?status=${status}&limit=100`)
+      const response = await authenticatedFetch(getApiUrl(`panels/${id}?status=${status}&limit=100`))
       if (response.ok) {
         const data = await response.json()
         setStatusPanels(data.panels || [])
@@ -603,7 +604,7 @@ export default function ProjectDetailPage() {
       setShowStatusDetail(true)
       
       // Fetch panels with this custom status
-      const response = await authenticatedFetch(`http://localhost:4000/api/panels/${id}?customStatusId=${customStatusId}&limit=100`)
+      const response = await authenticatedFetch(getApiUrl(`panels/${id}?customStatusId=${customStatusId}&limit=100`))
       if (response.ok) {
         const data = await response.json()
         setStatusPanels(data.panels || [])
@@ -625,7 +626,7 @@ export default function ProjectDetailPage() {
     if (!id) return
     
     try {
-      const response = await authenticatedFetch(`http://localhost:4000/api/panels/bulk-update-status`, {
+      const response = await authenticatedFetch(getApiUrl('panels/bulk-update-status'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ panelIds, status: newStatus })
@@ -647,7 +648,7 @@ export default function ProjectDetailPage() {
     if (!id) return
     
     try {
-      const response = await authenticatedFetch(`http://localhost:4000/api/status-management/${id}`)
+      const response = await authenticatedFetch(getApiUrl(`status-management/${id}`))
       if (response.ok) {
         const data = await response.json()
         setCustomStatuses(data.statuses || [])
@@ -669,7 +670,7 @@ export default function ProjectDetailPage() {
     try {
       console.log('📤 Sending status data:', statusData);
       console.log('📤 Stringified:', JSON.stringify(statusData));
-      const response = await authenticatedFetch(`http://localhost:4000/api/status-management/${id}`, {
+      const response = await authenticatedFetch(getApiUrl(`status-management/${id}`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(statusData)
@@ -699,7 +700,7 @@ export default function ProjectDetailPage() {
     if (!id) return
     
     try {
-      const response = await authenticatedFetch(`http://localhost:4000/api/group-management/${id}`, {
+      const response = await authenticatedFetch(getApiUrl(`group-management/${id}`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(groupData)
@@ -754,7 +755,7 @@ export default function ProjectDetailPage() {
     if (!id || selectedPanels.size === 0) return
     
     try {
-      const response = await authenticatedFetch(`http://localhost:4000/api/status-management/assign-to-panels`, {
+      const response = await authenticatedFetch(getApiUrl('status-management/assign-to-panels'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -785,7 +786,7 @@ export default function ProjectDetailPage() {
       
       // Update each panel individually with the new groupId
       const updatePromises = Array.from(selectedPanels).map(async (panelId) => {
-        const response = await authenticatedFetch(`http://localhost:4000/api/panels/${id}/${panelId}`, {
+        const response = await authenticatedFetch(getApiUrl(`panels/${id}/${panelId}`), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ groupId })
@@ -836,7 +837,7 @@ export default function ProjectDetailPage() {
       console.log('🔄 Updating panel:', panelId, updates)
 
       // Update panel via API
-      const response = await authenticatedFetch(`http://localhost:4000/api/panels/${id}/${panelId}`, {
+      const response = await authenticatedFetch(getApiUrl(`panels/${id}/${panelId}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -856,7 +857,7 @@ export default function ProjectDetailPage() {
       // Update custom statuses if provided
       if (updates.customStatusIds && updates.customStatusIds.length > 0) {
         for (const statusId of updates.customStatusIds) {
-          await authenticatedFetch(`http://localhost:4000/api/status-management/assign-to-panels`, {
+          await authenticatedFetch(getApiUrl('status-management/assign-to-panels'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -886,7 +887,7 @@ export default function ProjectDetailPage() {
     if (!id) return
 
     try {
-      const response = await authenticatedFetch(`http://localhost:4000/api/panels/${id}/${panelId}`, {
+      const response = await authenticatedFetch(getApiUrl(`panels/${id}/${panelId}`), {
         method: 'DELETE'
       })
 
@@ -915,7 +916,7 @@ export default function ProjectDetailPage() {
       const panel = panels.find(p => p.id === panelId)
       if (!panel) return
 
-      const response = await authenticatedFetch(`http://localhost:4000/api/panels/${id}`, {
+      const response = await authenticatedFetch(getApiUrl(`panels/${id}`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -956,7 +957,7 @@ export default function ProjectDetailPage() {
     if (!id) return
     
     try {
-      const response = await authenticatedFetch(`http://localhost:4000/api/panels/${id}`, {
+      const response = await authenticatedFetch(getApiUrl(`panels/${id}`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -975,7 +976,7 @@ export default function ProjectDetailPage() {
     if (!id) return
     
     try {
-      const response = await authenticatedFetch(`http://localhost:4000/api/panels/${id}/${panelId}/status`, {
+      const response = await authenticatedFetch(getApiUrl(`panels/${id}/${panelId}/status`), {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json'

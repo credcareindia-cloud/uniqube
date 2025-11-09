@@ -11,6 +11,7 @@ import { EditStatusModal } from '@/components/modals/EditStatusModal'
 import { ConfirmDeleteModal } from '@/components/modals/ConfirmDeleteModal'
 import { toast } from '@/components/ui/use-toast'
 import { getLucideIconName } from '@/utils/iconMapping'
+import { getApiUrl } from '@/config/api'
 
 interface CustomStatus {
   id: string
@@ -80,7 +81,7 @@ export function StatusManagementTab({
 
   const loadStatuses = async () => {
     try {
-      const response = await authenticatedFetch(`http://localhost:4000/api/status-management/${projectId}`)
+      const response = await authenticatedFetch(getApiUrl(`status-management/${projectId}`))
       if (response.ok) {
         const data = await response.json()
         console.log('📊 Loaded statuses:', data)
@@ -94,7 +95,7 @@ export function StatusManagementTab({
 
   const loadGroups = async () => {
     try {
-      const response = await authenticatedFetch(`http://localhost:4000/api/groups/${projectId}`)
+      const response = await authenticatedFetch(getApiUrl(`groups/${projectId}`))
       if (response.ok) {
         const data = await response.json()
         console.log('📊 Loaded groups:', data)
@@ -121,7 +122,7 @@ export function StatusManagementTab({
   const loadCustomStatuses = async () => {
     try {
       setLoading(true)
-      const response = await authenticatedFetch(`http://localhost:4000/api/status-management/${projectId}`)
+      const response = await authenticatedFetch(getApiUrl(`status-management/${projectId}`))
       if (response.ok) {
         const data = await response.json()
         setCustomStatuses(data.statuses || [])
@@ -135,7 +136,7 @@ export function StatusManagementTab({
 
   const loadPanelCount = async () => {
     try {
-      const response = await authenticatedFetch(`http://localhost:4000/api/panels/${projectId}/statistics`)
+      const response = await authenticatedFetch(getApiUrl(`panels/${projectId}/statistics`))
       if (response.ok) {
         const data = await response.json()
         setTotalPanels(data.totalPanels || 0)
@@ -149,7 +150,7 @@ export function StatusManagementTab({
     try {
       setLoadingPanels(true)
       // Include groups in the API request
-      const response = await authenticatedFetch(`http://localhost:4000/api/panels/${projectId}?customStatusId=${statusId}&limit=100&includeGroups=true`)
+      const response = await authenticatedFetch(getApiUrl(`panels/${projectId}?customStatusId=${statusId}&limit=100&includeGroups=true`))
       if (response.ok) {
         const data = await response.json()
         console.log('📦 Panels with groups:', data.panels || data)
@@ -195,7 +196,7 @@ export function StatusManagementTab({
     console.log('Updating status:', editingStatus.id, statusData)
 
     try {
-      const response = await authenticatedFetch(`http://localhost:4000/api/status-management/${editingStatus.id}`, {
+      const response = await authenticatedFetch(getApiUrl(`status-management/${editingStatus.id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(statusData)
@@ -243,7 +244,7 @@ export function StatusManagementTab({
     setIsDeleting(true)
 
     try {
-      const response = await authenticatedFetch(`http://localhost:4000/api/status-management/${deletingStatus.id}`, {
+      const response = await authenticatedFetch(getApiUrl(`status-management/${deletingStatus.id}`), {
         method: 'DELETE'
       })
 

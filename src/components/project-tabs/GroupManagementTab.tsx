@@ -7,6 +7,7 @@ import { GroupDetailModal } from '@/components/modals/GroupDetailModal'
 import { EditGroupModal } from '@/components/modals/EditGroupModal'
 import { ConfirmDeleteModal } from '@/components/modals/ConfirmDeleteModal'
 import { toast } from '@/components/ui/use-toast'
+import { getApiUrl } from '@/config/api'
 
 interface Group {
   id: string
@@ -62,7 +63,7 @@ export function GroupManagementTab({ projectId, onCreateGroup, onViewGroup, onDa
   const loadGroups = async () => {
     try {
       setLoading(true)
-      const response = await authenticatedFetch(`http://localhost:4000/api/groups/${projectId}`)
+      const response = await authenticatedFetch(getApiUrl(`groups/${projectId}`))
       if (response.ok) {
         const data = await response.json()
         setGroups(data.groups || [])
@@ -98,7 +99,7 @@ export function GroupManagementTab({ projectId, onCreateGroup, onViewGroup, onDa
     if (!deletingGroup) return
 
     try {
-      const response = await authenticatedFetch(`http://localhost:4000/api/groups/${projectId}/${deletingGroup.id}`, {
+      const response = await authenticatedFetch(getApiUrl(`groups/${projectId}/${deletingGroup.id}`), {
         method: 'DELETE'
       })
 
@@ -133,7 +134,7 @@ export function GroupManagementTab({ projectId, onCreateGroup, onViewGroup, onDa
     if (!editingGroup) return
 
     try {
-      const response = await authenticatedFetch(`http://localhost:4000/api/groups/${projectId}/${editingGroup.id}`, {
+      const response = await authenticatedFetch(getApiUrl(`groups/${projectId}/${editingGroup.id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(groupData)

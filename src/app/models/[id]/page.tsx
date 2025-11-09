@@ -18,6 +18,7 @@ import { ProfessionalGamingCard } from '@/components/gaming/ProfessionalGamingCa
 import { ProfessionalGamingButton } from '@/components/gaming/ProfessionalGamingButton'
 import { ProfessionalGamingStat } from '@/components/gaming/ProfessionalGamingStat'
 import { ProfessionalGamingBadge } from '@/components/gaming/ProfessionalGamingBadge'
+import { getApiUrl, getViewerUrl } from '@/config/api'
 
 interface Model {
   id: string
@@ -77,7 +78,7 @@ export default function ModelDetailPage() {
       setLoading(true)
       setError(null)
       
-      const response = await fetch(`http://localhost:4000/api/models/${modelId}`)
+      const response = await fetch(getApiUrl(`models/${modelId}`))
       
       if (!response.ok) {
         throw new Error(`Failed to load model: ${response.statusText}`)
@@ -95,15 +96,13 @@ export default function ModelDetailPage() {
 
   const openViewer = () => {
     if (model) {
-      const viewerUrl = `http://localhost:3001/?model=${model.id}`
-      window.open(viewerUrl, '_blank')
+      window.open(getViewerUrl(model.id), '_blank')
     }
   }
 
   const openEmbeddedViewer = () => {
     if (model) {
-      const embeddedUrl = `http://localhost:3001/?model=${model.id}&embed=true`
-      setViewerUrl(embeddedUrl)
+      setViewerUrl(getViewerUrl(model.id, true))
     }
   }
 
@@ -118,8 +117,7 @@ export default function ModelDetailPage() {
 
   const copyViewerUrl = () => {
     if (model) {
-      const url = `http://localhost:3001/?model=${model.id}`
-      navigator.clipboard.writeText(url)
+      navigator.clipboard.writeText(getViewerUrl(model.id))
     }
   }
 
