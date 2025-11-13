@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
+import { Upload, FileText, CheckCircle, AlertCircle, Loader2, AlertTriangle, X } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Upload, X, FileText, CheckCircle, AlertCircle, Loader2, AlertTriangle } from 'lucide-react'
 import { getApiUrl } from '@/config/api'
+import { notificationService } from '@/services/notifications'
 
 interface ModelCreationProps {
   onProjectCreated?: (project: any) => void
@@ -19,6 +20,15 @@ interface UploadStatus {
   model?: any
 }
 
+interface ProcessingStatus {
+  id: string
+  status: 'uploading' | 'processing' | 'completed' | 'failed'
+  progress: number
+  message: string
+  projectData?: any
+  error?: string
+}
+
 export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps) {
   const [formData, setFormData] = useState({
     projectName: '',
@@ -29,9 +39,16 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>({ status: 'idle' })
   const [dragActive, setDragActive] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
-  const isProcessing = uploadStatus.status === 'uploading' || uploadStatus.status === 'processing'
+  
+  // NEW: Processing status for process-first workflow
+  const [processingStatus, setProcessingStatus] = useState<ProcessingStatus | null>(null)
+  const [showProcessingModal, setShowProcessingModal] = useState(false)
+  const [processingInBackground, setProcessingInBackground] = useState(false)
+  
+  // Only block navigation during the actual file upload; backend processing is background-safe
+  const isProcessing = uploadStatus.status === 'uploading'
 
-  // Prevent page navigation during upload/processing
+  // Prevent page navigation during upload only
   useEffect(() => {
     if (isProcessing) {
       const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -44,6 +61,89 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
       return () => window.removeEventListener('beforeunload', handleBeforeUnload)
     }
   }, [isProcessing])
+
+  // NEW: Poll for processing status in the new workflow
+  useEffect(() => {
+    let interval: NodeJS.Timeout
+    if (processingStatus && processingStatus.status === 'processing') {
+      console.log('🔄 Starting background polling for processing status...')
+      interval = setInterval(async () => {
+        try {
+          const response = await fetch(getApiUrl(`processing-status/${processingStatus.id}`), {
+            headers: {
+              'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+            }
+          })
+          
+          if (response.ok) {
+            const status = await response.json()
+            console.log('📊 Processing status update:', status)
+            setProcessingStatus(status)
+            
+            if (status.status === 'completed') {
+              console.log('✅ Processing completed! Project created successfully')
+              
+              // Project created successfully!
+              setUploadStatus({
+                status: 'success',
+                message: 'Project created successfully!',
+                project: status.projectData?.project,
+                model: status.projectData?.model
+              })
+              
+              // ALWAYS add success notification (regardless of background state)
+              console.log('🔔 Adding success notification...')
+              notificationService.addProjectCreatedNotification(
+                formData.projectName.trim(),
+                status.projectData?.project?.id
+              )
+              
+              // Conditional redirect based on user choice
+              if (!processingInBackground) {
+                // User didn't click "Continue in Background" - redirect to project
+                console.log('🔄 Redirecting to project page (user stayed on modal)...')
+                if (onProjectCreated && status.projectData?.project) {
+                  onProjectCreated(status.projectData.project)
+                }
+              } else {
+                // User clicked "Continue in Background" - no redirect, just notification
+                console.log('📱 No redirect (user chose to continue in background)')
+                console.log('🔔 Notification should appear in navbar/sidebar')
+              }
+              
+              // Reset background processing state
+              setProcessingInBackground(false)
+              
+              // Stop polling since processing is complete
+              clearInterval(interval)
+            } else if (status.status === 'failed') {
+              setUploadStatus({
+                status: 'error',
+                message: status.error || 'Processing failed'
+              })
+              setShowProcessingModal(false)
+              setProcessingInBackground(false)
+              
+              // Add failure notification
+              notificationService.addProjectProcessingFailedNotification(
+                formData.projectName.trim(),
+                status.error
+              )
+            }
+          }
+        } catch (err) {
+          console.error('Failed to check processing status:', err)
+        }
+      }, 2000) // Poll every 2 seconds
+    }
+    
+    return () => {
+      if (interval) {
+        console.log('🛑 Stopping polling interval')
+        clearInterval(interval)
+      }
+    }
+  }, [processingStatus?.id, processingStatus?.status]) // Only depend on ID and status, not the whole object
 
   const handleFileChange = (file: File) => {
     const fileName = file.name.toLowerCase();
@@ -60,7 +160,7 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
         setFormData(prev => ({ ...prev, projectName: capitalizedName }))
       }
     } else {
-      alert('Please select a valid .ifc or .frag file')
+      alert('Please select a valid .ifc file')
     }
   }
 
@@ -88,17 +188,17 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
     e.preventDefault()
     
     if (!selectedFile || !formData.projectName.trim()) {
-      alert('Please provide a project name and select an IFC file')
+      alert('Please provide a project name and select an IFC or FRAG file')
       return
     }
 
     try {
-      // Step 1: Show uploading state
+      // NEW WORKFLOW: Upload and process first, create project only after success
       const fileType = selectedFile.name.toLowerCase().endsWith('.ifc') ? 'IFC' : 'FRAG';
       setUploadStatus({ status: 'uploading', message: 'Uploading model...', progress: 0 })
       setUploadProgress(0)
       
-      console.log(`📤 Uploading ${fileType} file...`)
+      console.log(`🚀 Starting process-first workflow for ${fileType} file...`)
 
       const formDataToSend = new FormData()
       formDataToSend.append('fragFile', selectedFile)
@@ -106,7 +206,7 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
       formDataToSend.append('projectDescription', formData.projectDescription.trim())
       formDataToSend.append('projectStatus', formData.projectStatus)
 
-      console.log('📤 Uploading to backend...')
+      console.log('📤 Uploading to new process-first endpoint...')
       
       // Use XMLHttpRequest for upload progress tracking
       const result = await new Promise<any>((resolve, reject) => {
@@ -122,27 +222,12 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
               message: 'Uploading model...', 
               progress: percentComplete 
             })
-            
-            // When upload reaches 100%, immediately show processing state
-            if (percentComplete === 100) {
-              console.log('📤 Upload 100% complete! Waiting for backend processing...')
-              setTimeout(() => {
-                setUploadStatus({ 
-                  status: 'processing', 
-                  message: 'Analyzing 3D elements and extracting metadata...', 
-                  progress: 100 
-                })
-              }, 100) // Small delay to ensure UI updates
-            }
           }
         })
         
         xhr.addEventListener('load', () => {
           console.log('📥 Upload complete! Status:', xhr.status)
           if (xhr.status >= 200 && xhr.status < 300) {
-            // Upload complete - show processing state
-            console.log('✅ Setting processing state...')
-            setUploadStatus({ status: 'processing', message: 'Analyzing 3D elements and extracting metadata...', progress: 100 })
             console.log('📊 Response received:', xhr.response)
             resolve(xhr.response)
           } else {
@@ -154,7 +239,8 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
         xhr.addEventListener('error', () => reject(new Error('Upload failed')))
         xhr.addEventListener('abort', () => reject(new Error('Upload aborted')))
         
-        xhr.open('POST', getApiUrl('create-project-with-model'))
+        // NEW: Use the process-first endpoint
+        xhr.open('POST', getApiUrl('upload-and-process'))
         xhr.responseType = 'json'
         
         // Add authentication token to request
@@ -167,21 +253,25 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
       })
 
       if (result.success) {
-        console.log('✅ Project created successfully:', result.metadata)
-        
-        const storeysCount = result.metadata?.spatialStructure?.length || 0;
-        
-        setUploadStatus({
-          status: 'success',
-          message: `Project created successfully! Processed ${result.metadata.panelsCount} panels from ${storeysCount} storeys.`,
-          project: result.project,
-          model: result.model
-        })
+        console.log('✅ File uploaded successfully, processing started...')
 
-        // Call callback after successful creation
-        if (onProjectCreated) {
-          onProjectCreated(result.project)
-        }
+        // NEW: Show processing modal and start polling
+        setProcessingStatus({
+          id: result.processingId,
+          status: 'processing',
+          progress: result.progress || 20,
+          message: result.message || 'Processing started...'
+        })
+        
+        setShowProcessingModal(true)
+        setUploadStatus({ status: 'processing', message: 'Processing file...', progress: 20 })
+        
+        // Add notification for processing started
+        notificationService.addProjectProcessingNotification(formData.projectName.trim())
+        
+        console.log(`🔄 Started polling for processing ID: ${result.processingId}`)
+        
+        // The useEffect polling will handle the rest
 
       } else {
         throw new Error(result.message || 'Failed to create project')
@@ -320,14 +410,14 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
                         <CheckCircle className="h-12 w-12 text-green-600 mx-auto" />
                         <div className="text-slate-900 font-semibold text-lg">{selectedFile.name}</div>
                         <div className="text-slate-600">{formatFileSize(selectedFile.size)}</div>
-                        <Badge variant="success">IFC File Selected</Badge>
+                        <Badge variant="success">{selectedFile.name.toLowerCase().endsWith('.ifc') ? 'IFC' : 'FRAG'} File Selected</Badge>
                       </div>
                     ) : (
                       <div className="space-y-3">
                         <Upload className="h-12 w-12 text-slate-400 mx-auto" />
                         <div className="text-slate-900 font-semibold text-lg">Drop your IFC file here</div>
                         <div className="text-slate-600">or click to browse</div>
-                        <Badge variant="secondary">Only .IFC files accepted</Badge>
+                        <Badge variant="secondary">Accepted: .IFC Files Only</Badge>
                       </div>
                     )}
                   </div>
@@ -357,130 +447,86 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
             </form>
           )}
 
-          {/* Warning Message During Processing */}
-          {isProcessing && (
-            <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start space-x-3">
-              <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <p className="text-amber-900 font-medium text-sm">
-                  Upload in progress - Do not close, refresh or navigate away from this page
-                </p>
-                <p className="text-amber-700 text-xs mt-1">
-                  Your project is being created. This process may take a few minutes.
-                </p>
+          {/* Minimal Upload Status */}
+          {uploadStatus.status === 'uploading' && (
+            <div className="space-y-4">
+              {/* Clean Status Header */}
+              <div className="flex items-center justify-center space-x-3 p-4 bg-slate-50 rounded-lg">
+                <Loader2 className="h-6 w-6 text-slate-600 animate-spin" />
+                <span className="text-slate-900 font-medium">Uploading model...</span>
+              </div>
+
+              {/* Minimal Progress Bar */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-slate-500">Progress</span>
+                  <span className="text-slate-900 font-medium">{uploadStatus.progress || 0}%</span>
+                </div>
+                <div className="w-full bg-slate-100 rounded-full h-2">
+                  <div 
+                    className="h-full bg-slate-600 rounded-full transition-all duration-300"
+                    style={{ width: `${uploadStatus.progress || 0}%` }}
+                  />
+                </div>
+                {selectedFile && (
+                  <div className="text-center text-slate-500 text-xs">
+                    {selectedFile.name} ({formatFileSize(selectedFile.size)})
+                  </div>
+                )}
               </div>
             </div>
           )}
 
-          {/* Upload Status */}
-          {uploadStatus.status !== 'idle' && (
-            <div className="space-y-6">
-              {/* Loading Screen with Progress */}
-              {(uploadStatus.status === 'uploading' || uploadStatus.status === 'processing') && (
-                <div className="space-y-6">
-                  {/* Status Header */}
-                  <div className="flex items-center justify-center space-x-4 p-6 bg-slate-50 rounded-lg border border-slate-200">
-                    <Loader2 className="h-8 w-8 text-slate-700 animate-spin" />
-                    <span className="text-slate-900 font-semibold text-xl">{uploadStatus.message}</span>
-                  </div>
-
-                  {/* Progress Bar - Only show during upload */}
-                  {uploadStatus.status === 'uploading' && (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-slate-600 font-medium">Upload Progress</span>
-                        <span className="text-slate-900 font-bold">{uploadStatus.progress || 0}%</span>
-                      </div>
-                      <div className="w-full bg-slate-200 rounded-full h-3 overflow-hidden">
-                        <div 
-                          className="h-full bg-gradient-to-r from-slate-600 to-slate-800 rounded-full transition-all duration-300 ease-out"
-                          style={{ width: `${uploadStatus.progress || 0}%` }}
-                        >
-                          <div className="h-full w-full bg-gradient-to-r from-transparent via-white/20 to-transparent animate-pulse"></div>
-                        </div>
-                      </div>
-                      <div className="text-center text-slate-600 text-sm">
-                        {selectedFile && (
-                          <span>Uploading {selectedFile.name} ({formatFileSize(selectedFile.size)})</span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Processing Animation - Show after upload completes */}
-                  {uploadStatus.status === 'processing' && (
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-center space-x-2 text-slate-600">
-                        <div className="flex space-x-1">
-                          <div className="w-2 h-2 bg-slate-600 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                          <div className="w-2 h-2 bg-slate-600 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                          <div className="w-2 h-2 bg-slate-600 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                        </div>
-                      </div>
-                      <div className="text-center space-y-2">
-                        <p className="text-slate-700 font-medium">Processing 3D Model</p>
-                        {/* <p className="text-slate-500 text-sm">Extracting elements, storeys, and metadata...</p> */}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Success/Error States */}
-              {uploadStatus.status === 'success' && (
-                <div className="flex items-center space-x-4 p-4 bg-green-50 rounded-lg border border-green-200">
-                  <CheckCircle className="h-6 w-6 text-green-600" />
-                  <span className="text-green-900 font-medium text-lg">{uploadStatus.message}</span>
-                </div>
-              )}
+          {/* Success/Error States */}
+          {uploadStatus.status === 'success' && (
+            <div className="space-y-4">
+              <div className="flex items-center space-x-3 p-4 bg-slate-50 rounded-lg">
+                <CheckCircle className="h-6 w-6 text-slate-600" />
+                <span className="text-slate-900 font-medium">{uploadStatus.message}</span>
+              </div>
               
-              {uploadStatus.status === 'error' && (
-                <div className="flex items-center space-x-4 p-4 bg-red-50 rounded-lg border border-red-200">
-                  <AlertCircle className="h-6 w-6 text-red-600" />
-                  <span className="text-red-900 font-medium text-lg">{uploadStatus.message}</span>
-                </div>
-              )}
-
               {uploadStatus.project && (
-                <Card className="border-slate-200">
-                  <CardContent className="p-4">
-                    <h3 className="text-slate-900 font-bold text-lg mb-3">Project Created</h3>
-                    <div className="text-slate-600 space-y-2">
-                      <p><span className="font-medium text-slate-900">Name:</span> {uploadStatus.project.name}</p>
-                      <p><span className="font-medium text-slate-900">ID:</span> {uploadStatus.project.id}</p>
-                      <p><span className="font-medium text-slate-900">Status:</span> {uploadStatus.project.status}</p>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {uploadStatus.status === 'success' && (
-                <div className="flex space-x-3">
-                  <Button
-                    onClick={() => window.location.href = `/projects/${uploadStatus.project?.id}`}
-                    className="flex-1"
-                  >
-                    View Project
-                  </Button>
-                  
-                  <Button
-                    variant="outline"
-                    onClick={resetForm}
-                  >
-                    Create Another
-                  </Button>
+                <div className="p-4 bg-slate-50 rounded-lg">
+                  <h3 className="text-slate-900 font-medium mb-2">Project Created</h3>
+                  <div className="text-slate-600 text-sm space-y-1">
+                    <p><span className="font-medium">Name:</span> {uploadStatus.project.name}</p>
+                    <p><span className="font-medium">ID:</span> {uploadStatus.project.id}</p>
+                  </div>
                 </div>
               )}
 
-              {uploadStatus.status === 'error' && (
+              <div className="flex space-x-3">
+                <Button
+                  onClick={() => window.location.href = `/projects/${uploadStatus.project?.id}`}
+                  className="flex-1"
+                >
+                  View Project
+                </Button>
+                
                 <Button
                   variant="outline"
                   onClick={resetForm}
-                  className="w-full"
                 >
-                  Try Again
+                  Create Another
                 </Button>
-              )}
+              </div>
+            </div>
+          )}
+          
+          {uploadStatus.status === 'error' && (
+            <div className="space-y-4">
+              <div className="flex items-center space-x-3 p-4 bg-slate-50 rounded-lg">
+                <AlertCircle className="h-6 w-6 text-slate-600" />
+                <span className="text-slate-900 font-medium">{uploadStatus.message}</span>
+              </div>
+              
+              <Button
+                variant="outline"
+                onClick={resetForm}
+                className="w-full border-slate-200 text-slate-600 hover:bg-slate-50"
+              >
+                Try Again
+              </Button>
             </div>
           )}
         </CardContent>
@@ -488,5 +534,142 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
     </div>
   )
 
-  return createPortal(modalContent, document.body)
+  // NEW: Processing Modal for real-time status updates
+  const processingModal = showProcessingModal && processingStatus && (
+    <div className="fixed inset-0 bg-slate-900/20 backdrop-blur-sm flex items-center justify-center z-50">
+      <Card className="w-full max-w-md mx-4 bg-white border border-slate-200 shadow-xl">
+        <CardContent className="p-6">
+          <div className="text-center space-y-4">
+            {/* Minimal Icon */}
+            <div className="flex items-center justify-center mb-2">
+              {processingStatus.status === 'processing' && (
+                <div className="bg-slate-50 rounded-full p-3">
+                  <Loader2 className="h-8 w-8 text-slate-600 animate-spin" />
+                </div>
+              )}
+              {processingStatus.status === 'completed' && (
+                <div className="bg-slate-50 rounded-full p-3">
+                  <CheckCircle className="h-8 w-8 text-slate-600" />
+                </div>
+              )}
+              {processingStatus.status === 'failed' && (
+                <div className="bg-slate-50 rounded-full p-3">
+                  <AlertCircle className="h-8 w-8 text-slate-600" />
+                </div>
+              )}
+            </div>
+            
+            {/* Clean Messaging */}
+            <div className="space-y-2">
+              <h3 className="text-lg font-semibold text-slate-900">
+                {processingStatus.status === 'processing' && 'Processing Your Model'}
+                {processingStatus.status === 'completed' && 'Project Created'}
+                {processingStatus.status === 'failed' && 'Processing Failed'}
+              </h3>
+              
+              {processingStatus.status === 'processing' && (
+                <p className="text-slate-600 text-sm">
+                  Analyzing your IFC file and preparing your project. This usually takes 1-3 minutes.
+                </p>
+              )}
+              
+              {processingStatus.status === 'completed' && (
+                <p className="text-slate-600 text-sm">
+                  Your project is ready to explore.
+                </p>
+              )}
+              
+              {processingStatus.status === 'failed' && (
+                <p className="text-slate-600 text-sm">
+                  {processingStatus.error || 'Something went wrong during processing.'}
+                </p>
+              )}
+            </div>
+
+            {/* Minimal Progress Bar */}
+            {processingStatus.status === 'processing' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-slate-500">Progress</span>
+                  <span className="text-slate-900 font-medium">{processingStatus.progress}%</span>
+                </div>
+                <div className="w-full bg-slate-100 rounded-full h-2">
+                  <div 
+                    className="h-full bg-slate-600 rounded-full transition-all duration-500"
+                    style={{ width: `${processingStatus.progress}%` }}
+                  />
+                </div>
+                
+                {/* Minimal Steps */}
+                <div className="flex items-center justify-center space-x-4 text-xs text-slate-500">
+                  <div className="flex items-center space-x-1">
+                    <div className={`w-1.5 h-1.5 rounded-full ${processingStatus.progress > 10 ? 'bg-slate-600' : 'bg-slate-300'}`}></div>
+                    <span>Upload</span>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <div className={`w-1.5 h-1.5 rounded-full ${processingStatus.progress > 40 ? 'bg-slate-600' : 'bg-slate-300'}`}></div>
+                    <span>Analyze</span>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <div className={`w-1.5 h-1.5 rounded-full ${processingStatus.progress > 70 ? 'bg-slate-600' : 'bg-slate-300'}`}></div>
+                    <span>Convert</span>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <div className={`w-1.5 h-1.5 rounded-full ${processingStatus.progress > 90 ? 'bg-slate-600' : 'bg-slate-300'}`}></div>
+                    <span>Create</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Success state */}
+            {processingStatus.status === 'completed' && (
+              <div className="text-slate-500 text-xs">
+                Redirecting to projects page...
+              </div>
+            )}
+
+            {/* Error state */}
+            {processingStatus.status === 'failed' && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowProcessingModal(false)
+                  setProcessingStatus(null)
+                  resetForm()
+                }}
+                className="w-full border-slate-200 text-slate-600 hover:bg-slate-50"
+              >
+                Try Again
+              </Button>
+            )}
+
+            {/* Background option */}
+            {processingStatus.status === 'processing' && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowProcessingModal(false)
+                  setProcessingInBackground(true)
+                  // Keep processing in background
+                }}
+                className="w-full border-slate-200 text-slate-600 hover:bg-slate-50"
+              >
+                Continue in Background
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+
+  return createPortal(
+    <>
+      {/* Only show the old modal if processing modal is not active and not processing in background */}
+      {!showProcessingModal && !processingInBackground && modalContent}
+      {processingModal}
+    </>,
+    document.body
+  )
 }

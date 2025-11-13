@@ -11,6 +11,7 @@ import {
   LogOut
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useNotifications } from '@/hooks/useNotifications'
 
 interface SidebarItem {
   name: string
@@ -20,14 +21,6 @@ interface SidebarItem {
   count?: number
 }
 
-const navigation: SidebarItem[] = [
-  // { name: 'Dashboard', href: '/dashboard', icon: Home },
-  { name: 'Projects', href: '/projects', icon: Database },
-  { name: 'Profile', href: '/profile', icon: User },
-  // { name: 'Notifications', href: '/notifications', icon: Bell, count: 3 },
-  { name: 'Administration', href: '/admin', icon: Shield },
-]
-
 const bottomNavigation: SidebarItem[] = [
   { name: 'Logout', href: '/logout', icon: Settings },
 ]
@@ -35,6 +28,15 @@ const bottomNavigation: SidebarItem[] = [
 export function Sidebar() {
   const navigate = useNavigate()
   const location = useLocation()
+  const { unreadCount } = useNotifications()
+
+  const navigation: SidebarItem[] = [
+    // { name: 'Dashboard', href: '/dashboard', icon: Home },
+    { name: 'Projects', href: '/projects', icon: Database },
+    { name: 'Profile', href: '/profile', icon: User },
+    { name: 'Notifications', href: '/notifications', icon: Bell, count: unreadCount > 0 ? unreadCount : undefined },
+    { name: 'Administration', href: '/admin', icon: Shield },
+  ]
 
   const handleNavigation = (href: string) => {
     navigate(href)

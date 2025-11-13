@@ -40,6 +40,7 @@ import { PanelStatus, PANEL_STATUS_CONFIG } from '@/types/panel'
 import { GroupStatus, GROUP_STATUS_CONFIG } from '@/types/group'
 import { authenticatedFetch } from '@/utils/authenticatedFetch'
 import { getApiUrl } from '@/config/api'
+import { useNotifications } from '@/hooks/useNotifications'
 
 
 interface ProjectData {
@@ -250,6 +251,7 @@ const calculatePanelStatuses = (panels: Panel[]): PanelStatusSummary[] => {
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const { notifications } = useNotifications()
   const [project, setProject] = useState<ProjectData | null>(null)
   const [models, setModels] = useState<ProjectModels | null>(null)
   const [loading, setLoading] = useState(true)
@@ -315,6 +317,22 @@ export default function ProjectDetailPage() {
     }
   }, [models?.currentModel?.id])
 
+  // Listen for project creation notifications and refresh project data
+  useEffect(() => {
+    const projectCreatedNotifications = notifications.filter(
+      n => n.type === 'success' && n.title.includes('Project Created') && 
+           (n.metadata?.projectId === id || n.message.includes(id || ''))
+    )
+    
+    if (projectCreatedNotifications.length > 0) {
+      // Refresh project data when we get a notification for this specific project
+      console.log('🔄 Detected project creation notification for this project, refreshing data...')
+      loadProjectData()
+      loadPanels()
+      loadGroups(1)
+    }
+  }, [notifications, id])
+
   const loadProjectData = async () => {
     if (!id) return
     
@@ -342,11 +360,12 @@ export default function ProjectDetailPage() {
           hasModel: data.currentModel !== null
         })
         
-        // Parse spatial structure to get total panel count only
+        // Use spatial structure to get total panel count only
         // Status overview will be calculated in real-time from actual panel data
         if (data.currentModel && data.currentModel.spatialStructure) {
           try {
-            const spatialData = JSON.parse(data.currentModel.spatialStructure)
+            // spatialStructure is already parsed as an object from the database (Json type in Prisma)
+            const spatialData = data.currentModel.spatialStructure
             console.log('📊 Spatial structure metadata:', spatialData)
             setTotalPanelCount(spatialData.totalPanels || 0)
             setDisplayedPanelCount(spatialData.displayedPanels || 0)
@@ -354,7 +373,7 @@ export default function ProjectDetailPage() {
             // Don't load status overview from cached metadata
             // It will be calculated in real-time by calculatePanelStatusCounts()
           } catch (error) {
-            console.error('Failed to parse spatial structure:', error)
+            console.error('Failed to process spatial structure:', error)
           }
         }
       } else {

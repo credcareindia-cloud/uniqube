@@ -56,6 +56,7 @@ export interface Notification {
   type: 'info' | 'warning' | 'error' | 'success';
   read: boolean;
   createdAt: string;
+  metadata?: { projectId?: string; projectName?: string; [key: string]: any };
 }
 
 export interface AuthResponse {

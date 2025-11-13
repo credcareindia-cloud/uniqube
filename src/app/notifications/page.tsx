@@ -17,7 +17,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { api } from '@/services/api'
+import { useNotifications } from '@/hooks/useNotifications'
 import type { Notification } from '@/services/api'
 
 const mockNotifications: Notification[] = [
@@ -72,63 +72,14 @@ const mockNotifications: Notification[] = [
 ]
 
 export default function NotificationsPage() {
-  const [notifications, setNotifications] = useState<Notification[]>([])
-  const [loading, setLoading] = useState(true)
+  const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications()
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<'all' | 'unread'>('all')
 
-  // Load notifications from backend
-  useEffect(() => {
-    const loadNotifications = async () => {
-      try {
-        setLoading(true)
-        setError(null)
-        const response = await api.getNotifications()
-        setNotifications(response.notifications)
-      } catch (err) {
-        console.error('Failed to load notifications:', err)
-        setError('Failed to load notifications. Using mock data for development.')
-        
-        // Fallback to mock data for development
-        setNotifications(mockNotifications)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    loadNotifications()
-  }, [])
-
-  const unreadCount = notifications.filter(n => !n.read).length
   const filteredNotifications = filter === 'unread' 
     ? notifications.filter(n => !n.read)
     : notifications
-
-  const markAsRead = async (id: string) => {
-    try {
-      await api.markNotificationsRead({ notificationIds: [id] })
-      setNotifications(prev => 
-        prev.map(n => n.id === id ? { ...n, read: true } : n)
-      )
-    } catch (err) {
-      console.error('Failed to mark notification as read:', err)
-      // Optimistically update UI even if API call fails
-      setNotifications(prev => 
-        prev.map(n => n.id === id ? { ...n, read: true } : n)
-      )
-    }
-  }
-
-  const markAllAsRead = async () => {
-    try {
-      await api.markNotificationsRead({ markAll: true })
-      setNotifications(prev => prev.map(n => ({ ...n, read: true })))
-    } catch (err) {
-      console.error('Failed to mark all notifications as read:', err)
-      // Optimistically update UI even if API call fails
-      setNotifications(prev => prev.map(n => ({ ...n, read: true })))
-    }
-  }
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
@@ -317,7 +268,7 @@ export default function NotificationsPage() {
         )}
       </div>
 
-      {/* Quick Actions */}
+      {/* {/* Quick Actions
       <Card className="border-slate-200">
         <CardContent className="p-6">
           <div className="space-y-6">
@@ -341,7 +292,7 @@ export default function NotificationsPage() {
             </div>
           </div>
         </CardContent>
-      </Card>
+      </Card> */}
     </div>
   )
 }

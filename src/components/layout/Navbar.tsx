@@ -1,15 +1,20 @@
-import { useState } from 'react'
-import { Bell, Search, Settings, Menu, X, Box, LogOut, User as UserIcon } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
+import { Bell, Search, Settings, Menu, X, Box, LogOut, User as UserIcon, CheckCircle, AlertTriangle, Info, Clock } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
+import { useNotifications } from '@/hooks/useNotifications'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Card, CardContent } from '@/components/ui/card'
 
 export function Navbar() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
+  const [showNotificationDropdown, setShowNotificationDropdown] = useState(false)
   const { user, logout } = useAuth()
+  const { notifications, unreadCount, markAsRead } = useNotifications()
   const navigate = useNavigate()
+  const notificationRef = useRef<HTMLDivElement>(null)
 
   const toggleMobileMenu = () => {
     setIsMobileMenuOpen(!isMobileMenuOpen)
@@ -18,6 +23,43 @@ export function Navbar() {
   const handleLogout = () => {
     logout()
     navigate('/login')
+  }
+
+  // Close notification dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
+        setShowNotificationDropdown(false)
+      }
+    }
+
+    if (showNotificationDropdown) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showNotificationDropdown])
+
+  const getNotificationIcon = (type: string) => {
+    switch (type) {
+      case 'success':
+        return <CheckCircle className="h-4 w-4 text-green-600" />
+      case 'warning':
+        return <AlertTriangle className="h-4 w-4 text-yellow-600" />
+      case 'error':
+        return <AlertTriangle className="h-4 w-4 text-red-600" />
+      case 'info':
+      default:
+        return <Info className="h-4 w-4 text-blue-600" />
+    }
+  }
+
+  const handleNotificationClick = (notificationId: string) => {
+    markAsRead(notificationId)
+    setShowNotificationDropdown(false)
+    navigate('/notifications')
   }
 
   const getUserInitials = (name: string) => {
@@ -75,16 +117,88 @@ export function Navbar() {
           {/* Right Section - Actions and Profile */}
           <div className="flex items-center space-x-2 sm:space-x-3">
             {/* Notifications */}
-            {/* <Button
-              variant="ghost"
-              size="icon-sm"
-              className="relative"
-            >
-              <Bell className="h-5 w-5" />
-              <Badge variant="destructive" className="absolute -top-1 -right-1 h-5 min-w-5 flex items-center justify-center px-1">
-                3
-              </Badge>
-            </Button> */}
+            <div className="relative" ref={notificationRef}>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="relative"
+                onClick={() => setShowNotificationDropdown(!showNotificationDropdown)}
+              >
+                <Bell className="h-5 w-5" />
+                {unreadCount > 0 && (
+                  <Badge variant="destructive" className="absolute -top-1 -right-1 h-5 min-w-5 flex items-center justify-center px-1">
+                    {unreadCount}
+                  </Badge>
+                )}
+              </Button>
+
+              {/* Notification Dropdown */}
+              {showNotificationDropdown && (
+                <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-lg shadow-lg border border-slate-200 z-50">
+                  <div className="p-4 border-b border-slate-200">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-semibold text-slate-900">Notifications</h3>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setShowNotificationDropdown(false)
+                          navigate('/notifications')
+                        }}
+                        className="text-slate-600 hover:text-slate-900"
+                      >
+                        View All
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="max-h-96 overflow-y-auto">
+                    {notifications.length === 0 ? (
+                      <div className="p-6 text-center text-slate-500">
+                        <Bell className="h-8 w-8 mx-auto mb-2 text-slate-300" />
+                        <p>No notifications yet</p>
+                      </div>
+                    ) : (
+                      <div className="py-2">
+                        {notifications.slice(0, 5).map((notification) => (
+                          <div
+                            key={notification.id}
+                            className={`px-4 py-3 hover:bg-slate-50 cursor-pointer border-l-4 ${
+                              notification.read 
+                                ? 'border-l-transparent bg-white' 
+                                : 'border-l-blue-500 bg-blue-50/30'
+                            }`}
+                            onClick={() => handleNotificationClick(notification.id)}
+                          >
+                            <div className="flex items-start space-x-3">
+                              <div className="flex-shrink-0 mt-0.5">
+                                {getNotificationIcon(notification.type)}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className={`text-sm font-medium ${
+                                  notification.read ? 'text-slate-600' : 'text-slate-900'
+                                }`}>
+                                  {notification.title}
+                                </p>
+                                <p className={`text-xs mt-1 ${
+                                  notification.read ? 'text-slate-400' : 'text-slate-600'
+                                }`}>
+                                  {notification.message}
+                                </p>
+                                <div className="flex items-center mt-2 text-xs text-slate-400">
+                                  <Clock className="h-3 w-3 mr-1" />
+                                  {new Date(notification.createdAt).toLocaleTimeString()}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div> 
 
             {/* Settings */}
             {/* <Button

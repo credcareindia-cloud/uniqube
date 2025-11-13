@@ -1,1 +1,0 @@
-{"error":"Validation Error","message":"Invalid request data","details":[{"field":"email","message":"Required","code":"invalid_type"},{"field":"password","message":"Required","code":"invalid_type"},{"field":"name","message":"Required","code":"invalid_type"}],"timestamp":"2025-11-11T13:58:02.746Z"}

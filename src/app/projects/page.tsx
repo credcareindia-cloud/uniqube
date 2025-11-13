@@ -15,6 +15,7 @@ import {
 import { ProjectCard } from '@/components/dashboard/ProjectCard'
 import { ModelCreation } from '@/components/projects/ModelCreation'
 import { api } from '@/services/api'
+import { useNotifications } from '@/hooks/useNotifications'
 import type { Project } from '@/services/api'
 
 type ViewMode = 'grid' | 'table'
@@ -29,6 +30,7 @@ export default function ProjectsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all')
   const [showModelCreation, setShowModelCreation] = useState(false)
+  const { notifications } = useNotifications()
 
   // Handle project creation success
   const handleProjectCreated = (newProject: any) => {
@@ -39,24 +41,28 @@ export default function ProjectsPage() {
   }
 
   // Load projects from backend
-  useEffect(() => {
-    const loadProjects = async () => {
-      try {
-        setLoading(true)
-        setError(null)
-        const response = await api.getProjects()
-        setProjects(response.projects)
-      } catch (err) {
-        console.error('Failed to load projects:', err)
-        setError('Failed to load projects. Please check your connection and try again.')
-        setProjects([])
-      } finally {
-        setLoading(false)
-      }
+  const loadProjects = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const response = await api.getProjects()
+      setProjects(response.projects)
+    } catch (err) {
+      console.error('Failed to load projects:', err)
+      setError('Failed to load projects. Please check your connection and try again.')
+      setProjects([])
+    } finally {
+      setLoading(false)
     }
+  }
 
+  useEffect(() => {
     loadProjects()
   }, [])
+
+  // Removed automatic refresh on notifications per user request
+  // Projects page will not auto-refresh when notifications arrive
+  // Users can manually refresh if needed
 
   // Filter projects based on search and status
   const filteredProjects = projects.filter(project => {
@@ -110,13 +116,23 @@ export default function ProjectsPage() {
             </p>
           </div>
         </div>
-        <button
-          onClick={() => setShowModelCreation(true)}
-          className="flex items-center gap-2 px-4 py-2.5 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors shadow-sm font-medium"
-        >
-          <Plus className="h-4 w-4" />
-          New Project
-        </button>
+        <div className="flex items-center gap-2">
+          {/* <button
+            onClick={() => loadProjects()}
+            className="flex items-center gap-2 px-3 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors shadow-sm font-medium"
+            disabled={loading}
+          >
+            <Activity className="h-4 w-4" />
+            {loading ? 'Refreshing...' : 'Refresh'}
+          </button> */}
+          <button
+            onClick={() => setShowModelCreation(true)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors shadow-sm font-medium"
+          >
+            <Plus className="h-4 w-4" />
+            Create New Project
+          </button>
+        </div>
       </div>
 
       {/* Stats Grid */}
