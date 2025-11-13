@@ -1,6 +1,7 @@
 import React, { useLayoutEffect, useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import './ViewerPage.css';
+import { FloorSelector } from './FloorSelector';
 
 export default function ViewerPage() {
   const { id: projectId } = useParams();
@@ -17,6 +18,76 @@ export default function ViewerPage() {
   const [selectedElement, setSelectedElement] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [treePanelVisible, setTreePanelVisible] = useState(false);
+  
+  // 2D Views state
+  const [viewer, setViewer] = useState<any>(null);
+  const [is2DMode, setIs2DMode] = useState(false);
+  const [currentFloor, setCurrentFloor] = useState<string | null>(null);
+
+  // Sync UI with 2D mode changes (works for toolbar toggle and internal FloorSelector changes)
+  useEffect(() => {
+    if (is2DMode) {
+      // Add body guard class
+      document.body.classList.add('mode-2d');
+
+      // Click close buttons where available to trigger native handlers
+      const treeClose = document.getElementById('tree-close-btn');
+      const statusClose = document.getElementById('status-close-btn');
+      const groupsClose = document.getElementById('groups-close-btn');
+      treeClose?.click();
+      statusClose?.click();
+      groupsClose?.click();
+
+      // Ensure selection tool is off
+      const selectionBtn = document.getElementById('selection-tool-btn');
+      if (selectionBtn && selectionBtn.classList.contains('active')) {
+        selectionBtn.click();
+      }
+
+      // Disable toolbar buttons
+      ['tree-toggle-btn','status-toggle-btn','groups-toggle-btn','selection-tool-btn'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.classList.remove('active');
+          el.removeAttribute('aria-expanded');
+          el.removeAttribute('aria-pressed');
+          el.classList.add('disabled-in-2d');
+          el.setAttribute('disabled','true');
+        }
+      });
+
+      // Floor panel visible in 2D
+      setFloorPanelVisible(true);
+      // Mirror state for React-driven panels
+      setTreePanelVisible(false);
+      setStatusPanelVisible(false);
+    } else {
+      // Remove body guard class
+      document.body.classList.remove('mode-2d');
+
+      // Re-enable toolbar buttons
+      ['tree-toggle-btn','status-toggle-btn','groups-toggle-btn','selection-tool-btn'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.classList.remove('disabled-in-2d');
+          el.removeAttribute('disabled');
+        }
+      });
+
+      // Reset any forced styles on panels
+      ['tree-panel','statusPanel','groupsPanel','infoPanel'].forEach(id => {
+        const panel = document.getElementById(id) as HTMLElement | null;
+        if (panel) {
+          panel.style.transform = '';
+          panel.style.pointerEvents = '';
+        }
+      });
+
+      // Hide floor panel in 3D
+      setFloorPanelVisible(false);
+    }
+  }, [is2DMode]);
+  const [floorPanelVisible, setFloorPanelVisible] = useState(false);
 
   // Initialize the 3D viewer when container is attached
   const initializeViewer = async (containerElement: HTMLDivElement) => {
@@ -82,6 +153,9 @@ export default function ViewerPage() {
       const viewerInstance = await Promise.race([initializationPromise, timeoutPromise]);
       
       console.log('✅ Viewer initialized successfully:', viewerInstance);
+      
+      // Store viewer instance for 2D views access
+      setViewer(viewerInstance);
       
       // Shorter delay - no need to wait so long
       await new Promise(resolve => setTimeout(resolve, 300));
@@ -156,6 +230,8 @@ export default function ViewerPage() {
         console.log(`❌ Container not ready, retrying in 100ms... (${retryCount}/${maxRetries})`);
         setTimeout(tryInitialize, 100);
       } else {
+      // Remove body guard class
+      document.body.classList.remove('mode-2d');
         console.error('💥 Failed to initialize viewer: Container never became available');
         setError('Failed to initialize 3D viewer: Container not found');
         setIsLoading(false);
@@ -168,10 +244,28 @@ export default function ViewerPage() {
     });
   }, []); // Empty dependency array means this runs once on mount
 
+  // Wire up 2D toggle button
+  useEffect(() => {
+    if (!viewer?.views2d) return;
+
+    // 2D toggle button is now handled by React onClick - no need for manual event listener
+    console.log('✅ 2D toggle button wired up via React onClick');
+  }, [viewer]);
+
   // Cleanup on unmount
   useLayoutEffect(() => {
     return () => {
       console.log('🧹 Component cleanup');
+      
+      // Dispose 2D views
+      if (viewer?.views2d) {
+        try {
+          viewer.views2d.dispose();
+        } catch (e) {
+          console.warn('Failed to dispose 2D views:', e);
+        }
+      }
+      
       const container = document.getElementById('container') as HTMLDivElement;
       if (container) {
         const canvas = container.querySelector('canvas');
@@ -206,11 +300,181 @@ export default function ViewerPage() {
 
   const toggleStatusPanel = () => {
     setStatusPanelVisible(!statusPanelVisible);
-    const panel = document.getElementById('status-panel');
-    if (panel) {
-      panel.classList.toggle('panel-hidden');
+    if (!statusPanelVisible) {
+      setTreePanelVisible(false);
     }
   };
+
+  // Toggle 2D/3D mode and Floor Plans panel
+  const toggle2DMode = async () => {
+    if (!viewer?.views2d) {
+      console.warn('⚠️ 2D views not available');
+      return;
+    }
+    
+    const newMode = !is2DMode;
+    setIs2DMode(newMode);
+    setFloorPanelVisible(newMode);
+    
+    // When entering 2D mode, close and disable other panels
+    if (newMode) {
+      // Add body guard class to enforce hiding via CSS too
+      document.body.classList.add('mode-2d');
+      // Update React state mirrors
+      setTreePanelVisible(false);
+      setStatusPanelVisible(false);
+
+      // Forcibly hide panels via DOM classes (authoritative)
+      const treePanelEl = document.getElementById('tree-panel');
+      const statusPanelEl = document.getElementById('statusPanel');
+      const groupsPanelEl = document.getElementById('groupsPanel');
+      const infoPanelEl = document.getElementById('infoPanel');
+
+      if (treePanelEl && !treePanelEl.classList.contains('panel-hidden')) {
+        treePanelEl.classList.add('panel-hidden');
+        console.log('✅ Closed tree panel');
+      }
+      if (statusPanelEl && !statusPanelEl.classList.contains('panel-hidden')) {
+        statusPanelEl.classList.add('panel-hidden');
+        console.log('✅ Closed status panel');
+      }
+      if (groupsPanelEl && !groupsPanelEl.classList.contains('panel-hidden')) {
+        groupsPanelEl.classList.add('panel-hidden');
+        console.log('✅ Closed groups panel');
+      }
+      if (infoPanelEl && !infoPanelEl.classList.contains('panel-hidden')) {
+        infoPanelEl.classList.add('panel-hidden');
+        console.log('✅ Closed info panel');
+      }
+
+      // Explicitly disable selection tool if it is active
+      const selectionBtn = document.getElementById('selection-tool-btn');
+      if (selectionBtn && selectionBtn.classList.contains('active')) {
+        // Click to trigger main.ts handler to remove canvas listener
+        selectionBtn.click();
+        console.log('🛑 Selection tool deactivated');
+      }
+
+      // Disable toolbar buttons for other panels
+      const buttonsToDisable = [
+        'tree-toggle-btn',
+        'selection-tool-btn', 
+        'status-toggle-btn',
+        'groups-toggle-btn'
+      ];
+      
+      buttonsToDisable.forEach(buttonId => {
+        const button = document.getElementById(buttonId);
+        if (button) {
+          button.classList.remove('active');
+          button.removeAttribute('aria-expanded');
+          button.removeAttribute('aria-pressed');
+          button.classList.add('disabled-in-2d');
+          button.setAttribute('disabled', 'true');
+        }
+      });
+      
+      console.log('🔒 Other panels disabled and closed for 2D mode');
+    } else {
+      // Remove body guard class
+      document.body.classList.remove('mode-2d');
+      
+      // When exiting 2D mode, re-enable toolbar buttons
+      const buttonsToEnable = [
+        'tree-toggle-btn',
+        'selection-tool-btn',
+        'status-toggle-btn', 
+        'groups-toggle-btn'
+      ];
+      
+      buttonsToEnable.forEach(buttonId => {
+        const button = document.getElementById(buttonId);
+        if (button) {
+          button.classList.remove('disabled-in-2d');
+          button.removeAttribute('disabled');
+        }
+      });
+      
+      // Reset panel transforms to allow normal operation
+      const panelsToReset = [
+        'tree-panel',
+        'statusPanel', 
+        'groupsPanel',
+        'infoPanel'
+      ];
+      
+      panelsToReset.forEach(panelId => {
+        const panel = document.getElementById(panelId);
+        if (panel) {
+          // Remove any inline transform styles that might override CSS
+          panel.style.transform = '';
+          panel.style.pointerEvents = '';
+        }
+      });
+      
+      console.log('🔓 Other panels re-enabled for 3D mode');
+    }
+    
+    try {
+      if (newMode) {
+        // Switch to 2D mode - open full model 2D view
+        await viewer.views2d.openFullModel2DView();
+      } else {
+        // Switch to 3D mode - COMPLETELY turn off 2D
+        await viewer.views2d.close3DMode();
+        setCurrentFloor(null);
+        setFloorPanelVisible(false);
+        
+        // Force remove mode-2d class and ensure UI is reset
+        document.body.classList.remove('mode-2d');
+        
+        // Re-enable all toolbar buttons immediately
+        ['tree-toggle-btn','status-toggle-btn','groups-toggle-btn','selection-tool-btn'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) {
+            el.classList.remove('disabled-in-2d');
+            el.removeAttribute('disabled');
+          }
+        });
+        
+        // Reset panel styles immediately
+        ['tree-panel','statusPanel','groupsPanel','infoPanel'].forEach(id => {
+          const panel = document.getElementById(id) as HTMLElement | null;
+          if (panel) {
+            panel.style.transform = '';
+            panel.style.pointerEvents = '';
+          }
+        });
+      }
+      console.log('✅ 2D Mode toggled:', newMode ? 'ON' : 'OFF');
+    } catch (error) {
+      console.error('❌ Failed to toggle 2D mode:', error);
+      // Even on error, if turning off 2D, force UI reset
+      if (!newMode) {
+        setCurrentFloor(null);
+        setFloorPanelVisible(false);
+        document.body.classList.remove('mode-2d');
+      }
+    }
+  };
+
+  // Handle floor change from FloorSelector
+  const handleFloorChange = (floorName: string) => {
+    setCurrentFloor(floorName);
+    setIs2DMode(true);
+    console.log('📍 Current floor:', floorName);
+  };
+
+  // Handle mode change from FloorSelector
+  const handleModeChange = (is2D: boolean) => {
+    setIs2DMode(is2D);
+    if (!is2D) {
+      setCurrentFloor(null);
+    }
+    console.log('🔄 View mode:', is2D ? '2D' : '3D');
+  };
+
+
 
   return (
     <div className="viewer-container">
@@ -233,16 +497,33 @@ export default function ViewerPage() {
           left: 0,
           width: '100%',
           height: '100%',
-          background: 'rgba(255, 255, 255, 0.95)',
+          background: 'rgba(248, 250, 252, 0.98)', // slate-50 with opacity
+          backdropFilter: 'blur(8px)',
           display: 'flex',
           justifyContent: 'center',
           alignItems: 'center',
           flexDirection: 'column',
           zIndex: 9999
         }}>
-          <div className="loading-spinner" style={{ width: '60px', height: '60px', marginBottom: '20px' }}></div>
-          <p style={{ fontSize: '1.5rem', marginBottom: '10px', color: '#ffffff' }}>Loading 3D Viewer...</p>
-          <p style={{ color: '#000000ff' }}>Initializing Uniqube Engine</p>
+          <div className="loading-spinner" style={{ 
+            width: '60px', 
+            height: '60px', 
+            marginBottom: '24px',
+            border: '4px solid #e2e8f0', // slate-200
+            borderTop: '4px solid #475569', // slate-600 (matches your theme primary)
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite'
+          }}></div>
+          <p style={{ 
+            fontSize: '1.5rem', 
+            marginBottom: '12px', 
+            color: '#1e293b', // slate-800
+            fontWeight: '600'
+          }}>Loading 3D Viewer...</p>
+          <p style={{ 
+            color: '#64748b', // slate-500
+            fontSize: '1rem'
+          }}>Initializing Uniqube Engine</p>
         </div>
       )}
 
@@ -254,16 +535,32 @@ export default function ViewerPage() {
           left: 0,
           width: '100%',
           height: '100%',
-          background: 'rgba(10, 10, 10, 0.95)',
+          background: 'rgba(248, 250, 252, 0.98)', // slate-50 with opacity
+          backdropFilter: 'blur(8px)',
           display: 'flex',
           justifyContent: 'center',
           alignItems: 'center',
           flexDirection: 'column',
           zIndex: 9999
         }}>
-          <div style={{ fontSize: '4rem', marginBottom: '20px' }}>⚠️</div>
-          <h2 style={{ fontSize: '2rem', marginBottom: '10px', color: '#ffffff' }}>Viewer Error</h2>
-          <p style={{ marginBottom: '20px', color: '#ff6b6b' }}>{error}</p>
+          <div style={{ 
+            fontSize: '4rem', 
+            marginBottom: '24px',
+            color: '#ef4444' // red-500
+          }}>⚠️</div>
+          <h2 style={{ 
+            fontSize: '2rem', 
+            marginBottom: '12px', 
+            color: '#1e293b', // slate-800
+            fontWeight: '600'
+          }}>Viewer Error</h2>
+          <p style={{ 
+            marginBottom: '24px', 
+            color: '#ef4444', // red-500
+            textAlign: 'center',
+            maxWidth: '500px',
+            lineHeight: '1.5'
+          }}>{error}</p>
           <button 
             className="btn btn-primary"
             onClick={() => window.location.reload()}
@@ -291,10 +588,15 @@ export default function ViewerPage() {
           <i className="fas fa-mouse-pointer"></i>
           <span className="tooltip">Selection Tool</span>
         </button>
-        {/* <button id="plan-toggle-btn" className="toolbar-button">
-          <i className="fas fa-map"></i>
-          <span className="tooltip">2D Plan Mode</span>
-        </button> */}
+        <button 
+          id="plan-toggle-btn" 
+          className={`toolbar-button ${is2DMode ? 'active' : ''}`}
+          onClick={toggle2DMode}
+          disabled={isLoading}
+        >
+          <i className={`fas fa-${is2DMode ? 'cube' : 'map'}`}></i>
+          <span className="tooltip">{is2DMode ? '3D View' : '2D Plan Mode'}</span>
+        </button>
         <button id="status-toggle-btn" className="toolbar-button">
           <i className="fas fa-tags"></i>
           <span className="tooltip">Status</span>
@@ -603,6 +905,28 @@ export default function ViewerPage() {
           </div>
         </div>
       </div>
+
+      {/* Floor Plans Panel */}
+      {floorPanelVisible && viewer?.views2d && (
+        <div className="floor-plans-panel">
+          <FloorSelector 
+            views2d={viewer.views2d}
+            onFloorChange={handleFloorChange}
+            onModeChange={handleModeChange}
+          />
+        </div>
+      )}
+
+      {/* Current Floor Indicator */}
+      {currentFloor && (
+        <div className="current-floor-indicator">
+          <i className="fas fa-building"></i>
+          <span>{currentFloor}</span>
+          <span className="mode-badge">
+            {is2DMode ? '2D Plan' : '3D View'}
+          </span>
+        </div>
+      )}
     </div>
   );
 };

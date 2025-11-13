@@ -4,6 +4,7 @@ import * as BUI from "@thatopen/ui";
 import Stats from "stats.js";
 import * as FRAGS from "@thatopen/fragments";
 import QRCode from 'qrcode';
+import { Views2DManager } from './views2d';
 
 // API Configuration - must be defined before any functions that use it
 const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL ?? 'http://localhost:4000/api';
@@ -29,7 +30,7 @@ export async function initializeViewer(containerId: string = "container") {
   const worlds = components.get(OBC.Worlds);
   const world = worlds.create<
     OBC.SimpleScene,
-    OBC.SimpleCamera,
+    OBC.OrthoPerspectiveCamera,
     OBC.SimpleRenderer
   >();
   
@@ -46,8 +47,8 @@ export async function initializeViewer(containerId: string = "container") {
   const renderer = world.renderer.three;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // Limit pixel ratio
 
-world.camera = new OBC.SimpleCamera(components);
-world.camera.controls.setLookAt(50, 30, 50, 0, 0, 0);
+world.camera = new OBC.OrthoPerspectiveCamera(components);
+await world.camera.controls.setLookAt(50, 30, 50, 0, 0, 0);
 
 components.init();
 
@@ -68,6 +69,43 @@ const workerFile = new File([workerBlob], "worker.mjs", {
 });
 const workerUrl = URL.createObjectURL(workerFile);
 const fragments = new FRAGS.FragmentsModels(workerUrl);
+
+// Initialize OBC FragmentsManager for 2D Views (IFC storey detection)
+const obcFragments = components.get(OBC.FragmentsManager);
+try {
+  // Use the same-origin blob worker for OBC manager to avoid cross-origin Worker errors
+  obcFragments.init(workerUrl);
+  
+  // Keep OBC fragments core updated with camera changes
+  world.camera.controls.addEventListener("rest", () => {
+    try { obcFragments.core.update(true); } catch {}
+  });
+  
+  world.onCameraChanged.add((camera: any) => {
+    try {
+      for (const [, model] of (obcFragments as any).list || []) {
+        try { model.useCamera(camera.three); } catch {}
+      }
+      obcFragments.core.update(true);
+    } catch {}
+  });
+  
+  // Ensure newly registered OBC models use the active camera and are present in the scene (hidden by default)
+  obcFragments.list.onItemSet.add(({ value: model }: any) => {
+    try {
+      model.useCamera(world.camera.three);
+      if (model.object && !world.scene.three.children.includes(model.object)) {
+        model.object.visible = false; // hidden until plan mode is active
+        world.scene.three.add(model.object);
+      }
+      obcFragments.core.update(true);
+    } catch {}
+  });
+  
+  console.log('✅ OBC.FragmentsManager initialized for 2D views');
+} catch (e) {
+  console.warn('⚠️ Could not initialize OBC.FragmentsManager. 2D Views from storeys may be unavailable.', e);
+}
 
 // Memory optimization: Throttle fragment updates
 let updateTimeout: NodeJS.Timeout | null = null;
@@ -140,6 +178,21 @@ console.log('📍 Model ID from URL:', modelIdFromUrl);
 
 const models: Map<string, FRAGS.FragmentsModel> = new Map();
 let allModelsLoaded = false;
+
+// Initialize 2D Views Manager
+let views2d: Views2DManager | null = null;
+try {
+  views2d = new Views2DManager({
+    components,
+    world,
+    fragments,
+    obcFragments,
+    models
+  });
+  console.log('✅ 2D Views Manager initialized');
+} catch (e) {
+  console.warn('⚠️ Could not initialize 2D Views Manager:', e);
+}
 
 // Fetch project models from backend API
 const fetchProjectModels = async (projectId: string) => {
@@ -397,6 +450,13 @@ const loadModels = async () => {
       }
 
       const buffer = await file.arrayBuffer();
+      // Also register model in OBC FragmentsManager so 2D Views can read IFC storeys
+      try {
+        const obcBuffer = buffer.slice(0); // clone to avoid transfer issues
+        await (obcFragments as any).core?.load?.(obcBuffer, { modelId: modelInfo.id });
+      } catch (e) {
+        console.warn('⚠️ OBC.FragmentsManager load failed (2D Views may be limited):', e);
+      }
       const model = await fragments.load(buffer, { modelId: modelInfo.id });
 
       models.set(modelInfo.name, model);
@@ -449,6 +509,16 @@ const loadModels = async () => {
 };
 
 await loadModels();
+
+// Warm up 2D storey views in the background (non-blocking)
+try {
+  if (views2d) {
+    // Don't await to keep initialization snappy
+    views2d.createStoreyViews().catch((e: any) => {
+      console.warn('⚠️ 2D storey warmup failed:', e);
+    });
+  }
+} catch {}
 
 /* MD
   ### 🌳 Object Tree Implementation
@@ -1621,6 +1691,33 @@ const renderDatabaseStoreyNode = (storey: any, container: HTMLElement) => {
   count.className = "tree-count";
   count.textContent = storey.children?.length.toString() || "0";
   storeyNode.appendChild(count);
+
+  // 2D pill button
+  const pill2D = document.createElement("button");
+  pill2D.textContent = "2D";
+  pill2D.title = "Open 2D plan";
+  pill2D.className = "pill-2d-btn";
+  // Minimal inline styles to make it visible if CSS isn't available
+  (pill2D as HTMLElement).style.marginLeft = "8px";
+  (pill2D as HTMLElement).style.padding = "2px 8px";
+  (pill2D as HTMLElement).style.fontSize = "12px";
+  (pill2D as HTMLElement).style.borderRadius = "12px";
+  (pill2D as HTMLElement).style.border = "1px solid var(--slate-200)";
+  (pill2D as HTMLElement).style.background = "var(--slate-50)";
+  (pill2D as HTMLElement).style.cursor = "pointer";
+  pill2D.onclick = async (e) => {
+    e.stopPropagation();
+    try {
+      if (views2d) {
+        await views2d.openStoreyView(storey.name);
+      } else {
+        console.warn('2D views manager not ready');
+      }
+    } catch (err) {
+      console.warn('Failed to open 2D view for storey', storey.name, err);
+    }
+  };
+  storeyNode.appendChild(pill2D);
 
   storeyContainer.appendChild(storeyNode);
 
@@ -4735,5 +4832,13 @@ if (submissionsModal) {
   }
 
   console.log('🎉 That Open Engine viewer initialized successfully!');
-  return { components, world, fragments };
+  
+  // Return viewer instance with 2D views support
+  return { 
+    components, 
+    world, 
+    fragments, 
+    views2d,
+    obcFragments
+  };
 }
