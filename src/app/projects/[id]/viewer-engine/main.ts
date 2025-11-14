@@ -367,7 +367,8 @@ const __resolvePanelByHierarchy_LOCAL_2 = async (model: FRAGS.FragmentsModel, lo
       modelsList.push({
         id: projectData.currentModel.id,
         name: projectData.currentModel.originalFilename,
-        status: projectData.currentModel.status
+        status: projectData.currentModel.status,
+        category: projectData.currentModel.category || 'OTHER'
       });
     }
     
@@ -379,7 +380,8 @@ const __resolvePanelByHierarchy_LOCAL_2 = async (model: FRAGS.FragmentsModel, lo
           modelsList.push({
             id: model.id,
             name: model.originalFilename,
-            status: model.status
+            status: model.status,
+            category: model.category || 'OTHER'
           });
         }
       }
@@ -459,8 +461,8 @@ const loadModels = async () => {
       }
       const model = await fragments.load(buffer, { modelId: modelInfo.id });
 
-      models.set(modelInfo.name, model);
-      console.log(`✅ Loaded: ${modelInfo.name}`);
+      models.set(modelInfo.id, model);
+      console.log(`✅ Loaded: ${modelInfo.name} (ID: ${modelInfo.id})`);
 
     } catch (error) {
       console.warn(`❌ Could not load ${modelInfo.name}:`, error);
@@ -1454,10 +1456,10 @@ const fetchTreeStructureFromDatabase = async (projectId: string) => {
       console.log(`📦 Sample panel:`, data.panels?.[0]);
     }
     
-    console.time('⏱️ Organize panels by storey');
+    console.time('⏱️ Organize panels by model and storey');
     
-    // Organize panels by storey
-    const storeyMap = new Map<string, any[]>();
+    // First organize panels by model, then by storey
+    const modelMap = new Map<string, Map<string, any[]>>();
     
     if (data.panels && Array.isArray(data.panels)) {
       // Process in batches to avoid blocking the main thread
@@ -1468,8 +1470,17 @@ const fetchTreeStructureFromDatabase = async (projectId: string) => {
         const batch = data.panels.slice(i, i + batchSize);
         
         batch.forEach((panel: any) => {
+          const modelId = panel.modelId || 'unknown';
+          const modelName = panel.model?.originalFilename || 'Unknown Model';
           const storeyName = panel.metadata?.storeyName || 'Unknown Storey';
           
+          // Get or create model map
+          if (!modelMap.has(modelId)) {
+            modelMap.set(modelId, new Map<string, any[]>());
+          }
+          const storeyMap = modelMap.get(modelId)!;
+          
+          // Get or create storey array within model
           if (!storeyMap.has(storeyName)) {
             storeyMap.set(storeyName, []);
           }
@@ -1483,7 +1494,8 @@ const fetchTreeStructureFromDatabase = async (projectId: string) => {
             localId: panel.metadata?.ifcElementId ? parseInt(panel.metadata.ifcElementId) : null,
             elementId: panel.elementId,
             metadata: panel.metadata,
-            modelName: panel.model?.originalFilename || 'Unknown Model',
+            modelId: modelId,
+            modelName: modelName,
             // Include full groups and statuses data for element info panel
             groups: panel.groups || [],
             statuses: panel.statuses || [],
@@ -1512,20 +1524,33 @@ const fetchTreeStructureFromDatabase = async (projectId: string) => {
       }
     }
     
-    console.timeEnd('⏱️ Organize panels by storey');
+    console.timeEnd('⏱️ Organize panels by model and storey');
     
     console.time('⏱️ Convert to tree structure');
-    // Convert to array format
-    const treeStructure = Array.from(storeyMap.entries()).map(([storeyName, panels]) => ({
-      name: storeyName,
-      type: 'IfcBuildingStorey',
-      elementCount: panels.length,
-      children: panels,
-    }));
+    // Convert to model-based tree structure
+    const treeStructure = Array.from(modelMap.entries()).map(([modelId, storeyMap]) => {
+      const storeys = Array.from(storeyMap.entries()).map(([storeyName, panels]) => ({
+        name: storeyName,
+        type: 'IfcBuildingStorey',
+        elementCount: panels.length,
+        children: panels,
+      }));
+      
+      // Get model info from first panel
+      const firstPanel = storeys[0]?.children[0];
+      const modelName = firstPanel?.modelName || 'Unknown Model';
+      
+      return {
+        modelId: modelId,
+        modelName: modelName,
+        storeys: storeys,
+        totalPanels: storeys.reduce((sum, storey) => sum + storey.elementCount, 0)
+      };
+    });
     console.timeEnd('⏱️ Convert to tree structure');
     
-    console.log(`✅ Organized into ${treeStructure.length} storeys`);
-    console.log(`📊 Storey breakdown:`, treeStructure.map(s => `${s.name}: ${s.children.length} panels`));
+    console.log(`✅ Organized into ${treeStructure.length} models`);
+    console.log(`📊 Model breakdown:`, treeStructure.map(m => `${m.modelName}: ${m.totalPanels} panels in ${m.storeys.length} storeys`));
     return treeStructure;
     
   } catch (error) {
@@ -1567,69 +1592,112 @@ const initializeObjectTree = async () => {
       console.log(`📊 Database tree structure result:`, dbTreeStructure);
       
       if (dbTreeStructure && dbTreeStructure.length > 0) {
-        console.log(`✅ Using database tree structure (optimized) - ${dbTreeStructure.length} storeys`);
+        console.log(`✅ Using database tree structure (optimized) - ${dbTreeStructure.length} models`);
         
-        // Render database tree structure
+        // Render database tree structure with separate model folders
         const fragment = document.createDocumentFragment();
         
-        // Create model root node
-        const modelContainer = document.createElement("div");
-        modelContainer.className = "tree-node-container model-root";
+        // Create separate model containers
+        for (const modelData of dbTreeStructure) {
+          // Create model root node
+          const modelContainer = document.createElement("div");
+          modelContainer.className = "tree-node-container model-root";
 
-        const modelNode = document.createElement("div");
-        modelNode.className = "tree-node model-node";
-        modelNode.style.paddingLeft = "10px";
-        modelNode.style.fontWeight = "600";
+          const modelNode = document.createElement("div");
+          modelNode.className = "tree-node model-node";
+          modelNode.style.paddingLeft = "10px";
+          modelNode.style.fontWeight = "600";
 
-        // Toggle icon
-        const toggleIcon = document.createElement("span");
-        toggleIcon.className = "tree-toggle-icon";
-        toggleIcon.textContent = "▶";
-        toggleIcon.onclick = (e) => {
-          e.stopPropagation();
-          const childrenContainer = modelContainer.querySelector(".model-children") as HTMLElement;
-          if (childrenContainer) {
-            const isCollapsed = childrenContainer.classList.contains("collapsed");
-            childrenContainer.classList.toggle("collapsed", !isCollapsed);
-            toggleIcon.classList.toggle("expanded", isCollapsed);
-          }
-        };
-        modelNode.appendChild(toggleIcon);
+          // Toggle icon
+          const toggleIcon = document.createElement("span");
+          toggleIcon.className = "tree-toggle-icon";
+          toggleIcon.textContent = "▶";
+          toggleIcon.onclick = (e) => {
+            e.stopPropagation();
+            const childrenContainer = modelContainer.querySelector(".model-children") as HTMLElement;
+            if (childrenContainer) {
+              const isCollapsed = childrenContainer.classList.contains("collapsed");
+              childrenContainer.classList.toggle("collapsed", !isCollapsed);
+              toggleIcon.classList.toggle("expanded", isCollapsed);
+            }
+          };
+          modelNode.appendChild(toggleIcon);
 
-        // Model icon
-        const icon = document.createElement("span");
-        icon.className = "tree-icon";
-        icon.textContent = "🏗️";
-        modelNode.appendChild(icon);
+          // Model icon
+          const icon = document.createElement("span");
+          icon.className = "tree-icon";
+          icon.textContent = "🏗️";
+          modelNode.appendChild(icon);
 
-        // Model name label - get actual model name from first panel
-        const label = document.createElement("span");
-        label.className = "tree-label";
-        const modelName = dbTreeStructure[0]?.children?.[0]?.modelName || "Building Structure";
-        // Remove .frag extension if present
-        const displayName = modelName.replace(/\.frag$/i, '');
-        label.textContent = displayName;
-        modelNode.appendChild(label);
+          // Model name label
+          const label = document.createElement("span");
+          label.className = "tree-label";
+          // Remove .frag extension if present
+          const displayName = modelData.modelName.replace(/\.frag$/i, '');
+          label.textContent = displayName;
+          modelNode.appendChild(label);
 
-        // Count badge
-        const count = document.createElement("span");
-        count.className = "tree-count";
-        count.textContent = dbTreeStructure.length.toString();
-        modelNode.appendChild(count);
+          // Count badge - show total panels
+          const count = document.createElement("span");
+          count.className = "tree-count";
+          count.textContent = modelData.totalPanels.toString();
+          modelNode.appendChild(count);
 
-        modelContainer.appendChild(modelNode);
+          // Eye icon for show/hide model
+          const eyeIcon = document.createElement("i");
+          eyeIcon.className = "fas fa-eye tree-eye-icon";
+          eyeIcon.title = "Show/Hide Model";
+          eyeIcon.style.cssText = "margin-left: 8px; cursor: pointer; font-size: 12px; opacity: 0.7; transition: opacity 0.2s;";
+          
+          // Track visibility state
+          let isModelVisible = true;
+          
+          eyeIcon.onclick = async (e) => {
+            e.stopPropagation();
+            
+            // Get the target model
+            const targetModel = models.get(modelData.modelId);
+            if (targetModel) {
+              isModelVisible = !isModelVisible;
+              
+              // Update eye icon
+              eyeIcon.className = isModelVisible ? "fas fa-eye tree-eye-icon" : "fas fa-eye-slash tree-eye-icon";
+              eyeIcon.style.opacity = isModelVisible ? "0.7" : "0.4";
+              
+              // Show/hide the model in 3D viewer
+              if (targetModel.object) {
+                targetModel.object.visible = isModelVisible;
+                console.log(`${isModelVisible ? '👁️ Showing' : '🙈 Hiding'} model: ${modelData.modelName}`);
+                
+                // Update the fragments
+                await fragments.update(true);
+              }
+            }
+          };
+          
+          // Hover effects
+          eyeIcon.onmouseenter = () => {
+            eyeIcon.style.opacity = "1";
+          };
+          eyeIcon.onmouseleave = () => {
+            eyeIcon.style.opacity = isModelVisible ? "0.7" : "0.4";
+          };
+          
+          modelNode.appendChild(eyeIcon);
+          modelContainer.appendChild(modelNode);
 
-        // Children container
-        const childrenContainer = document.createElement("div");
-        childrenContainer.className = "model-children collapsed";
+          // Children container for storeys
+          const childrenContainer = document.createElement("div");
+          childrenContainer.className = "model-children collapsed";
 
-        // Render storeys from database
-        dbTreeStructure.forEach((storey: any) => {
-          renderDatabaseStoreyNode(storey, childrenContainer);
-        });
+          // Render storeys for this model
+          modelData.storeys.forEach((storey: any) => {
+            renderDatabaseStoreyNode(storey, childrenContainer);
+          });
 
-        modelContainer.appendChild(childrenContainer);
-        fragment.appendChild(modelContainer);
+          modelContainer.appendChild(childrenContainer);
+          fragment.appendChild(modelContainer);
+        }
         
         treeContainer.innerHTML = "";
         treeContainer.appendChild(fragment);
@@ -1693,31 +1761,31 @@ const renderDatabaseStoreyNode = (storey: any, container: HTMLElement) => {
   storeyNode.appendChild(count);
 
   // 2D pill button
-  const pill2D = document.createElement("button");
-  pill2D.textContent = "2D";
-  pill2D.title = "Open 2D plan";
-  pill2D.className = "pill-2d-btn";
-  // Minimal inline styles to make it visible if CSS isn't available
-  (pill2D as HTMLElement).style.marginLeft = "8px";
-  (pill2D as HTMLElement).style.padding = "2px 8px";
-  (pill2D as HTMLElement).style.fontSize = "12px";
-  (pill2D as HTMLElement).style.borderRadius = "12px";
-  (pill2D as HTMLElement).style.border = "1px solid var(--slate-200)";
-  (pill2D as HTMLElement).style.background = "var(--slate-50)";
-  (pill2D as HTMLElement).style.cursor = "pointer";
-  pill2D.onclick = async (e) => {
-    e.stopPropagation();
-    try {
-      if (views2d) {
-        await views2d.openStoreyView(storey.name);
-      } else {
-        console.warn('2D views manager not ready');
-      }
-    } catch (err) {
-      console.warn('Failed to open 2D view for storey', storey.name, err);
-    }
-  };
-  storeyNode.appendChild(pill2D);
+  // const pill2D = document.createElement("button");
+  // pill2D.textContent = "2D";
+  // pill2D.title = "Open 2D plan";
+  // pill2D.className = "pill-2d-btn";
+  // // Minimal inline styles to make it visible if CSS isn't available
+  // (pill2D as HTMLElement).style.marginLeft = "8px";
+  // (pill2D as HTMLElement).style.padding = "2px 8px";
+  // (pill2D as HTMLElement).style.fontSize = "12px";
+  // (pill2D as HTMLElement).style.borderRadius = "12px";
+  // (pill2D as HTMLElement).style.border = "1px solid var(--slate-200)";
+  // (pill2D as HTMLElement).style.background = "var(--slate-50)";
+  // (pill2D as HTMLElement).style.cursor = "pointer";
+  // pill2D.onclick = async (e) => {
+  //   e.stopPropagation();
+  //   try {
+  //     if (views2d) {
+  //       await views2d.openStoreyView(storey.name);
+  //     } else {
+  //       console.warn('2D views manager not ready');
+  //     }
+  //   } catch (err) {
+  //     console.warn('Failed to open 2D view for storey', storey.name, err);
+  //   }
+  // };
+  // storeyNode.appendChild(pill2D);
 
   storeyContainer.appendChild(storeyNode);
 
@@ -1772,7 +1840,7 @@ const renderDatabasePanelNode = (panel: any, container: HTMLElement) => {
       const treeContainer = document.getElementById("tree-container");
       if (treeContainer) treeContainer.querySelectorAll('.tree-node.selected').forEach(n => n.classList.remove('selected'));
       panelNode.classList.add('selected');
-      console.log(`Clicked panel: ${panel.name}, localId: ${panel.localId}`);
+      console.log(`Clicked panel: ${panel.name}, localId: ${panel.localId}, modelId: ${panel.modelId}`);
       
       // Highlight in viewer
       const highlightPromises = [];
@@ -1796,15 +1864,17 @@ const renderDatabasePanelNode = (panel: any, container: HTMLElement) => {
       await Promise.all(highlightPromises);
 
       // Highlight selected panel with parent-child relationships
-      const firstModel = models.values().next().value;
-      if (firstModel) {
+      // Find the correct model for this panel
+      const targetModel = models.get(panel.modelId);
+      if (targetModel) {
+        console.log(`✅ Found target model for panel: ${panel.modelId}`);
         try {
           // Get all related IDs (parent + children) for highlighting
           let idsToHighlight: number[] = [panel.localId];
           
           try {
-            // Get the spatial structure from the model
-            const spatialStructure = await firstModel.getSpatialStructure();
+            // Get the spatial structure from the correct model
+            const spatialStructure = await targetModel.getSpatialStructure();
             
             if (spatialStructure) {
               // Collect parent + all children IDs
@@ -1822,7 +1892,7 @@ const renderDatabasePanelNode = (panel: any, container: HTMLElement) => {
           }
           
           // Highlight ALL collected IDs (parent + children)
-          await firstModel.highlight(idsToHighlight, {
+          await targetModel.highlight(idsToHighlight, {
             color: new THREE.Color('gold'),
             opacity: 1,
             transparent: false,
@@ -1928,6 +1998,8 @@ const renderDatabasePanelNode = (panel: any, container: HTMLElement) => {
         } catch (error) {
           console.error("Error highlighting panel:", error);
         }
+      } else {
+        console.error(`❌ Target model not found for panel: ${panel.modelId}. Available models:`, Array.from(models.keys()));
       }
     }
   };
@@ -1959,9 +2031,17 @@ const initializeObjectTreeFromModel = async () => {
     // Use DocumentFragment for better performance
     const fragment = document.createDocumentFragment();
 
+    // Fetch model info once for efficient lookup
+    const modelInfo = await fetchProjectModels(projectIdFromUrl);
+    const modelLookup = new Map(modelInfo.map(m => [m.id, m]));
+
     // Process each model with timeout
-    for (const [modelName, model] of models.entries()) {
-      console.log(`📦 Processing model: ${modelName}`);
+    for (const [modelId, model] of models.entries()) {
+      // Get the original filename for display
+      const modelData = modelLookup.get(modelId);
+      const modelName = modelData ? modelData.name : modelId;
+      
+      console.log(`📦 Processing model: ${modelName} (ID: ${modelId})`);
       
       // Update progress
       treeContainer.innerHTML = `
@@ -2034,16 +2114,35 @@ const initializeObjectTreeFromModel = async () => {
         };
         modelNode.appendChild(toggleIcon);
 
-        // Model icon
+        // Model icon based on category
         const icon = document.createElement("span");
         icon.className = "tree-icon";
-        icon.textContent = "🏗️";
+        
+        // Get category-specific icon
+        const category = modelData?.category || 'OTHER';
+        switch (category) {
+          case 'STRUCTURE':
+            icon.textContent = "🏢";
+            break;
+          case 'MEP':
+            icon.textContent = "🔧";
+            break;
+          case 'ELECTRICAL':
+            icon.textContent = "⚡";
+            break;
+          default:
+            icon.textContent = "🏗️";
+        }
         modelNode.appendChild(icon);
 
-        // Model name label
+        // Model name label with category
         const label = document.createElement("span");
         label.className = "tree-label";
-        label.textContent = modelName;
+        
+        // Create a more descriptive name
+        const baseName = modelName.replace(/\.(ifc|frag)$/i, '');
+        const categoryLabel = category !== 'OTHER' ? ` (${category})` : '';
+        label.textContent = `${baseName}${categoryLabel}`;
         modelNode.appendChild(label);
 
         // Count badge

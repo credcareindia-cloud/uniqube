@@ -178,6 +178,13 @@ interface Panel {
   groups?: any[]
   statuses?: any[]
   totalPanels?: number
+  metadata?: any
+  model?: {
+    id: string
+    originalFilename: string
+    category: string
+    displayName: string
+  }
 }
 
 interface Group {
@@ -189,6 +196,17 @@ interface Status {
   id: string
   name: string
   color: string
+}
+
+interface Model {
+  id: string
+  name: string
+  filename: string
+  category: string
+  isActive: boolean
+  elementCount: number
+  sizeBytes: number
+  createdAt: string
 }
 
 interface PanelManagementTabProps {
@@ -206,6 +224,8 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
   const [selectedPanels, setSelectedPanels] = useState<Set<string>>(new Set())
   const [groups, setGroups] = useState<Group[]>([])
   const [statuses, setStatuses] = useState<Status[]>([])
+  const [availableModels, setAvailableModels] = useState<Model[]>([])
+  const [selectedModelId, setSelectedModelId] = useState<string>('all')
   const [showRemoveStatusModal, setShowRemoveStatusModal] = useState(false)
   const [showRemoveGroupModal, setShowRemoveGroupModal] = useState(false)
   const [selectedPanel, setSelectedPanel] = useState<Panel | null>(null)
@@ -217,15 +237,23 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
     loadPanels()
     loadGroups()
     loadStatuses()
+    loadModels()
   }, [projectId, page])
+
+  useEffect(() => {
+    // Reload panels when model selection changes
+    loadPanels()
+  }, [selectedModelId])
 
   const loadPanels = async () => {
     try {
       setLoading(true)
-      // Fetch ALL panels (no pagination on backend)
-      const response = await authenticatedFetch(
-        getApiUrl(`panels/${projectId}/all`)
-      )
+      // Use new API endpoint with model filtering
+      const url = selectedModelId !== 'all' 
+        ? getApiUrl(`projects/${projectId}/panels?modelId=${selectedModelId}`)
+        : getApiUrl(`projects/${projectId}/panels`)
+      
+      const response = await authenticatedFetch(url)
       if (response.ok) {
         const data = await response.json()
         const allPanels = data.panels || []
@@ -233,13 +261,37 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
         setTotalPanels(allPanels.length)
         // Calculate total pages for client-side pagination
         setTotalPages(Math.ceil(allPanels.length / limit))
-        console.log(`✅ Loaded ${allPanels.length} panels (client-side pagination)`)
+        console.log(`✅ Loaded ${allPanels.length} panels for model filter: ${selectedModelId}`)
       }
     } catch (error) {
       console.error('Error loading panels:', error)
     } finally {
       setLoading(false)
     }
+  }
+
+  const loadModels = async () => {
+    try {
+      const response = await authenticatedFetch(getApiUrl(`projects/${projectId}/models-list`))
+      if (response.ok) {
+        const data = await response.json()
+        
+        // Remove duplicates on frontend as extra safety measure
+        const uniqueModels = data.models?.filter((model: Model, index: number, array: Model[]) => 
+          array.findIndex(m => m.id === model.id) === index
+        ) || []
+        
+        setAvailableModels(uniqueModels)
+        console.log(`✅ Loaded ${uniqueModels.length} unique models for project ${projectId}`)
+      }
+    } catch (error) {
+      console.error('Error loading models:', error)
+    }
+  }
+
+  const handleModelChange = (modelId: string) => {
+    setSelectedModelId(modelId)
+    setPage(1) // Reset to first page when changing model filter
   }
 
   const loadGroups = async () => {
@@ -569,16 +621,56 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
           </div> */}
         </div>
 
-        {/* Search */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search panels by name, tag, or location..."
-            className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:border-slate-500 focus:outline-none"
-          />
+        {/* Search and Model Filter */}
+        <div className="flex gap-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search panels by name, tag, or location..."
+              className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:border-slate-500 focus:outline-none"
+            />
+          </div>
+          
+          {/* Model Selection Dropdown */}
+          <div className="min-w-[250px]">
+            <select
+              value={selectedModelId}
+              onChange={(e) => handleModelChange(e.target.value)}
+              className="w-full px-4 py-2 border border-slate-300 rounded-lg text-slate-900 focus:border-slate-500 focus:outline-none bg-white"
+            >
+              <option value="all">All Models ({availableModels.length})</option>
+              {availableModels.map((model) => {
+                // Get category prefix (only for specific categories)
+                const getCategoryPrefix = (category: string) => {
+                  switch (category) {
+                    case 'STRUCTURE': return '[STR] ';
+                    case 'MEP': return '[MEP] ';
+                    case 'ELECTRICAL': return '[ELE] ';
+                    default: return ''; // No prefix for OTHER
+                  }
+                };
+                
+                // Truncate long model names
+                const truncateName = (name: string, maxLength: number = 30) => {
+                  if (name.length <= maxLength) return name;
+                  return name.substring(0, maxLength - 3) + '...';
+                };
+                
+                // Use original filename instead of display name
+                const modelName = model.filename?.replace(/\.(ifc|frag)$/i, '') || model.name;
+                const displayName = `${getCategoryPrefix(model.category)}${truncateName(modelName)} (${model.elementCount || 0})`;
+                
+                return (
+                  <option key={model.id} value={model.id} title={`${modelName} (${model.elementCount || 0} elements)`}>
+                    {displayName}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -667,6 +759,9 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
                   Panel
                 </th>
                 <th className="text-left py-3 px-4 text-xs font-medium text-slate-600 uppercase tracking-wider">
+                  Model
+                </th>
+                <th className="text-left py-3 px-4 text-xs font-medium text-slate-600 uppercase tracking-wider">
                   Type
                 </th>
                 <th className="text-left py-3 px-4 text-xs font-medium text-slate-600 uppercase tracking-wider">
@@ -706,6 +801,43 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
                       <div>
                         <p className="font-medium text-slate-900 text-sm">{panel.name}</p>
                         <p className="text-xs text-slate-500">{panel.tag || 'No tag'}</p>
+                      </div>
+                    </td>
+                    <td className="py-3 px-4">
+                      <div className="flex items-center space-x-2">
+                        {/* Category Icon */}
+                        {panel.model?.category === 'STRUCTURE' && (
+                          <div className="w-4 h-4 text-blue-600">
+                            <svg viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M3 21h18v-2H3v2zM5 10h4V8H5v2zm0 4h4v-2H5v2zm6-10h4V2h-4v2zm0 4h4V6h-4v2zm0 4h4v-2h-4v2zm6-8h4V2h-4v2zm0 4h4V6h-4v2zm0 4h4v-2h-4v2z"/>
+                            </svg>
+                          </div>
+                        )}
+                        {panel.model?.category === 'MEP' && (
+                          <div className="w-4 h-4 text-green-600">
+                            <svg viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z"/>
+                            </svg>
+                          </div>
+                        )}
+                        {panel.model?.category === 'ELECTRICAL' && (
+                          <div className="w-4 h-4 text-yellow-600">
+                            <svg viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M11.5 2L6.5 9h4v6l5-7h-4V2z"/>
+                            </svg>
+                          </div>
+                        )}
+                        {(panel.model?.category === 'OTHER' || !panel.model?.category) && (
+                          <div className="w-4 h-4 text-slate-500">
+                            <svg viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"/>
+                              <path d="M14 2v6h6"/>
+                            </svg>
+                          </div>
+                        )}
+                        <span className="text-sm text-slate-700 truncate max-w-[150px]" title={panel.model?.originalFilename || 'Unknown Model'}>
+                          {panel.model?.originalFilename?.replace(/\.(ifc|frag)$/i, '') || 'Unknown Model'}
+                        </span>
                       </div>
                     </td>
                     <td className="py-3 px-4 text-sm text-slate-700">

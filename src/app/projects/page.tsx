@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { ProjectCard } from '@/components/dashboard/ProjectCard'
 import { ModelCreation } from '@/components/projects/ModelCreation'
+import { MultiFileModelCreation } from '@/components/projects/MultiFileModelCreation'
 import { api } from '@/services/api'
 import { useNotifications } from '@/hooks/useNotifications'
 import type { Project } from '@/services/api'
@@ -30,12 +31,16 @@ export default function ProjectsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all')
   const [showModelCreation, setShowModelCreation] = useState(false)
+  const [showMultiFileCreation, setShowMultiFileCreation] = useState(false)
+  const [showCreationChoice, setShowCreationChoice] = useState(false)
   const { notifications } = useNotifications()
 
   // Handle project creation success
   const handleProjectCreated = (newProject: any) => {
     setProjects(prev => [newProject, ...prev])
     setShowModelCreation(false)
+    setShowMultiFileCreation(false)
+    setShowCreationChoice(false)
     // Navigate to the new project
     navigate(`/projects/${newProject.id}`)
   }
@@ -126,7 +131,7 @@ export default function ProjectsPage() {
             {loading ? 'Refreshing...' : 'Refresh'}
           </button> */}
           <button
-            onClick={() => setShowModelCreation(true)}
+            onClick={() => setShowCreationChoice(true)}
             className="flex items-center gap-2 px-4 py-2.5 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors shadow-sm font-medium"
           >
             <Plus className="h-4 w-4" />
@@ -309,11 +314,72 @@ export default function ProjectsPage() {
         </>
       )}
       
-      {/* Model Creation Modal */}
+      {/* Creation Choice Modal */}
+      {showCreationChoice && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <h2 className="text-xl font-bold text-slate-900 mb-4">Create New Project</h2>
+            <p className="text-slate-600 mb-6">Upload IFC files to create your project:</p>
+            
+            <div className="space-y-3">
+              {/* Primary Option: Multi-Component Project */}
+              <button
+                onClick={() => {
+                  setShowCreationChoice(false)
+                  setShowMultiFileCreation(true)
+                }}
+                className="w-full flex items-center gap-3 p-4 border-2 border-blue-200 bg-blue-50 rounded-lg hover:border-blue-300 hover:bg-blue-100 transition-colors text-left"
+              >
+                <Package className="h-5 w-5 text-blue-600" />
+                <div>
+                  <h3 className="font-medium text-slate-900">Create Project with Model</h3>
+                  <p className="text-sm text-slate-600">Upload IFC files to create a project with building components</p>
+                </div>
+              </button>
+              
+              {/* Commented out for now - Single file option */}
+              {/* 
+              <button
+                onClick={() => {
+                  setShowCreationChoice(false)
+                  setShowModelCreation(true)
+                }}
+                className="w-full flex items-center gap-3 p-4 border border-slate-200 rounded-lg hover:border-slate-300 hover:bg-slate-50 transition-colors text-left"
+              >
+                <Upload className="h-5 w-5 text-slate-600" />
+                <div>
+                  <h3 className="font-medium text-slate-900">Single IFC File</h3>
+                  <p className="text-sm text-slate-600">Upload one IFC or FRAG file for a simple project</p>
+                </div>
+              </button>
+              */}
+            </div>
+            
+            <div className="flex justify-end mt-6">
+              <button
+                onClick={() => setShowCreationChoice(false)}
+                className="px-4 py-2 text-slate-600 hover:text-slate-800 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Single File Model Creation Modal */}
       {showModelCreation && (
         <ModelCreation
           onProjectCreated={handleProjectCreated}
           onClose={() => setShowModelCreation(false)}
+        />
+      )}
+
+      {/* Multi-File Model Creation Modal */}
+      {showMultiFileCreation && (
+        <MultiFileModelCreation
+          onProjectCreated={handleProjectCreated}
+          onClose={() => setShowMultiFileCreation(false)}
         />
       )}
     </div>
