@@ -355,6 +355,9 @@ export function MultiFileModelCreation({ onProjectCreated, onClose }: MultiFileM
           message: 'Processing files...',
           progress: result.progress || 0
         })
+        
+        // Add notification for project processing
+        notificationService.addProjectProcessingNotification(formData.projectName)
       } else {
         console.error('❌ No jobId returned from multi-file upload:', result)
         throw new Error('No job ID returned from server')
