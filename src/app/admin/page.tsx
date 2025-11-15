@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Shield, Users, UserPlus, Edit, Trash2, Search, X, Loader2, AlertCircle } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { Shield, Users, UserPlus, Edit, Trash2, Search, X, Loader2, AlertCircle, Settings } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -11,24 +12,31 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { authenticatedFetch } from '@/utils/authenticatedFetch'
 import { toast } from '@/components/ui/use-toast'
 import { getApiUrl } from '@/config/api'
+import { ProjectMembershipManager } from '@/components/admin/ProjectMembershipManager'
+import { useRBAC } from '@/contexts/RBACContext'
 
 interface User {
   id: string
   name: string
   email: string
-  role: 'admin' | 'manager' | 'user'
+  role: 'ADMIN' | 'MANAGER' | 'VIEWER'
   status: 'active' | 'inactive'
   lastLogin?: string
   projects?: number
   createdAt?: string
 }
 
+type CreatableRole = 'MANAGER' | 'VIEWER'
+
 export default function AdminPage() {
+  const { isAdmin } = useRBAC()
+  const [currentUserId, setCurrentUserId] = useState<string>('')
   const [users, setUsers] = useState<User[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
+  const [showProjectManager, setShowProjectManager] = useState(false)
   const [createLoading, setCreateLoading] = useState(false)
   const [editLoading, setEditLoading] = useState(false)
   const [error, setError] = useState('')
@@ -36,13 +44,26 @@ export default function AdminPage() {
     name: '',
     email: '',
     password: '',
-    role: 'user' as 'admin' | 'manager' | 'user'
+    role: 'MANAGER' as CreatableRole
   })
   const [editUser, setEditUser] = useState<User | null>(null)
 
   useEffect(() => {
     loadUsers()
+    loadCurrentUser()
   }, [])
+
+  const loadCurrentUser = async () => {
+    try {
+      const response = await authenticatedFetch(getApiUrl('auth/me'))
+      if (response.ok) {
+        const data = await response.json()
+        setCurrentUserId(data.user.id)
+      }
+    } catch (error) {
+      console.error('Error loading current user:', error)
+    }
+  }
 
   const loadUsers = async () => {
     try {
@@ -77,7 +98,7 @@ export default function AdminPage() {
       if (response.ok) {
         await loadUsers()
         setShowCreateModal(false)
-        setNewUser({ name: '', email: '', password: '', role: 'user' })
+        setNewUser({ name: '', email: '', password: '', role: 'VIEWER' })
       } else {
         const data = await response.json()
         setError(data.error || 'Failed to create user')
@@ -91,6 +112,15 @@ export default function AdminPage() {
   }
 
   const handleDeleteUser = async (userId: string) => {
+    if (userId === currentUserId) {
+      toast({
+        title: "Error",
+        description: "You cannot delete your own account",
+        variant: "destructive",
+      })
+      return
+    }
+
     if (!confirm('Are you sure you want to delete this user?')) return
 
     try {
@@ -105,9 +135,10 @@ export default function AdminPage() {
           description: "User deleted successfully",
         })
       } else {
+        const data = await response.json()
         toast({
           title: "Error",
-          description: "Failed to delete user",
+          description: data.error || "Failed to delete user",
           variant: "destructive",
         })
       }
@@ -162,14 +193,16 @@ export default function AdminPage() {
   }
 
   const filteredUsers = users.filter(user => 
-    user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    user.email.toLowerCase().includes(searchQuery.toLowerCase())
+    user.role !== 'ADMIN' && user.id !== currentUserId && (
+      user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      user.email.toLowerCase().includes(searchQuery.toLowerCase())
+    )
   )
 
   const getRoleBadgeVariant = (role: string): 'destructive' | 'default' | 'secondary' => {
     switch (role) {
-      case 'admin': return 'destructive'
-      case 'manager': return 'default'
+      case 'ADMIN': return 'destructive'
+      case 'MANAGER': return 'default'
       default: return 'secondary'
     }
   }
@@ -178,12 +211,25 @@ export default function AdminPage() {
     return status === 'active' ? 'success' : 'secondary'
   }
 
+  const nonAdminUsers = users.filter(u => u.role !== 'ADMIN' && u.id !== currentUserId)
   const stats = [
-    { label: 'Total Users', value: users.length, icon: Users },
-    { label: 'Active Users', value: users.filter(u => u.status === 'active').length, icon: Users },
-    { label: 'Admins', value: users.filter(u => u.role === 'admin').length, icon: Shield },
-    { label: 'Managers', value: users.filter(u => u.role === 'manager').length, icon: Users }
+    { label: 'Total Users', value: nonAdminUsers.length, icon: Users },
+    { label: 'Active Users', value: nonAdminUsers.filter(u => u.status === 'active').length, icon: Users },
+    { label: 'Managers', value: nonAdminUsers.filter(u => u.role === 'MANAGER').length, icon: Shield },
+    { label: 'Viewers', value: nonAdminUsers.filter(u => u.role === 'VIEWER').length, icon: Users }
   ]
+
+  if (!isAdmin) {
+    return (
+      <div className="w-full h-full flex items-center justify-center">
+        <div className="text-center">
+          <Shield className="h-16 w-16 text-slate-400 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-slate-900 mb-2">Access Denied</h2>
+          <p className="text-slate-600">You need admin privileges to access this page.</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="w-full h-full space-y-6">
@@ -197,13 +243,19 @@ export default function AdminPage() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-slate-900">Admin Dashboard</h1>
-                <p className="text-slate-600 text-sm">Manage users and system settings</p>
+                <p className="text-slate-600 text-sm">Manage organization users</p>
               </div>
             </div>
-            <Button className="w-full lg:w-auto" onClick={() => setShowCreateModal(true)}>
-              <UserPlus className="h-4 w-4 mr-2" />
-              Add User
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setShowProjectManager(true)}>
+                <Settings className="h-4 w-4 mr-2" />
+                Manage Projects
+              </Button>
+              <Button onClick={() => setShowCreateModal(true)}>
+                <UserPlus className="h-4 w-4 mr-2" />
+                Add User
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -270,7 +322,13 @@ export default function AdminPage() {
                     <Button variant="outline" size="sm" onClick={() => handleEditUser(user)}>
                       <Edit className="h-4 w-4" />
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => handleDeleteUser(user.id)}>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => handleDeleteUser(user.id)}
+                      disabled={user.id === currentUserId}
+                      title={user.id === currentUserId ? "Cannot delete your own account" : "Delete user"}
+                    >
                       <Trash2 className="h-4 w-4 text-red-600" />
                     </Button>
                   </div>
@@ -297,8 +355,8 @@ export default function AdminPage() {
       </Card>
 
       {/* Create User Modal */}
-      {showCreateModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      {showCreateModal && createPortal(
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[9999] p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-bold text-slate-900">Create New User</h2>
@@ -306,7 +364,7 @@ export default function AdminPage() {
                 onClick={() => {
                   setShowCreateModal(false)
                   setError('')
-                  setNewUser({ name: '', email: '', password: '', role: 'user' })
+                  setNewUser({ name: '', email: '', password: '', role: 'MANAGER' })
                 }}
                 className="text-slate-400 hover:text-slate-600"
               >
@@ -367,13 +425,13 @@ export default function AdminPage() {
                 <select
                   id="role"
                   value={newUser.role}
-                  onChange={(e) => setNewUser({ ...newUser, role: e.target.value as 'admin' | 'manager' | 'user' })}
+                  onChange={(e) => setNewUser({ ...newUser, role: e.target.value as CreatableRole })}
                   className="mt-1 w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-transparent"
                 >
-                  <option value="user">User</option>
-                  <option value="manager">Manager</option>
-                  <option value="admin">Admin</option>
+                  <option value="MANAGER">Manager</option>
+                  <option value="VIEWER">Viewer</option>
                 </select>
+                <p className="text-xs text-slate-500 mt-2">Only Manager and Viewer roles can be created.</p>
               </div>
 
               <div className="flex gap-3 pt-4">
@@ -383,7 +441,7 @@ export default function AdminPage() {
                   onClick={() => {
                     setShowCreateModal(false)
                     setError('')
-                    setNewUser({ name: '', email: '', password: '', role: 'user' })
+                    setNewUser({ name: '', email: '', password: '', role: 'MANAGER' })
                   }}
                   className="flex-1"
                   disabled={createLoading}
@@ -410,12 +468,13 @@ export default function AdminPage() {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Edit User Modal */}
-      {showEditModal && editUser && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      {showEditModal && editUser && createPortal(
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[9999] p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-bold text-slate-900">Edit User</h2>
@@ -467,16 +526,22 @@ export default function AdminPage() {
 
               <div>
                 <Label htmlFor="edit-role" className="text-slate-700 font-medium text-sm">Role</Label>
-                <select
-                  id="edit-role"
-                  value={editUser.role}
-                  onChange={(e) => setEditUser({ ...editUser, role: e.target.value as 'admin' | 'manager' | 'user' })}
-                  className="mt-1 w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-transparent"
-                >
-                  <option value="user">User</option>
-                  <option value="manager">Manager</option>
-                  <option value="admin">Admin</option>
-                </select>
+                {editUser.role === 'ADMIN' ? (
+                  <div className="mt-1 p-3 bg-slate-100 rounded-lg border border-slate-300">
+                    <p className="text-slate-700 font-medium">Admin</p>
+                    <p className="text-xs text-slate-600 mt-1">Admin role cannot be changed. Only Manager and Viewer roles can be modified.</p>
+                  </div>
+                ) : (
+                  <select
+                    id="edit-role"
+                    value={editUser.role}
+                    onChange={(e) => setEditUser({ ...editUser, role: e.target.value as 'ADMIN' | 'MANAGER' | 'VIEWER' })}
+                    className="mt-1 w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-transparent"
+                  >
+                    <option value="MANAGER">Manager</option>
+                    <option value="VIEWER">Viewer</option>
+                  </select>
+                )}
               </div>
 
               <div className="flex gap-3 pt-4">
@@ -510,7 +575,13 @@ export default function AdminPage() {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Project Membership Manager */}
+      {showProjectManager && (
+        <ProjectMembershipManager onClose={() => setShowProjectManager(false)} />
       )}
     </div>
   )

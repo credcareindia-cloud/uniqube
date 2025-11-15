@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from '@/contexts/AuthContext'
+import { RBACProvider } from '@/contexts/RBACContext'
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
 import { AppLayout } from '@/components/layout/AppLayout'
 import LoginPage from '@/app/auth/login/page'
@@ -19,7 +20,8 @@ import './App.css'
 function App() {
   return (
     <AuthProvider>
-      <Router>
+      <RBACProvider>
+        <Router>
         <Routes>
           {/* Public Routes */}
           <Route path="/login" element={<LoginPage />} />
@@ -44,7 +46,8 @@ function App() {
           <Route path="/notifications" element={<ProtectedRoute><AppLayout><NotificationsPage /></AppLayout></ProtectedRoute>} />
           <Route path="/admin" element={<ProtectedRoute><AppLayout><AdminPage /></AppLayout></ProtectedRoute>} />
         </Routes>
-      </Router>
+        </Router>
+      </RBACProvider>
     </AuthProvider>
   )
 }

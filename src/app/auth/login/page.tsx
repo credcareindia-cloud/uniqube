@@ -21,7 +21,7 @@ const LoginPage: React.FC = () => {
       ...formData,
       [e.target.name]: e.target.value,
     });
-    setError(''); // Clear error when user types
+    setError('');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -40,8 +40,8 @@ const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
-      <div className="w-full max-w-md">
+    <div className="h-screen bg-slate-50 flex items-start justify-center p-4 overflow-y-auto">
+      <div className="w-full max-w-md py-8 my-auto">
         {/* Login Card */}
         <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-8">
           {/* Logo/Title */}
@@ -125,23 +125,7 @@ const LoginPage: React.FC = () => {
             </button>
           </form>
 
-          {/* Divider */}
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-slate-200"></div>
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-4 bg-white text-slate-500">Don't have an account?</span>
-            </div>
-          </div>
 
-          {/* Sign Up Link */}
-          <Link
-            to="/signup"
-            className="block w-full py-2.5 px-4 bg-white hover:bg-slate-50 text-slate-700 font-medium rounded-lg text-center transition-all duration-200 border border-slate-300 hover:border-slate-400"
-          >
-            Create Account
-          </Link>
         </div>
 
         {/* Footer */}

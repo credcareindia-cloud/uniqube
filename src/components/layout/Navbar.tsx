@@ -3,9 +3,11 @@ import { Bell, Search, Settings, Menu, X, Box, LogOut, User as UserIcon, CheckCi
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { useNotifications } from '@/hooks/useNotifications'
+import { useRBAC } from '@/contexts/RBACContext'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
+import { RoleBadge } from '@/components/ui/RoleBadge'
 
 export function Navbar() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
@@ -13,6 +15,7 @@ export function Navbar() {
   const [showNotificationDropdown, setShowNotificationDropdown] = useState(false)
   const { user, logout } = useAuth()
   const { notifications, unreadCount, markAsRead } = useNotifications()
+  const { isAdmin } = useRBAC()
   const navigate = useNavigate()
   const notificationRef = useRef<HTMLDivElement>(null)
 
@@ -225,7 +228,10 @@ export function Navbar() {
                 </div>
                 <div className="text-left hidden lg:block">
                   <div className="text-sm font-medium text-slate-900">{user?.name || 'User'}</div>
-                  <div className="text-xs text-slate-600">{user?.email || 'user@example.com'}</div>
+                  <div className="text-xs text-slate-600 flex items-center gap-2">
+                    {user?.email || 'user@example.com'}
+                    {user?.role && <RoleBadge role={user.role as any} size="sm" />}
+                  </div>
                 </div>
               </div>
 

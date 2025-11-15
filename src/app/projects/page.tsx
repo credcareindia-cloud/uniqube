@@ -17,6 +17,7 @@ import { ModelCreation } from '@/components/projects/ModelCreation'
 import { MultiFileModelCreation } from '@/components/projects/MultiFileModelCreation'
 import { api } from '@/services/api'
 import { useNotifications } from '@/hooks/useNotifications'
+import { useRBAC } from '@/contexts/RBACContext'
 import type { Project } from '@/services/api'
 
 type ViewMode = 'grid' | 'table'
@@ -24,7 +25,7 @@ type FilterStatus = 'all' | 'active' | 'completed' | 'planning'
 
 export default function ProjectsPage() {
   const navigate = useNavigate()
-  const [projects, setProjects] = useState<Project[]>([])
+  const { userProjects, canCreateProjects, isLoading: rbacLoading, refreshUserProjects } = useRBAC()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>('grid')
@@ -37,7 +38,7 @@ export default function ProjectsPage() {
 
   // Handle project creation success
   const handleProjectCreated = (newProject: any) => {
-    setProjects(prev => [newProject, ...prev])
+    refreshUserProjects()
     setShowModelCreation(false)
     setShowMultiFileCreation(false)
     setShowCreationChoice(false)
@@ -45,32 +46,16 @@ export default function ProjectsPage() {
     navigate(`/projects/${newProject.id}`)
   }
 
-  // Load projects from backend
-  const loadProjects = async () => {
-    try {
-      setLoading(true)
-      setError(null)
-      const response = await api.getProjects()
-      setProjects(response.projects)
-    } catch (err) {
-      console.error('Failed to load projects:', err)
-      setError('Failed to load projects. Please check your connection and try again.')
-      setProjects([])
-    } finally {
-      setLoading(false)
-    }
-  }
-
   useEffect(() => {
-    loadProjects()
-  }, [])
+    setLoading(rbacLoading)
+  }, [rbacLoading])
 
   // Removed automatic refresh on notifications per user request
   // Projects page will not auto-refresh when notifications arrive
   // Users can manually refresh if needed
 
   // Filter projects based on search and status
-  const filteredProjects = projects.filter(project => {
+  const filteredProjects = userProjects.filter(project => {
     const matchesSearch = project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          (project.description?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false)
     
@@ -81,11 +66,11 @@ export default function ProjectsPage() {
 
   // Calculate stats
   const stats = {
-    total: projects.length,
-    active: projects.filter(p => p.status === 'active').length,
-    completed: projects.filter(p => p.status === 'completed').length,
-    planning: projects.filter(p => p.status === 'planning').length,
-    totalPanels: projects.reduce((sum, p) => sum + (p.stats?.totalPanels || 0), 0)
+    total: userProjects.length,
+    active: userProjects.filter(p => p.status === 'active').length,
+    completed: userProjects.filter(p => p.status === 'completed').length,
+    planning: userProjects.filter(p => p.status === 'planning').length,
+    totalPanels: userProjects.reduce((sum, p) => sum + (p.stats?.totalPanels || 0), 0)
   }
 
   if (loading) {
@@ -122,21 +107,15 @@ export default function ProjectsPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {/* <button
-            onClick={() => loadProjects()}
-            className="flex items-center gap-2 px-3 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors shadow-sm font-medium"
-            disabled={loading}
-          >
-            <Activity className="h-4 w-4" />
-            {loading ? 'Refreshing...' : 'Refresh'}
-          </button> */}
-          <button
-            onClick={() => setShowMultiFileCreation(true)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors shadow-sm font-medium"
-          >
-            <Plus className="h-4 w-4" />
-            Create New Project
-          </button>
+          {canCreateProjects() && (
+            <button
+              onClick={() => setShowMultiFileCreation(true)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors shadow-sm font-medium"
+            >
+              <Plus className="h-4 w-4" />
+              Create New Project
+            </button>
+          )}
         </div>
       </div>
 
@@ -249,16 +228,20 @@ export default function ProjectsPage() {
           <p className="text-slate-600 mb-4">
             {searchQuery || filterStatus !== 'all' 
               ? 'Try adjusting your search or filter criteria.' 
-              : 'Get started by creating your first project.'
+              : canCreateProjects() 
+                ? 'Get started by creating your first project.'
+                : 'No projects have been assigned to you yet.'
             }
           </p>
-          <button
-            onClick={() => setShowModelCreation(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors shadow-sm"
-          >
-            <Plus className="h-4 w-4" />
-            Create New Project
-          </button>
+          {canCreateProjects() && (
+            <button
+              onClick={() => setShowModelCreation(true)}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors shadow-sm"
+            >
+              <Plus className="h-4 w-4" />
+              Create New Project
+            </button>
+          )}
         </div>
       ) : (
         <>

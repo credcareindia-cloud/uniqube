@@ -3,8 +3,21 @@ export interface User {
   id: string;
   name: string;
   email: string;
-  role?: string;
+  role?: 'USER' | 'ADMIN' | 'MANAGER';
   avatar?: string;
+}
+
+export interface ProjectMember {
+  id: string;
+  userId: string;
+  projectId: string;
+  role: 'OWNER' | 'MANAGER' | 'VIEWER';
+  user: User;
+  createdAt: string;
+}
+
+export interface ProjectWithRole extends Project {
+  userRole?: 'OWNER' | 'MANAGER' | 'VIEWER';
 }
 
 export interface Project {
@@ -120,11 +133,21 @@ class ApiClient {
         headers,
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+      let data;
+      try {
+        data = await response.json();
+      } catch (e) {
+        if (!response.ok) {
+          throw new Error(`Server error: ${response.status}`);
+        }
+        return {} as T;
       }
 
-      const data = await response.json();
+      if (!response.ok) {
+        const errorMessage = data.message || data.error || `HTTP error! status: ${response.status}`;
+        throw new Error(errorMessage);
+      }
+
       return data;
     } catch (error) {
       console.error('API request failed:', error);
@@ -143,10 +166,10 @@ class ApiClient {
     return response;
   }
 
-  async register(email: string, password: string, name: string): Promise<AuthResponse> {
+  async register(email: string, password: string, name: string, organizationName?: string): Promise<AuthResponse> {
     const response = await this.request<AuthResponse>('/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ email, password, name }),
+      body: JSON.stringify({ email, password, name, organizationName }),
     });
     
     this.setToken(response.token);
@@ -227,6 +250,43 @@ class ApiClient {
     }
 
     return response.json();
+  }
+
+  // Admin endpoints
+  async getAllProjects(): Promise<{ projects: Project[] }> {
+    return this.request<{ projects: Project[] }>('/admin/projects');
+  }
+
+  async getProjectMembers(projectId: string): Promise<{ members: ProjectMember[] }> {
+    return this.request<{ members: ProjectMember[] }>(`/admin/projects/${projectId}/members`);
+  }
+
+  async addProjectMember(projectId: string, userId: string, role: 'OWNER' | 'MANAGER' | 'VIEWER'): Promise<{ member: ProjectMember }> {
+    return this.request<{ member: ProjectMember }>(`/admin/projects/${projectId}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ userId, role }),
+    });
+  }
+
+  async updateProjectMemberRole(projectId: string, userId: string, role: 'OWNER' | 'MANAGER' | 'VIEWER'): Promise<{ member: ProjectMember }> {
+    return this.request<{ member: ProjectMember }>(`/admin/projects/${projectId}/members/${userId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role }),
+    });
+  }
+
+  async removeProjectMember(projectId: string, userId: string): Promise<void> {
+    await this.request<void>(`/admin/projects/${projectId}/members/${userId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getAllUsers(): Promise<{ users: User[] }> {
+    return this.request<{ users: User[] }>('/admin/users');
+  }
+
+  async getAssignableUsers(projectId: string): Promise<{ users: Array<User & { assigned: boolean }>; total: number; unassignedCount: number }> {
+    return this.request<{ users: Array<User & { assigned: boolean }>; total: number; unassignedCount: number }>(`/admin/projects/${projectId}/assignable-users`);
   }
 
   // Health check

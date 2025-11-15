@@ -41,6 +41,7 @@ import { GroupStatus, GROUP_STATUS_CONFIG } from '@/types/group'
 import { authenticatedFetch } from '@/utils/authenticatedFetch'
 import { getApiUrl } from '@/config/api'
 import { useNotifications } from '@/hooks/useNotifications'
+import { useProjectPermissions } from '@/hooks/useProjectPermissions'
 
 
 interface ProjectData {
@@ -252,6 +253,7 @@ export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { notifications } = useNotifications()
+  const permissions = useProjectPermissions(id)
   const [project, setProject] = useState<ProjectData | null>(null)
   const [models, setModels] = useState<ProjectModels | null>(null)
   const [loading, setLoading] = useState(true)
@@ -309,6 +311,12 @@ export default function ProjectDetailPage() {
     loadGroups(1)
     loadCustomStatuses()
   }, [id])
+
+  useEffect(() => {
+    if (!permissions.canManage && ['status', 'groups', 'panels'].includes(activeTab)) {
+      setActiveTab('overview')
+    }
+  }, [permissions.canManage])
   
   // Load model metadata when current model changes
   useEffect(() => {
@@ -1043,6 +1051,22 @@ export default function ProjectDetailPage() {
     )
   }
 
+  if (!permissions.canView) {
+    return (
+      <div className="w-full h-full flex items-center justify-center">
+        <div className="text-center">
+          <AlertCircle className="h-16 w-16 text-red-400 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-slate-900 mb-2">Access Denied</h2>
+          <p className="text-slate-600 mb-4">You don't have permission to view this project.</p>
+          <Button onClick={() => navigate('/projects')} variant="outline">
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back to Projects
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   if (error || !project) {
     return (
       <div className="w-full h-full">
@@ -1114,45 +1138,49 @@ export default function ProjectDetailPage() {
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-900" />
               )}
             </button>
-            <button
-              onClick={() => setActiveTab('status')}
-              className={`pb-3 text-sm font-medium transition-colors relative ${
-                activeTab === 'status'
-                  ? 'text-slate-900'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              Status Management
-              {activeTab === 'status' && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-900" />
-              )}
-            </button>
-            <button
-              onClick={() => setActiveTab('groups')}
-              className={`pb-3 text-sm font-medium transition-colors relative ${
-                activeTab === 'groups'
-                  ? 'text-slate-900'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              Group Management
-              {activeTab === 'groups' && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-900" />
-              )}
-            </button>
-            <button
-              onClick={() => setActiveTab('panels')}
-              className={`pb-3 text-sm font-medium transition-colors relative ${
-                activeTab === 'panels'
-                  ? 'text-slate-900'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              Panel Management
-              {activeTab === 'panels' && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-900" />
-              )}
-            </button>
+            {permissions.canManage && (
+              <>
+                <button
+                  onClick={() => setActiveTab('status')}
+                  className={`pb-3 text-sm font-medium transition-colors relative ${
+                    activeTab === 'status'
+                      ? 'text-slate-900'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  Status Management
+                  {activeTab === 'status' && (
+                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-900" />
+                  )}
+                </button>
+                <button
+                  onClick={() => setActiveTab('groups')}
+                  className={`pb-3 text-sm font-medium transition-colors relative ${
+                    activeTab === 'groups'
+                      ? 'text-slate-900'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  Group Management
+                  {activeTab === 'groups' && (
+                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-900" />
+                  )}
+                </button>
+                <button
+                  onClick={() => setActiveTab('panels')}
+                  className={`pb-3 text-sm font-medium transition-colors relative ${
+                    activeTab === 'panels'
+                      ? 'text-slate-900'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  Panel Management
+                  {activeTab === 'panels' && (
+                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-900" />
+                  )}
+                </button>
+              </>
+            )}
             <button
               onClick={() => setActiveTab('details')}
               className={`pb-3 text-sm font-medium transition-colors relative ml-auto ${

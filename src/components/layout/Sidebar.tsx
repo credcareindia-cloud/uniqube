@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useNotifications } from '@/hooks/useNotifications'
+import { useRBAC } from '@/contexts/RBACContext'
 
 interface SidebarItem {
   name: string
@@ -29,13 +30,14 @@ export function Sidebar() {
   const navigate = useNavigate()
   const location = useLocation()
   const { unreadCount } = useNotifications()
+  const { isAdmin } = useRBAC()
 
   const navigation: SidebarItem[] = [
     // { name: 'Dashboard', href: '/dashboard', icon: Home },
     { name: 'Projects', href: '/projects', icon: Database },
     { name: 'Profile', href: '/profile', icon: User },
     { name: 'Notifications', href: '/notifications', icon: Bell, count: unreadCount > 0 ? unreadCount : undefined },
-    { name: 'Administration', href: '/admin', icon: Shield },
+    ...(isAdmin ? [{ name: 'Administration', href: '/admin', icon: Shield }] : []),
   ]
 
   const handleNavigation = (href: string) => {

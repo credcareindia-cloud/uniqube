@@ -10,6 +10,7 @@ const SignupPage: React.FC = () => {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
+    organizationName: '',
     password: '',
     confirmPassword: '',
   });
@@ -24,7 +25,7 @@ const SignupPage: React.FC = () => {
       ...formData,
       [e.target.name]: e.target.value,
     });
-    setError(''); // Clear error when user types
+    setError('');
   };
 
   const validateForm = () => {
@@ -52,7 +53,7 @@ const SignupPage: React.FC = () => {
     setIsLoading(true);
 
     try {
-      await register(formData.email, formData.password, formData.name);
+      await register(formData.email, formData.password, formData.name, formData.organizationName);
       navigate('/projects');
     } catch (err: any) {
       setError(err.message || 'Registration failed. Please try again.');
@@ -61,7 +62,6 @@ const SignupPage: React.FC = () => {
     }
   };
 
-  // Password strength indicator
   const getPasswordStrength = () => {
     const password = formData.password;
     if (password.length === 0) return { strength: 0, label: '', color: '' };
@@ -73,8 +73,8 @@ const SignupPage: React.FC = () => {
   const passwordStrength = getPasswordStrength();
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
-      <div className="w-full max-w-md">
+    <div className="h-screen bg-slate-50 flex items-start justify-center p-4 overflow-y-auto">
+      <div className="w-full max-w-md py-8 my-auto">
         {/* Signup Card */}
         <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-8">
           {/* Logo/Title */}
@@ -129,6 +129,22 @@ const SignupPage: React.FC = () => {
                 required
                 className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-transparent transition-all"
                 placeholder="you@example.com"
+              />
+            </div>
+
+            {/* Organization Name Field */}
+            <div>
+              <label htmlFor="organizationName" className="block text-sm font-medium text-slate-700 mb-2">
+                Organization Name <span className="text-slate-400 text-xs">(optional)</span>
+              </label>
+              <input
+                type="text"
+                id="organizationName"
+                name="organizationName"
+                value={formData.organizationName}
+                onChange={handleChange}
+                className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-transparent transition-all"
+                placeholder="Your Company Name"
               />
             </div>
 
