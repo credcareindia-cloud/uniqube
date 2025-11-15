@@ -22,6 +22,7 @@ export interface ProjectWithRole extends Project {
 
 export interface Project {
   id: string;
+  displayNumber?: number;
   name: string;
   description?: string;
   status: 'active' | 'completed' | 'on-hold' | 'planning';

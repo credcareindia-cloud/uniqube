@@ -46,6 +46,7 @@ import { useProjectPermissions } from '@/hooks/useProjectPermissions'
 
 interface ProjectData {
   id: number
+  displayNumber?: number
   name: string
   description: string | null
   status: string
@@ -1107,6 +1108,7 @@ export default function ProjectDetailPage() {
                 <ArrowLeft className="h-5 w-5" />
               </button>
               <h1 className="text-2xl font-semibold text-slate-900">
+                {/* {project.displayNumber && <span className="text-slate-500">#{project.displayNumber} </span>} */}
                 {project.name}
               </h1>
             </div>
@@ -1258,6 +1260,7 @@ export default function ProjectDetailPage() {
               groupsCount={groupTotalCount > 0 ? groupTotalCount : groups.length}
               onCreateStatus={() => setShowCreateStatusModal(true)}
               onCreateGroup={() => setShowCreateGroupModal(true)}
+              canManage={permissions.canManage}
             />
           )}
 

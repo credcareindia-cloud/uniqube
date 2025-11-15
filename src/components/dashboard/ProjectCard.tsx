@@ -8,6 +8,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 
 interface Project {
   id: string
+  displayNumber?: number
   name: string
   description?: string
   totalPanels?: number
@@ -82,7 +83,10 @@ export function ProjectCard({ project, onView }: ProjectCardProps) {
       <div className="flex justify-between items-start gap-2 mb-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 mb-1">
-            <h2 className="text-xl font-semibold truncate">{project.name}</h2>
+            <h2 className="text-xl font-semibold truncate">
+              {/* {project.displayNumber && <span className="text-slate-500">#{project.displayNumber} </span>} */}
+              {project.name}
+            </h2>
             <Badge variant={statusInfo.variant} className="text-xs shrink-0">
               <StatusIcon className="w-3 h-3 mr-1" />
               {statusInfo.label}

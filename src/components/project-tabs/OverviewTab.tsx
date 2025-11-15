@@ -49,9 +49,10 @@ interface OverviewTabProps {
   groupsCount: number
   onCreateStatus?: () => void
   onCreateGroup?: () => void
+  canManage?: boolean
 }
 
-export function OverviewTab({ projectId, totalPanels, groups, panels, groupsCount, onCreateStatus, onCreateGroup }: OverviewTabProps) {
+export function OverviewTab({ projectId, totalPanels, groups, panels, groupsCount, onCreateStatus, onCreateGroup, canManage = false }: OverviewTabProps) {
   const [activities, setActivities] = useState<Activity[]>([])
   const [loading, setLoading] = useState(true)
   const [customStatuses, setCustomStatuses] = useState<any[]>([])
@@ -244,36 +245,38 @@ export function OverviewTab({ projectId, totalPanels, groups, panels, groupsCoun
       </div>
 
       {/* Quick Actions */}
-      <div className="bg-white rounded-lg border border-slate-200 p-6">
-        <h3 className="text-lg font-semibold text-slate-900 mb-4">Quick Actions</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <button
-            onClick={onCreateStatus}
-            className="flex items-center gap-3 p-4 border border-slate-200 rounded-lg hover:bg-slate-50 hover:border-slate-300 transition-all text-left"
-          >
-            <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
-              <Plus className="w-5 h-5 text-blue-600" />
-            </div>
-            <div>
-              <p className="font-medium text-slate-900">Create New Status</p>
-              <p className="text-sm text-slate-500">Add a custom status for panels</p>
-            </div>
-          </button>
+      {canManage && (
+        <div className="bg-white rounded-lg border border-slate-200 p-6">
+          <h3 className="text-lg font-semibold text-slate-900 mb-4">Quick Actions</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <button
+              onClick={onCreateStatus}
+              className="flex items-center gap-3 p-4 border border-slate-200 rounded-lg hover:bg-slate-50 hover:border-slate-300 transition-all text-left"
+            >
+              <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
+                <Plus className="w-5 h-5 text-blue-600" />
+              </div>
+              <div>
+                <p className="font-medium text-slate-900">Create New Status</p>
+                <p className="text-sm text-slate-500">Add a custom status for panels</p>
+              </div>
+            </button>
 
-          <button
-            onClick={onCreateGroup}
-            className="flex items-center gap-3 p-4 border border-slate-200 rounded-lg hover:bg-slate-50 hover:border-slate-300 transition-all text-left"
-          >
-            <div className="w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center flex-shrink-0">
-              <Plus className="w-5 h-5 text-green-600" />
-            </div>
-            <div>
-              <p className="font-medium text-slate-900">Create New Group</p>
-              <p className="text-sm text-slate-500">Organize panels into groups</p>
-            </div>
-          </button>
+            <button
+              onClick={onCreateGroup}
+              className="flex items-center gap-3 p-4 border border-slate-200 rounded-lg hover:bg-slate-50 hover:border-slate-300 transition-all text-left"
+            >
+              <div className="w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center flex-shrink-0">
+                <Plus className="w-5 h-5 text-green-600" />
+              </div>
+              <div>
+                <p className="font-medium text-slate-900">Create New Group</p>
+                <p className="text-sm text-slate-500">Organize panels into groups</p>
+              </div>
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Groups Overview */}

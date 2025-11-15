@@ -34,7 +34,9 @@ export default function ProjectsPage() {
   const [showModelCreation, setShowModelCreation] = useState(false)
   const [showMultiFileCreation, setShowMultiFileCreation] = useState(false)
   const [showCreationChoice, setShowCreationChoice] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
   const { notifications } = useNotifications()
+  const ITEMS_PER_PAGE = 9
 
   // Handle project creation success
   const handleProjectCreated = (newProject: any) => {
@@ -42,7 +44,7 @@ export default function ProjectsPage() {
     setShowModelCreation(false)
     setShowMultiFileCreation(false)
     setShowCreationChoice(false)
-    // Navigate to the new project
+    // Navigate to the new project using global ID
     navigate(`/projects/${newProject.id}`)
   }
 
@@ -50,9 +52,9 @@ export default function ProjectsPage() {
     setLoading(rbacLoading)
   }, [rbacLoading])
 
-  // Removed automatic refresh on notifications per user request
-  // Projects page will not auto-refresh when notifications arrive
-  // Users can manually refresh if needed
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchQuery, filterStatus])
 
   // Filter projects based on search and status
   const filteredProjects = userProjects.filter(project => {
@@ -63,6 +65,12 @@ export default function ProjectsPage() {
     
     return matchesSearch && matchesStatus
   })
+
+  // Paginate filtered projects
+  const totalPages = Math.ceil(filteredProjects.length / ITEMS_PER_PAGE)
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
+  const endIndex = startIndex + ITEMS_PER_PAGE
+  const paginatedProjects = filteredProjects.slice(startIndex, endIndex)
 
   // Calculate stats
   const stats = {
@@ -247,7 +255,7 @@ export default function ProjectsPage() {
         <>
           {viewMode === 'grid' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredProjects.map((project) => (
+              {paginatedProjects.map((project) => (
                 <ProjectCard 
                   key={project.id} 
                   project={project} 
@@ -259,7 +267,7 @@ export default function ProjectsPage() {
             <div className="bg-[rgba(26,31,46,0.8)] border border-[rgba(184,188,200,0.1)] rounded-lg overflow-hidden">
               <div className="p-6">
                 <div className="space-y-4">
-                  {filteredProjects.map((project) => {
+                  {paginatedProjects.map((project) => {
                     const totalPanels = project.stats?.totalPanels || 0
                     const completedPanels = project.completedPanels || 0
                     const progress = totalPanels > 0 ? Math.round((completedPanels / totalPanels) * 100) : 0
@@ -291,6 +299,65 @@ export default function ProjectsPage() {
                     )
                   })}
                 </div>
+              </div>
+            </div>
+          )}
+
+          {filteredProjects.length >= 10 && (
+            <div className="flex items-center justify-between mt-8 pt-6 border-t border-slate-200">
+              <div className="text-sm text-slate-600">
+                Showing {startIndex + 1} to {Math.min(endIndex, filteredProjects.length)} of {filteredProjects.length} projects
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                  className="px-3 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Previous
+                </button>
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: totalPages }).map((_, i) => {
+                    const pageNum = i + 1
+                    const isCurrentPage = pageNum === currentPage
+                    const isNearCurrent = Math.abs(pageNum - currentPage) <= 1
+                    const isFirstOrLast = pageNum === 1 || pageNum === totalPages
+                    
+                    if (!isNearCurrent && !isFirstOrLast) {
+                      return null
+                    }
+                    
+                    if (!isNearCurrent && isFirstOrLast) {
+                      if (pageNum === 1 && currentPage > 3) {
+                        return <span key="start-ellipsis" className="px-2 text-slate-600">...</span>
+                      }
+                      if (pageNum === totalPages && currentPage < totalPages - 2) {
+                        return <span key="end-ellipsis" className="px-2 text-slate-600">...</span>
+                      }
+                    }
+                    
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => setCurrentPage(pageNum)}
+                        className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          isCurrentPage
+                            ? 'bg-slate-700 text-white'
+                            : 'border border-slate-300 text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
+                    )
+                  })}
+                </div>
+                <button
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next
+                </button>
               </div>
             </div>
           )}
