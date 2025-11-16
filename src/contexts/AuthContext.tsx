@@ -40,7 +40,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           setUser(response.user);
         } catch (error) {
           console.error('Failed to fetch user:', error);
-          localStorage.removeItem('auth_token');
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          if (errorMessage.includes('401') || errorMessage.includes('Unauthorized')) {
+            localStorage.removeItem('auth_token');
+          }
         }
       }
       setIsLoading(false);

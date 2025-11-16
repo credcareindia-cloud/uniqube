@@ -47,7 +47,7 @@ export const RBACProvider: React.FC<RBACProviderProps> = ({ children }) => {
 
     setIsLoading(true);
     try {
-      const response = await api.getProjects();
+      const response = await api.getProjects({ limit: 10000 });
       setUserProjects(response.projects as ProjectWithRole[]);
     } catch (error) {
       console.error('Failed to fetch user projects:', error);

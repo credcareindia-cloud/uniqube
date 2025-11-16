@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Bell, Search, Settings, Menu, X, Box, LogOut, User as UserIcon, CheckCircle, AlertTriangle, Info, Clock } from 'lucide-react'
+import { Bell, Search, Settings, Menu, X, Box, LogOut, User as UserIcon, CheckCircle, AlertTriangle, Info, Clock, Loader, AlertCircle } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { useNotifications } from '@/hooks/useNotifications'
@@ -45,15 +45,38 @@ export function Navbar() {
     }
   }, [showNotificationDropdown])
 
-  const getNotificationIcon = (type: string) => {
+  const getNotificationIcon = (notification: any) => {
+    const type = notification.type
+    const title = notification.title || ''
+    const message = notification.message || ''
+    
+    const isFailed = title.toLowerCase().includes('failed') || message.toLowerCase().includes('failed')
+    const isProcessing = title.toLowerCase().includes('processing started') || title.toLowerCase().includes('started')
+    const isSuccess = title.toLowerCase().includes('successfully') || title.toLowerCase().includes('completed')
+    
+    if (isFailed) {
+      return <AlertCircle className="h-4 w-4 text-red-600" />
+    }
+    
+    if (isProcessing) {
+      return <Loader className="h-4 w-4 text-blue-600 animate-spin" />
+    }
+    
+    if (isSuccess) {
+      return <CheckCircle className="h-4 w-4 text-green-600" />
+    }
+    
     switch (type) {
-      case 'success':
+      case 'project-update':
+        return <Info className="h-4 w-4 text-blue-600" />
+      case 'model-processed':
         return <CheckCircle className="h-4 w-4 text-green-600" />
-      case 'warning':
-        return <AlertTriangle className="h-4 w-4 text-yellow-600" />
-      case 'error':
-        return <AlertTriangle className="h-4 w-4 text-red-600" />
-      case 'info':
+      case 'group-status-change':
+        return <Info className="h-4 w-4 text-blue-600" />
+      case 'user-mention':
+        return <AlertTriangle className="h-4 w-4 text-amber-600" />
+      case 'system':
+        return <Info className="h-4 w-4 text-blue-600" />
       default:
         return <Info className="h-4 w-4 text-blue-600" />
     }
@@ -175,7 +198,7 @@ export function Navbar() {
                           >
                             <div className="flex items-start space-x-3">
                               <div className="flex-shrink-0 mt-0.5">
-                                {getNotificationIcon(notification.type)}
+                                {getNotificationIcon(notification)}
                               </div>
                               <div className="flex-1 min-w-0">
                                 <p className={`text-sm font-medium ${

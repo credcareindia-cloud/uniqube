@@ -1,17 +1,19 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { 
   Bell, 
   CheckCircle, 
   AlertTriangle, 
   Info, 
-  Clock, 
-  User, 
-  Building2, 
-  Upload,
+  Clock,
   Eye,
   MoreHorizontal,
-  Settings,
-  Filter
+  Filter,
+  Loader,
+  AlertCircle,
+  X,
+  Trash2,
+  ArrowRight
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -20,75 +22,115 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { useNotifications } from '@/hooks/useNotifications'
 import type { Notification } from '@/services/api'
 
-const mockNotifications: Notification[] = [
-  {
-    id: '1',
-    type: 'success',
-    title: 'Model Upload Complete',
-    message: 'Tower A - Level 15.ifc has been successfully processed and is ready for viewing.',
-    read: false,
-    createdAt: new Date(Date.now() - 2 * 60 * 1000).toISOString() // 2 minutes ago
-  },
-  {
-    id: '2',
-    type: 'warning',
-    title: 'Panel Status Update Required',
-    message: 'Panel PA-1205 in Group G-12 needs status verification. Last updated 3 days ago.',
-    read: false,
-    createdAt: new Date(Date.now() - 15 * 60 * 1000).toISOString() // 15 minutes ago
-  },
-  {
-    id: '3',
-    type: 'info',
-    title: 'New Team Member Added',
-    message: 'John Smith has been added to the Manufacturing Complex project team.',
-    read: true,
-    createdAt: new Date(Date.now() - 60 * 60 * 1000).toISOString() // 1 hour ago
-  },
-  {
-    id: '4',
-    type: 'success',
-    title: 'Group G-08 Completed',
-    message: 'All 45 panels in Group G-08 have been marked as completed. Great work!',
-    read: true,
-    createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() // 2 hours ago
-  },
-  {
-    id: '5',
-    type: 'error',
-    title: 'Model Processing Failed',
-    message: 'Failed to process Residential_Block_B.ifc. File may be corrupted or too large.',
-    read: false,
-    createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString() // 3 hours ago
-  },
-  {
-    id: '6',
-    type: 'info',
-    title: 'Weekly Report Available',
-    message: 'Your weekly project summary report is ready for download.',
-    read: true,
-    createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString() // 1 day ago
-  }
-]
+// const mockNotifications: Notification[] = [
+//   {
+//     id: '1',
+//     type: 'success',
+//     title: 'Model Upload Complete',
+//     message: 'Tower A - Level 15.ifc has been successfully processed and is ready for viewing.',
+//     read: false,
+//     createdAt: new Date(Date.now() - 2 * 60 * 1000).toISOString() // 2 minutes ago
+//   },
+//   {
+//     id: '2',
+//     type: 'warning',
+//     title: 'Panel Status Update Required',
+//     message: 'Panel PA-1205 in Group G-12 needs status verification. Last updated 3 days ago.',
+//     read: false,
+//     createdAt: new Date(Date.now() - 15 * 60 * 1000).toISOString() // 15 minutes ago
+//   },
+//   {
+//     id: '3',
+//     type: 'info',
+//     title: 'New Team Member Added',
+//     message: 'John Smith has been added to the Manufacturing Complex project team.',
+//     read: true,
+//     createdAt: new Date(Date.now() - 60 * 60 * 1000).toISOString() // 1 hour ago
+//   },
+//   {
+//     id: '4',
+//     type: 'success',
+//     title: 'Group G-08 Completed',
+//     message: 'All 45 panels in Group G-08 have been marked as completed. Great work!',
+//     read: true,
+//     createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() // 2 hours ago
+//   },
+//   {
+//     id: '5',
+//     type: 'error',
+//     title: 'Model Processing Failed',
+//     message: 'Failed to process Residential_Block_B.ifc. File may be corrupted or too large.',
+//     read: false,
+//     createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString() // 3 hours ago
+//   },
+//   {
+//     id: '6',
+//     type: 'info',
+//     title: 'Weekly Report Available',
+//     message: 'Your weekly project summary report is ready for download.',
+//     read: true,
+//     createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString() // 1 day ago
+//   }
+// ]
 
 export default function NotificationsPage() {
-  const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications()
+  const navigate = useNavigate()
+  const { notifications, unreadCount, markAsRead, markAsUnread, markAllAsRead, deleteNotification } = useNotifications()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<'all' | 'unread'>('all')
+  const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null)
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
 
   const filteredNotifications = filter === 'unread' 
     ? notifications.filter(n => !n.read)
     : notifications
 
-  const getNotificationIcon = (type: string) => {
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (openMenuId && !(e.target as HTMLElement).closest('[data-menu]')) {
+        setOpenMenuId(null)
+      }
+    }
+    
+    if (openMenuId) {
+      document.addEventListener('click', handleClickOutside)
+      return () => document.removeEventListener('click', handleClickOutside)
+    }
+  }, [openMenuId])
+
+  const getNotificationIcon = (notification: Notification) => {
+    const type = notification.type
+    const title = notification.title || ''
+    const message = notification.message || ''
+    
+    const isFailed = title.toLowerCase().includes('failed') || message.toLowerCase().includes('failed')
+    const isProcessing = title.toLowerCase().includes('processing started') || title.toLowerCase().includes('started')
+    const isSuccess = title.toLowerCase().includes('successfully') || title.toLowerCase().includes('completed')
+    
+    if (isFailed) {
+      return <AlertCircle className="h-5 w-5 text-red-600" />
+    }
+    
+    if (isProcessing) {
+      return <Loader className="h-5 w-5 text-blue-600 animate-spin" />
+    }
+    
+    if (isSuccess) {
+      return <CheckCircle className="h-5 w-5 text-green-600" />
+    }
+    
     switch (type) {
-      case 'success':
+      case 'project-update':
+        return <Info className="h-5 w-5 text-blue-600" />
+      case 'model-processed':
         return <CheckCircle className="h-5 w-5 text-green-600" />
-      case 'warning':
+      case 'group-status-change':
+        return <Info className="h-5 w-5 text-blue-600" />
+      case 'user-mention':
         return <AlertTriangle className="h-5 w-5 text-amber-600" />
-      case 'error':
-        return <AlertTriangle className="h-5 w-5 text-red-600" />
+      case 'system':
+        return <Info className="h-5 w-5 text-blue-600" />
       default:
         return <Info className="h-5 w-5 text-blue-600" />
     }
@@ -209,16 +251,13 @@ export default function NotificationsPage() {
                 !notification.read ? 'border-l-4 border-l-blue-500 bg-blue-50' : ''
               }`}
             >
-              <CardContent 
-                className="p-6 cursor-pointer"
-                onClick={() => markAsRead(notification.id)}
-              >
+              <CardContent className="p-6">
                 <div className="flex items-start gap-4">
                   <div className="relative">
                     <Avatar className="h-12 w-12 border-2 border-slate-200">
                       <AvatarImage src="/avatars/system.png" />
                       <AvatarFallback className="bg-slate-100">
-                        {getNotificationIcon(notification.type)}
+                        {getNotificationIcon(notification)}
                       </AvatarFallback>
                     </Avatar>
                     {!notification.read && (
@@ -233,14 +272,14 @@ export default function NotificationsPage() {
                       </h3>
                       <Badge 
                         variant={
-                          notification.type === 'success' ? 'success' :
-                          notification.type === 'warning' ? 'warning' :
-                          notification.type === 'error' ? 'destructive' :
+                          notification.title?.toLowerCase().includes('failed') ? 'destructive' :
+                          notification.title?.toLowerCase().includes('successfully') ? 'success' :
+                          notification.title?.toLowerCase().includes('processing') ? 'default' :
                           'default'
                         }
                         className="text-xs"
                       >
-                        {notification.type}
+                        {notification.type?.replace(/_/g, ' ')}
                       </Badge>
                     </div>
                     <p className="text-slate-600 text-sm mb-3 leading-relaxed">
@@ -251,22 +290,177 @@ export default function NotificationsPage() {
                         <Clock className="h-3 w-3" />
                         {formatTimestamp(notification.createdAt)}
                       </div>
-                      <Button variant="outline" size="sm">
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => {
+                          markAsRead(notification.id)
+                          setSelectedNotification(notification)
+                        }}
+                      >
                         <Eye className="h-3 w-3 mr-2" />
                         View Details
                       </Button>
                     </div>
                   </div>
                   
-                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0 flex-shrink-0">
-                    <MoreHorizontal className="h-4 w-4" />
-                  </Button>
+                  <div className="relative" data-menu>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="h-8 w-8 p-0 flex-shrink-0"
+                      onClick={() => setOpenMenuId(openMenuId === notification.id ? null : notification.id)}
+                    >
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                    {openMenuId === notification.id && (
+                      <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-lg shadow-lg border border-slate-200 z-10" data-menu>
+                        <button
+                          onClick={() => {
+                            if (notification.read) {
+                              markAsUnread(notification.id)
+                            } else {
+                              markAsRead(notification.id)
+                            }
+                            setOpenMenuId(null)
+                          }}
+                          className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                        >
+                          {notification.read ? (
+                            <>
+                              <Bell className="h-4 w-4" />
+                              Mark as Unread
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle className="h-4 w-4" />
+                              Mark as Read
+                            </>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => {
+                            deleteNotification(notification.id)
+                            setOpenMenuId(null)
+                          }}
+                          className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 border-t border-slate-200"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </CardContent>
             </Card>
           ))
         )}
       </div>
+
+      {/* Details Modal */}
+      {selectedNotification && (
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={() => setSelectedNotification(null)}
+        >
+          <Card 
+            className="w-full max-w-md border-slate-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <CardContent className="p-6 space-y-4">
+              <div className="flex items-start justify-between">
+                <div className="flex items-start gap-3">
+                  <Avatar className="h-10 w-10 border-2 border-slate-200">
+                    <AvatarImage src="/avatars/system.png" />
+                    <AvatarFallback className="bg-slate-100">
+                      {getNotificationIcon(selectedNotification)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1">
+                    <h2 className="text-lg font-bold text-slate-900">
+                      {selectedNotification.title}
+                    </h2>
+                    <Badge variant="outline" className="text-xs mt-1">
+                      {selectedNotification.type?.replace(/_/g, ' ')}
+                    </Badge>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedNotification(null)}
+                  className="text-slate-400 hover:text-slate-600"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="bg-slate-50 p-4 rounded-lg">
+                <p className="text-slate-700 text-sm leading-relaxed">
+                  {selectedNotification.message}
+                </p>
+              </div>
+
+              <div className="space-y-2 text-sm text-slate-600">
+                <div className="flex items-center justify-between">
+                  <span>Time:</span>
+                  <span>{formatTimestamp(selectedNotification.createdAt)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Status:</span>
+                  <Badge variant={selectedNotification.read ? 'outline' : 'destructive'} className="text-xs">
+                    {selectedNotification.read ? 'Read' : 'Unread'}
+                  </Badge>
+                </div>
+                {selectedNotification.metadata && Object.keys(selectedNotification.metadata).length > 0 && (
+                  <div className="pt-2 border-t border-slate-200">
+                    <span className="block font-semibold mb-2">Details:</span>
+                    <div className="space-y-1">
+                      {Object.entries(selectedNotification.metadata).map(([key, value]) => (
+                        <div key={key} className="text-xs">
+                          <span className="font-medium">{key}:</span> {String(value)}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-2 pt-4 border-t border-slate-200 flex-col sm:flex-row">
+                {selectedNotification.title?.toLowerCase().includes('successfully') && 
+                 selectedNotification.metadata?.projectId && (
+                  <Button 
+                    className="flex-1"
+                    onClick={() => {
+                      navigate(`/projects/${selectedNotification.metadata!.projectId}`)
+                      setSelectedNotification(null)
+                    }}
+                  >
+                    <ArrowRight className="h-4 w-4 mr-2" />
+                    Go to Project
+                  </Button>
+                )}
+                <Button 
+                  variant="outline" 
+                  className="flex-1"
+                  onClick={() => setSelectedNotification(null)}
+                >
+                  Close
+                </Button>
+                <Button 
+                  variant="destructive"
+                  className="flex-1"
+                  onClick={() => {
+                    deleteNotification(selectedNotification.id)
+                    setSelectedNotification(null)
+                  }}
+                >
+                  Delete
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* {/* Quick Actions
       <Card className="border-slate-200">

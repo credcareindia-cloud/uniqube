@@ -5,7 +5,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { getApiUrl } from '@/config/api'
-import { notificationService } from '@/services/notifications'
+import { useNotifications } from '@/hooks/useNotifications'
 
 interface MultiFileModelCreationProps {
   onProjectCreated?: (project: any) => void
@@ -43,6 +43,7 @@ const FILE_CATEGORIES = {
 }
 
 export function MultiFileModelCreation({ onProjectCreated, onClose }: MultiFileModelCreationProps) {
+  const { refetch } = useNotifications()
   const [formData, setFormData] = useState({
     projectName: '',
     projectDescription: '',
@@ -110,13 +111,9 @@ export function MultiFileModelCreation({ onProjectCreated, onClose }: MultiFileM
                 project: status.projectData
               })
               
-              // Add success notification
-              console.log('🔔 Adding success notification...')
-              console.log('📊 Project data for notification:', status.projectData)
-              notificationService.addProjectCreatedNotification(
-                formData.projectName.trim(),
-                status.projectData?.id
-              )
+              // Backend automatically creates success notification
+              // Refetch notifications immediately to show the new notification
+              refetch().catch(err => console.error('Failed to refetch notifications:', err))
               
               // Conditional redirect based on user choice
               if (!processingInBackground) {
@@ -128,7 +125,7 @@ export function MultiFileModelCreation({ onProjectCreated, onClose }: MultiFileM
               } else {
                 // User clicked "Continue in Background" - no redirect, just notification
                 console.log('📱 No redirect (user chose to continue in background)')
-                console.log('🔔 Notification should appear in navbar/sidebar')
+                console.log('🔔 Notification will appear in navbar/sidebar from backend')
               }
               
               // Reset background processing state
@@ -144,11 +141,10 @@ export function MultiFileModelCreation({ onProjectCreated, onClose }: MultiFileM
               setShowProcessingModal(false)
               setProcessingInBackground(false)
               
-              // Add failure notification
-              notificationService.addProjectProcessingFailedNotification(
-                formData.projectName.trim(),
-                status.error
-              )
+              // Backend automatically creates failure notification
+              // Refetch notifications immediately to show the failure notification
+              refetch().catch(err => console.error('Failed to refetch notifications:', err))
+              
               clearInterval(interval)
             }
           } else {
@@ -355,9 +351,6 @@ export function MultiFileModelCreation({ onProjectCreated, onClose }: MultiFileM
           message: 'Processing files...',
           progress: result.progress || 0
         })
-        
-        // Add notification for project processing
-        notificationService.addProjectProcessingNotification(formData.projectName)
       } else {
         console.error('❌ No jobId returned from multi-file upload:', result)
         throw new Error('No job ID returned from server')

@@ -5,7 +5,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { getApiUrl } from '@/config/api'
-import { notificationService } from '@/services/notifications'
+import { useNotifications } from '@/hooks/useNotifications'
 
 interface ModelCreationProps {
   onProjectCreated?: (project: any) => void
@@ -43,6 +43,7 @@ const FILE_CATEGORIES = {
 }
 
 export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps) {
+  const { refetch } = useNotifications()
   const [formData, setFormData] = useState({
     projectName: '',
     projectDescription: '',
@@ -104,12 +105,9 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
                 project: status.projectData
               })
               
-              console.log('🔔 Adding success notification...')
-              console.log('📊 Project data for notification:', status.projectData)
-              notificationService.addProjectCreatedNotification(
-                formData.projectName.trim(),
-                status.projectData?.id
-              )
+              // Backend automatically creates success notification
+              // Refetch notifications immediately to show the new notification
+              refetch().catch(err => console.error('Failed to refetch notifications:', err))
               
               if (!processingInBackground) {
                 console.log('🔄 Redirecting to project page (user stayed on modal)...')
@@ -118,7 +116,7 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
                 }
               } else {
                 console.log('📱 No redirect (user chose to continue in background)')
-                console.log('🔔 Notification should appear in navbar/sidebar')
+                console.log('🔔 Notification will appear in navbar/sidebar from backend')
               }
               
               setProcessingInBackground(false)
@@ -132,10 +130,10 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
               setShowProcessingModal(false)
               setProcessingInBackground(false)
               
-              notificationService.addProjectProcessingFailedNotification(
-                formData.projectName.trim(),
-                status.error
-              )
+              // Backend automatically creates failure notification
+              // Refetch notifications immediately to show the failure notification
+              refetch().catch(err => console.error('Failed to refetch notifications:', err))
+              
               clearInterval(interval)
             }
           } else {
@@ -328,8 +326,6 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
           message: 'Processing files...',
           progress: result.progress || 0
         })
-        
-        notificationService.addProjectProcessingNotification(formData.projectName)
       } else {
         console.error('❌ No jobId returned from multi-file upload:', result)
         throw new Error('No job ID returned from server')

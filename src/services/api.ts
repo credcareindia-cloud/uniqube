@@ -67,7 +67,7 @@ export interface Notification {
   id: string;
   title: string;
   message: string;
-  type: 'info' | 'warning' | 'error' | 'success';
+  type: 'system' | 'project-update' | 'model-processed' | 'group-status-change' | 'user-mention' | 'info' | 'warning' | 'error' | 'success';
   read: boolean;
   createdAt: string;
   metadata?: { projectId?: string; projectName?: string; [key: string]: any };
@@ -87,6 +87,12 @@ export interface ProjectsResponse {
 
 export interface NotificationsResponse {
   notifications: Notification[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    pages: number;
+  };
   unreadCount: number;
 }
 
@@ -220,11 +226,35 @@ class ApiClient {
     return this.request<NotificationsResponse>('/notifications');
   }
 
-  async markNotificationsRead(data: { notificationIds?: string[]; markAll?: boolean }): Promise<void> {
-    await this.request<void>('/notifications/mark-read', {
-      method: 'POST',
+  async markNotificationsRead(data: { notificationIds?: string[]; markAll?: boolean }): Promise<{ count: number }> {
+    return this.request<{ count: number }>('/notifications/mark-read', {
+      method: 'PATCH',
       body: JSON.stringify(data),
     });
+  }
+
+  async markNotificationsUnread(data: { notificationIds: string[] }): Promise<{ count: number }> {
+    return this.request<{ count: number }>('/notifications/mark-unread', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteNotification(id: string): Promise<void> {
+    await this.request<void>(`/notifications/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async deleteNotifications(data: { notificationIds?: string[]; deleteAllRead?: boolean }): Promise<{ count: number }> {
+    return this.request<{ count: number }>('/notifications', {
+      method: 'DELETE',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getUnreadCount(): Promise<{ unreadCount: number }> {
+    return this.request<{ unreadCount: number }>('/notifications/unread-count');
   }
 
   // Upload endpoints
