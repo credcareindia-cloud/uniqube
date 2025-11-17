@@ -21,6 +21,7 @@ import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { useNotifications } from '@/hooks/useNotifications'
 import type { Notification } from '@/services/api'
+import { de } from 'date-fns/locale'
 
 // const mockNotifications: Notification[] = [
 //   {
@@ -188,28 +189,32 @@ export default function NotificationsPage() {
                 <p className="text-slate-600 text-sm">Stay updated with your project activities and alerts</p>
               </div>
             </div>
-            <div className="flex flex-col sm:flex-row gap-3">
+            <div className="flex flex-col sm:flex-row gap-3 items-center justify-end">
               {unreadCount > 0 && (
-                <Button variant="outline" onClick={markAllAsRead} className="flex-1 sm:flex-none">
+                <Button 
+                  variant="default"
+                  size="sm"
+                  onClick={markAllAsRead}
+                >
+                  <CheckCircle className="h-4 w-4 mr-2" />
                   Mark All Read
                 </Button>
               )}
-              <div className="flex gap-2">
+              <div className="flex gap-2 border border-slate-200 rounded-lg p-1 bg-slate-50">
                 <Button 
-                  variant={filter === 'all' ? 'default' : 'outline'}
+                  variant={filter === 'all' ? 'default' : 'ghost'}
                   onClick={() => setFilter('all')}
                   size="sm"
-                  className="flex-1 sm:flex-none"
                 >
                   <Filter className="h-4 w-4 mr-2" />
                   All
                 </Button>
                 <Button 
-                  variant={filter === 'unread' ? 'default' : 'outline'}
+                  variant={filter === 'unread' ? 'default' : 'ghost'}
                   onClick={() => setFilter('unread')}
                   size="sm"
-                  className="flex-1 sm:flex-none"
                 >
+                  <Bell className="h-4 w-4 mr-2" />
                   Unread ({unreadCount})
                 </Button>
               </div>
@@ -247,9 +252,16 @@ export default function NotificationsPage() {
           filteredNotifications.map((notification) => (
             <Card 
               key={notification.id} 
-              className={`transition-all duration-200 hover:border-slate-300 border-slate-200 ${
+              className={`transition-all duration-200 hover:border-slate-300 border-slate-200 cursor-pointer ${
                 !notification.read ? 'border-l-4 border-l-blue-500 bg-blue-50' : ''
               }`}
+              onClick={() => {
+                if (notification.read) {
+                  markAsUnread(notification.id)
+                } else {
+                  markAsRead(notification.id)
+                }
+              }}
             >
               <CardContent className="p-6">
                 <div className="flex items-start gap-4">
@@ -285,26 +297,59 @@ export default function NotificationsPage() {
                     <p className="text-slate-600 text-sm mb-3 leading-relaxed">
                       {notification.message}
                     </p>
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                       <div className="flex items-center gap-1 text-xs text-slate-500">
                         <Clock className="h-3 w-3" />
                         {formatTimestamp(notification.createdAt)}
                       </div>
-                      <Button 
-                        variant="outline" 
-                        size="sm"
-                        onClick={() => {
-                          markAsRead(notification.id)
-                          setSelectedNotification(notification)
-                        }}
-                      >
-                        <Eye className="h-3 w-3 mr-2" />
-                        View Details
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        {notification.title?.toLowerCase().includes('successfully') && 
+                         notification.metadata?.projectId && (
+                          <Button 
+                            size="sm" 
+                            className="h-8 px-3"
+                            onClick={() => {
+                              markAsRead(notification.id)
+                              navigate(`/projects/${notification.metadata!.projectId}`)
+                            }}
+                          >
+                            <ArrowRight className="h-4 w-4 mr-1" />
+                            Go to Project
+                          </Button>
+                        )}
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="h-8 w-8 p-0"
+                          onClick={() => {
+                            if (notification.read) {
+                              markAsUnread(notification.id)
+                            } else {
+                              markAsRead(notification.id)
+                            }
+                          }}
+                          title={notification.read ? 'Mark as Unread' : 'Mark as Read'}
+                        >
+                          {notification.read ? (
+                            <Bell className="h-4 w-4 text-slate-500" />
+                          ) : (
+                            <CheckCircle className="h-4 w-4 text-blue-500" />
+                          )}
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="h-8 w-8 p-0"
+                          onClick={() => deleteNotification(notification.id)}
+                          title="Delete"
+                        >
+                          <Trash2 className="h-4 w-4 text-red-500" />
+                        </Button>
+                      </div>
                     </div>
                   </div>
                   
-                  <div className="relative" data-menu>
+                  {/* <div className="relative" data-menu>
                     <Button 
                       variant="ghost" 
                       size="sm" 
@@ -350,7 +395,7 @@ export default function NotificationsPage() {
                         </button>
                       </div>
                     )}
-                  </div>
+                  </div> */}
                 </div>
               </CardContent>
             </Card>
@@ -361,11 +406,11 @@ export default function NotificationsPage() {
       {/* Details Modal */}
       {selectedNotification && (
         <div 
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm"
           onClick={() => setSelectedNotification(null)}
         >
           <Card 
-            className="w-full max-w-md border-slate-200"
+            className="w-full max-w-md border-slate-200 mx-4"
             onClick={(e) => e.stopPropagation()}
           >
             <CardContent className="p-6 space-y-4">
@@ -386,12 +431,23 @@ export default function NotificationsPage() {
                     </Badge>
                   </div>
                 </div>
-                <button
-                  onClick={() => setSelectedNotification(null)}
-                  className="text-slate-400 hover:text-slate-600"
-                >
-                  <X className="h-5 w-5" />
-                </button>
+                <div className="flex gap-2 items-start">
+                  <button
+                    onClick={() => {
+                      deleteNotification(selectedNotification.id)
+                      setSelectedNotification(null)
+                    }}
+                    className="text-red-500 hover:text-red-700"
+                  >
+                    <Trash2 className="h-5 w-5" />
+                  </button>
+                  <button
+                    onClick={() => setSelectedNotification(null)}
+                    className="text-slate-400 hover:text-slate-600"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
               </div>
 
               <div className="bg-slate-50 p-4 rounded-lg">
@@ -431,6 +487,7 @@ export default function NotificationsPage() {
                   <Button 
                     className="flex-1"
                     onClick={() => {
+                      markAsRead(selectedNotification.id)
                       navigate(`/projects/${selectedNotification.metadata!.projectId}`)
                       setSelectedNotification(null)
                     }}
@@ -440,11 +497,18 @@ export default function NotificationsPage() {
                   </Button>
                 )}
                 <Button 
-                  variant="outline" 
+                  variant={selectedNotification.read ? 'outline' : 'default'}
                   className="flex-1"
-                  onClick={() => setSelectedNotification(null)}
+                  onClick={() => {
+                    if (selectedNotification.read) {
+                      markAsUnread(selectedNotification.id)
+                    } else {
+                      markAsRead(selectedNotification.id)
+                    }
+                  }}
                 >
-                  Close
+                  <CheckCircle className="h-4 w-4 mr-2" />
+                  {selectedNotification.read ? 'Mark as Unread' : 'Mark as Read'}
                 </Button>
                 <Button 
                   variant="destructive"
@@ -454,6 +518,7 @@ export default function NotificationsPage() {
                     setSelectedNotification(null)
                   }}
                 >
+                  <Trash2 className="h-4 w-4 mr-2" />
                   Delete
                 </Button>
               </div>

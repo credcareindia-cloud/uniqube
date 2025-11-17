@@ -39,12 +39,11 @@ export default function ProjectsPage() {
   const ITEMS_PER_PAGE = 9
 
   // Handle project creation success
-  const handleProjectCreated = (newProject: any) => {
-    refreshUserProjects()
+  const handleProjectCreated = async (newProject: any) => {
+    await refreshUserProjects()
     setShowModelCreation(false)
     setShowMultiFileCreation(false)
     setShowCreationChoice(false)
-    // Navigate to the new project using global ID
     navigate(`/projects/${newProject.id}`)
   }
 
@@ -56,12 +55,38 @@ export default function ProjectsPage() {
     setCurrentPage(1)
   }, [searchQuery, filterStatus])
 
+  // Auto-polling disabled per request
+  // useEffect(() => {
+  //   const pollInterval = setInterval(() => {
+  //     refreshUserProjects()
+  //   }, 5000)
+  //
+  //   return () => clearInterval(pollInterval)
+  // }, [refreshUserProjects])
+
+  // Normalize various backend/legacy status formats to canonical keys
+  const normalizeStatus = (s?: string) => {
+    if (!s) return 'planning'
+    const lower = s.toString().trim().toLowerCase()
+    const kebab = lower.replace(/[_\s]+/g, '-')
+    if (kebab === 'onhold') return 'on-hold'
+    switch (kebab) {
+      case 'active':
+      case 'completed':
+      case 'planning':
+      case 'on-hold':
+        return kebab
+      default:
+        return 'planning'
+    }
+  }
+
   // Filter projects based on search and status
   const filteredProjects = userProjects.filter(project => {
     const matchesSearch = project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          (project.description?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false)
     
-    const matchesStatus = filterStatus === 'all' || project.status === filterStatus
+    const matchesStatus = filterStatus === 'all' || normalizeStatus(project.status) === filterStatus
     
     return matchesSearch && matchesStatus
   })
@@ -75,9 +100,9 @@ export default function ProjectsPage() {
   // Calculate stats
   const stats = {
     total: userProjects.length,
-    active: userProjects.filter(p => p.status === 'active').length,
-    completed: userProjects.filter(p => p.status === 'completed').length,
-    planning: userProjects.filter(p => p.status === 'planning').length,
+    active: userProjects.filter(p => normalizeStatus(p.status) === 'active').length,
+    completed: userProjects.filter(p => normalizeStatus(p.status) === 'completed').length,
+    planning: userProjects.filter(p => normalizeStatus(p.status) === 'planning').length,
     totalPanels: userProjects.reduce((sum, p) => sum + (p.stats?.totalPanels || 0), 0)
   }
 
@@ -271,6 +296,7 @@ export default function ProjectsPage() {
                     const totalPanels = project.stats?.totalPanels || 0
                     const completedPanels = project.completedPanels || 0
                     const progress = totalPanels > 0 ? Math.round((completedPanels / totalPanels) * 100) : 0
+                    const s = normalizeStatus(project.status)
                     return (
                       <div key={project.id} className="flex items-center justify-between p-4 bg-[rgba(15,20,25,0.5)] rounded-lg border border-[rgba(184,188,200,0.1)] hover:border-[rgba(74,144,226,0.3)] transition-all duration-300">
                         <div className="flex-1">
@@ -278,12 +304,12 @@ export default function ProjectsPage() {
                           <p className="text-[#B8BCC8] text-sm mb-2">{project.description}</p>
                           <div className="flex items-center gap-4 text-xs text-[#B8BCC8]">
                             <span className={`px-2 py-1 rounded uppercase tracking-wider ${
-                              project.status === 'active' ? 'bg-[rgba(16,185,129,0.2)] text-[#10B981]' :
-                              project.status === 'completed' ? 'bg-[rgba(139,92,246,0.2)] text-[#8B5CF6]' :
-                              project.status === 'planning' ? 'bg-[rgba(245,158,11,0.2)] text-[#F59E0B]' :
-                              'bg-[rgba(107,123,213,0.2)] text-[#6B7BD5]'
+                              s === 'active' ? 'bg-[rgba(16,185,129,0.2)] text-[#10B981]' :
+                              s === 'completed' ? 'bg-[rgba(139,92,246,0.2)] text-[#8B5CF6]' :
+                              s === 'planning' ? 'bg-[rgba(245,158,11,0.2)] text-[#F59E0B]' :
+                              'bg-[rgba(239,68,68,0.2)] text-[#EF4444]'
                             }`}>
-                              {project.status}
+                              {s === 'on-hold' ? 'On Hold' : s.charAt(0).toUpperCase() + s.slice(1)}
                             </span>
                             <span>{progress}% Complete</span>
                             <span>{completedPanels.toLocaleString()} / {totalPanels.toLocaleString()} Panels</span>

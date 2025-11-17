@@ -13,7 +13,7 @@ interface Project {
   description?: string
   totalPanels?: number
   completedPanels?: number
-  status: 'active' | 'completed' | 'on-hold' | 'planning'
+  status: string
   lastUpdated?: string
   updatedAt?: string
   modelUrl?: string
@@ -74,8 +74,27 @@ export function ProjectCard({ project, onView }: ProjectCardProps) {
     })
   }
 
-  const statusInfo = statusConfig[project.status]
-  const StatusIcon = statusInfo.icon
+  // Normalize various backend/legacy status formats to the keys used in statusConfig
+  const normalizeStatus = (s?: string) => {
+    if (!s) return 'planning'
+    // normalize to kebab-case with hyphens; treat underscores/spaces the same
+    const lower = s.toString().trim().toLowerCase()
+    const kebab = lower.replace(/[_\s]+/g, '-')
+    if (kebab === 'onhold') return 'on-hold'
+    switch (kebab) {
+      case 'active':
+      case 'completed':
+      case 'planning':
+      case 'on-hold':
+        return kebab
+      default:
+        return 'planning'
+    }
+  }
+
+  const statusKey = normalizeStatus(project.status)
+  const safeStatusInfo = statusConfig[statusKey] || { variant: 'secondary', label: statusKey, icon: Package }
+  const SafeStatusIcon = safeStatusInfo.icon
 
   return (
     <div className="bg-white border border-slate-200 rounded-lg p-6 shadow-sm hover:shadow-md transition-all duration-200 flex flex-col h-full justify-between">
@@ -87,9 +106,9 @@ export function ProjectCard({ project, onView }: ProjectCardProps) {
               {/* {project.displayNumber && <span className="text-slate-500">#{project.displayNumber} </span>} */}
               {project.name}
             </h2>
-            <Badge variant={statusInfo.variant} className="text-xs shrink-0">
-              <StatusIcon className="w-3 h-3 mr-1" />
-              {statusInfo.label}
+            <Badge variant={safeStatusInfo.variant} className="text-xs shrink-0">
+              <SafeStatusIcon className="w-3 h-3 mr-1" />
+              {safeStatusInfo.label}
             </Badge>
           </div>
           {project.description && (

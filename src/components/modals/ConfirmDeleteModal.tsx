@@ -4,31 +4,38 @@ import { X, Trash2 } from 'lucide-react'
 
 interface ConfirmDeleteModalProps {
   isOpen: boolean
-  onClose: () => void
+  onClose?: () => void
+  onCancel?: () => void
   onConfirm: () => void
   title: string
   message: string
-  itemName: string
+  itemName?: string
   panelCount?: number
-  itemType?: 'status' | 'group'
+  itemType?: 'status' | 'group' | 'project'
   isDeleting?: boolean
+  isLoading?: boolean
 }
 
 export function ConfirmDeleteModal({
   isOpen,
   onClose,
+  onCancel,
   onConfirm,
   title,
   message,
   itemName,
   panelCount = 0,
   itemType = 'status',
-  isDeleting = false
+  isDeleting = false,
+  isLoading = false
 }: ConfirmDeleteModalProps) {
   if (!isOpen) return null
 
+  const handleClose = onCancel || onClose || (() => {})
+  const loading = isLoading || isDeleting
+
   const getPanelCountMessage = () => {
-    if (panelCount === undefined) return null
+    if (panelCount === undefined || panelCount === 0) return null
     
     if (itemType === 'status') {
       return `This status is currently assigned to ${panelCount} panel(s).`
@@ -45,8 +52,8 @@ export function ConfirmDeleteModal({
         <div className="flex items-center justify-between p-6 border-b border-slate-200">
           <h2 className="text-2xl font-bold text-slate-900">{title}</h2>
           <button
-            onClick={onClose}
-            disabled={isDeleting}
+            onClick={handleClose}
+            disabled={loading}
             className="text-slate-400 hover:text-slate-600 transition-colors disabled:opacity-50"
           >
             <X className="w-6 h-6" />
@@ -56,7 +63,13 @@ export function ConfirmDeleteModal({
         {/* Content */}
         <div className="p-6 space-y-4">
           <p className="text-slate-700 text-base">
-            {message} <span className="font-semibold text-slate-900">"{itemName}"</span>?
+            {itemName ? (
+              <>
+                {message} <span className="font-semibold text-slate-900">"{itemName}"</span>?
+              </>
+            ) : (
+              message
+            )}
           </p>
           
           {getPanelCountMessage() && (
@@ -69,8 +82,8 @@ export function ConfirmDeleteModal({
         {/* Actions */}
         <div className="flex items-center justify-end gap-3 p-6 border-t border-slate-200">
           <button
-            onClick={onClose}
-            disabled={isDeleting}
+            onClick={handleClose}
+            disabled={loading}
             className="flex items-center gap-2 px-6 py-2.5 text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <X className="w-4 h-4" />
@@ -78,11 +91,11 @@ export function ConfirmDeleteModal({
           </button>
           <button
             onClick={onConfirm}
-            disabled={isDeleting}
+            disabled={loading}
             className="flex items-center gap-2 px-6 py-2.5 text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Trash2 className="w-4 h-4" />
-            {isDeleting ? 'Deleting...' : 'Delete'}
+            {loading ? 'Deleting...' : 'Delete'}
           </button>
         </div>
       </div>

@@ -34,6 +34,8 @@ import { StatusManagementTab } from '@/components/project-tabs/StatusManagementT
 import { GroupManagementTab } from '@/components/project-tabs/GroupManagementTab'
 import { PanelManagementTab } from '@/components/project-tabs/PanelManagementTab'
 import { ProjectDetailsTab } from '@/components/project-tabs/ProjectDetailsTab'
+import { EditProjectModal } from '@/components/modals/EditProjectModal'
+import { ConfirmDeleteModal } from '@/components/modals/ConfirmDeleteModal'
 import type { Panel } from '@/types/panel'
 import type { Group } from '@/types/group'
 import { PanelStatus, PANEL_STATUS_CONFIG } from '@/types/panel'
@@ -42,6 +44,7 @@ import { authenticatedFetch } from '@/utils/authenticatedFetch'
 import { getApiUrl } from '@/config/api'
 import { useNotifications } from '@/hooks/useNotifications'
 import { useProjectPermissions } from '@/hooks/useProjectPermissions'
+import { useRBAC } from '@/contexts/RBACContext'
 
 
 interface ProjectData {
@@ -116,23 +119,27 @@ interface CustomStatus {
 
 // Status configuration for badges - using panel status config
 const statusConfig = {
-  // Project statuses
+  // Project statuses (uppercase)
   'PLANNING': { label: 'Planning', variant: 'neutral' as const, icon: Clock, color: '#8B5CF6' },
   'ACTIVE': { label: 'Active', variant: "default" as const, icon: CheckCircle, color: '#3B82F6' },
   'ON_HOLD': { label: 'On Hold', variant: 'warning' as const, icon: Clock, color: '#F59E0B' },
   'COMPLETED': { label: 'Completed', variant: 'completed' as const, icon: CheckCircle, color: '#10B981' },
-  'CANCELLED': { label: 'Cancelled', variant: 'warning' as const, icon: AlertCircle, color: '#EF4444' },
-  // Model statuses
+  // 'CANCELLED': { label: 'Cancelled', variant: 'warning' as const, icon: AlertCircle, color: '#EF4444' },
+  // Model statuses (uppercase)
   'READY': { label: 'Ready', variant: 'completed' as const, icon: CheckCircle, color: '#10B981' },
   'PROCESSING': { label: 'Processing', variant: 'warning' as const, icon: Clock, color: '#F59E0B' },
   'UPLOADED': { label: 'Uploaded', variant: 'neutral' as const, icon: Package, color: '#8B5CF6' },
   'FAILED': { label: 'Failed', variant: 'warning' as const, icon: AlertCircle, color: '#EF4444' },
-  // Legacy statuses
+  // Transformed statuses (lowercase with hyphens from backend)
+  'planning': { label: 'Planning', variant: 'neutral' as const, icon: Clock, color: '#8B5CF6' },
+  'active': { label: 'Active', variant: "default" as const, icon: CheckCircle, color: '#3B82F6' },
+  'on-hold': { label: 'On Hold', variant: 'warning' as const, icon: Clock, color: '#F59E0B' },
+  'completed': { label: 'Completed', variant: 'completed' as const, icon: CheckCircle, color: '#10B981' },
+  // 'cancelled': { label: 'Cancelled', variant: 'warning' as const, icon: AlertCircle, color: '#EF4444' },
+  // Model statuses (lowercase)
   'ready': { label: 'Ready', variant: 'completed' as const, icon: CheckCircle, color: '#10B981' },
   'processing': { label: 'Processing', variant: 'warning' as const, icon: Clock, color: '#F59E0B' },
-  'error': { label: 'Error', variant: 'warning' as const, icon: AlertCircle, color: '#EF4444' },
-  'planning': { label: 'Planning', variant: 'neutral' as const, icon: Clock, color: '#8B5CF6' },
-  'active': { label: 'Active', variant: "default" as const, icon: CheckCircle, color: '#3B82F6' }
+  'error': { label: 'Error', variant: 'warning' as const, icon: AlertCircle, color: '#EF4444' }
 }
 
 
@@ -255,6 +262,7 @@ export default function ProjectDetailPage() {
   const navigate = useNavigate()
   const { notifications } = useNotifications()
   const permissions = useProjectPermissions(id)
+  const { refreshUserProjects, isAdmin } = useRBAC()
   const [project, setProject] = useState<ProjectData | null>(null)
   const [models, setModels] = useState<ProjectModels | null>(null)
   const [loading, setLoading] = useState(true)
@@ -304,11 +312,17 @@ export default function ProjectDetailPage() {
   const [metadataLoading, setMetadataLoading] = useState(false)
   const [expandedStoreys, setExpandedStoreys] = useState<Set<string>>(new Set())
 
+  // Edit/Delete Project state
+  const [showEditProjectModal, setShowEditProjectModal] = useState(false)
+  const [showDeleteProjectModal, setShowDeleteProjectModal] = useState(false)
+  const [isSavingProject, setIsSavingProject] = useState(false)
+  const [isDeletingProject, setIsDeletingProject] = useState(false)
+
 
 
   useEffect(() => {
     loadProjectData()
-    loadPanels()
+    loadAllPanels()
     loadGroups(1)
     loadCustomStatuses()
   }, [id])
@@ -337,7 +351,7 @@ export default function ProjectDetailPage() {
       // Refresh project data when we get a notification for this specific project
       console.log('🔄 Detected project creation notification for this project, refreshing data...')
       loadProjectData()
-      loadPanels()
+      loadAllPanels()
       loadGroups(1)
     }
   }, [notifications, id])
@@ -396,7 +410,7 @@ export default function ProjectDetailPage() {
       
       // Load panels and groups from API
       await Promise.all([
-        loadPanels(),
+        loadAllPanels(),
         loadGroups()
       ])
       
@@ -521,6 +535,89 @@ export default function ProjectDetailPage() {
       setPanelStatuses(statusOverview)
     } catch (error) {
       console.error('❌ Error fetching panel statistics:', error)
+    }
+  }
+
+  const loadAllPanels = async () => {
+    if (!id) return
+    
+    try {
+      setPanelsLoading(true)
+      const response = await authenticatedFetch(getApiUrl(`panels/${id}/all`))
+      
+      if (!response.ok) {
+        console.error('Failed to fetch all panels:', response.status, response.statusText)
+        return
+      }
+      
+      const data = await response.json()
+      const panelsData = data.panels || []
+      console.log('✅ All panels loaded:', panelsData.length)
+      
+      setPanels(panelsData)
+      setTotalPanelCount(panelsData.length)
+      setDisplayedPanelCount(panelsData.length)
+      
+      await calculatePanelStatusCounts()
+    } catch (error) {
+      console.error('Error loading all panels:', error)
+      setPanelStatuses([])
+    } finally {
+      setPanelsLoading(false)
+    }
+  }
+
+  const handleEditProject = async (data: { name: string; description: string; status: string }) => {
+    if (!id || !project) return
+    
+    try {
+      setIsSavingProject(true)
+      const response = await authenticatedFetch(getApiUrl(`projects/${id}`), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      })
+      
+      if (!response.ok) {
+        throw new Error('Failed to update project')
+      }
+      
+      const responseData = await response.json()
+      if (responseData?.project) {
+        setProject(responseData.project)
+      } else if (responseData) {
+        setProject(responseData)
+      }
+      setShowEditProjectModal(false)
+      await refreshUserProjects()
+      await loadProjectData()
+    } catch (error) {
+      console.error('Error updating project:', error)
+      alert('Failed to update project')
+    } finally {
+      setIsSavingProject(false)
+    }
+  }
+
+  const handleDeleteProject = async () => {
+    if (!id) return
+    
+    try {
+      setIsDeletingProject(true)
+      const response = await authenticatedFetch(getApiUrl(`projects/${id}`), {
+        method: 'DELETE'
+      })
+      
+      if (!response.ok) {
+        throw new Error('Failed to delete project')
+      }
+      
+      await refreshUserProjects()
+      navigate('/projects')
+    } catch (error) {
+      console.error('Error deleting project:', error)
+      alert('Failed to delete project')
+      setIsDeletingProject(false)
     }
   }
 
@@ -1300,6 +1397,8 @@ export default function ProjectDetailPage() {
               getStatusConfig={getStatusConfig}
               navigate={navigate}
               openViewer={openViewer}
+              onEditClick={isAdmin ? () => setShowEditProjectModal(true) : undefined}
+              onDeleteClick={isAdmin ? () => setShowDeleteProjectModal(true) : undefined}
             />
           )}
 
@@ -1668,6 +1767,31 @@ export default function ProjectDetailPage() {
           {/* DUPLICATE PANEL MANAGEMENT - REMOVED - USE TAB VERSION INSTEAD */}
         </div>
       </div>
+
+      {/* Edit Project Modal */}
+      {showEditProjectModal && project && (
+        <EditProjectModal
+          project={project}
+          isOpen={showEditProjectModal}
+          onClose={() => setShowEditProjectModal(false)}
+          onSave={handleEditProject}
+          isSaving={isSavingProject}
+        />
+      )}
+
+      {/* Delete Project Modal */}
+      {showDeleteProjectModal && project && (
+        <ConfirmDeleteModal
+          isOpen={showDeleteProjectModal}
+          title="Delete Project"
+          message="Are you sure you want to delete this project? This action cannot be undone. All associated panels, groups, and models will be permanently deleted."
+          itemName={project.name}
+          itemType="project"
+          onConfirm={handleDeleteProject}
+          onCancel={() => setShowDeleteProjectModal(false)}
+          isLoading={isDeletingProject}
+        />
+      )}
     </div>
   )
 }
