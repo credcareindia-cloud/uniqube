@@ -1,7 +1,12 @@
-import React from 'react'
+import React, { useEffect, useRef } from 'react'
 import { Navbar } from './Navbar'
 import { Sidebar } from './Sidebar'
 import { useAuth } from '@/contexts/AuthContext'
+import { useNotifications } from '@/hooks/useNotifications'
+import { Toaster } from '@/components/ui/toaster'
+import { toast } from '@/components/ui/use-toast'
+import { ToastAction } from '@/components/ui/toast'
+import { useNavigate } from 'react-router-dom'
 
 interface AppLayoutProps {
   children: React.ReactNode
@@ -9,6 +14,68 @@ interface AppLayoutProps {
 
 export function AppLayout({ children }: AppLayoutProps) {
   const { user, isLoading: loading } = useAuth()
+  const { notifications, markAsRead } = useNotifications()
+  const shownNotificationIds = useRef<Set<string>>(new Set())
+  const navigate = useNavigate()
+  const sessionSeenRef = useRef<Set<string>>(
+    new Set<string>(
+      (() => {
+        try {
+          const raw = sessionStorage.getItem('seen_project_created_toasts_v1')
+          return raw ? (JSON.parse(raw) as string[]) : []
+        } catch {
+          return []
+        }
+      })()
+    )
+  )
+  const mountedAtRef = useRef<number>(Date.now())
+
+  useEffect(() => {
+    const now = Date.now()
+    const tenMinutes = 10 * 60 * 1000
+
+    notifications.forEach((n) => {
+      if (shownNotificationIds.current.has(n.id)) return
+      if (sessionSeenRef.current.has(n.id)) return
+
+      const title = (n.title || '').toLowerCase()
+      const isSuccess = title.includes('project created') || title.includes('created successfully')
+      if (!isSuccess) return
+
+      // Admin only
+      if (user?.role !== 'ADMIN') return
+
+      // Only unread and recent (last 10 minutes)
+      const createdAtMs = n.createdAt ? new Date(n.createdAt).getTime() : now
+      const isRecent = now - createdAtMs <= tenMinutes
+      const isUnread = !n.read
+
+      // Created by current user if provided; otherwise allow (admin-only flow)
+      const createdByMatches = n.metadata?.createdByUserId ? (n.metadata.createdByUserId === user?.id) : true
+      if (!(isUnread && isRecent && createdByMatches)) return
+
+      shownNotificationIds.current.add(n.id)
+      sessionSeenRef.current.add(n.id)
+      try {
+        sessionStorage.setItem('seen_project_created_toasts_v1', JSON.stringify(Array.from(sessionSeenRef.current)))
+      } catch {}
+
+      toast({
+        title: n.title || 'Project Created Successfully',
+        description: n.message,
+        action: n.metadata?.projectId ? (
+          <ToastAction altText="View Project" onClick={() => navigate(`/projects/${n.metadata!.projectId}`)}>
+            View
+          </ToastAction>
+        ) : undefined,
+        className: 'border-slate-700'
+      })
+
+      // Mark as read to avoid showing again later
+      markAsRead(n.id).catch(() => {})
+    })
+  }, [notifications, navigate, markAsRead, user?.role, user?.id])
 
   if (loading) {
     return (
@@ -82,6 +149,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           {children}
         </div>
       </main>
+    <Toaster />
     </div>
   )
 }

@@ -19,6 +19,8 @@ export function Navbar() {
   const navigate = useNavigate()
   const notificationRef = useRef<HTMLDivElement>(null)
 
+  const unreadNotifications = notifications.filter(n => !n.read)
+
   const toggleMobileMenu = () => {
     setIsMobileMenuOpen(!isMobileMenuOpen)
   }
@@ -179,14 +181,14 @@ export function Navbar() {
                   </div>
 
                   <div className="max-h-96 overflow-y-auto">
-                    {notifications.length === 0 ? (
+                    {unreadNotifications.length === 0 ? (
                       <div className="p-6 text-center text-slate-500">
                         <Bell className="h-8 w-8 mx-auto mb-2 text-slate-300" />
                         <p>No notifications yet</p>
                       </div>
                     ) : (
                       <div className="py-2">
-                        {notifications.slice(0, 5).map((notification) => (
+                        {unreadNotifications.slice(0, 5).map((notification) => (
                           <div
                             key={notification.id}
                             className={`px-4 py-3 hover:bg-slate-50 cursor-pointer border-l-4 ${

@@ -65,7 +65,7 @@ export default function ProfilePage() {
           phone: data.phone || '',
           location: data.location || '',
           company: data.company || '',
-          role: data.userRole || '',
+          role: data.userRole || data.role || '',
           joinDate: data.createdAt ? new Date(data.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : ''
         })
       }
@@ -78,8 +78,8 @@ export default function ProfilePage() {
 
   const loadUserStats = async () => {
     try {
-      // Fetch user's projects
-      const projectsResponse = await authenticatedFetch(getApiUrl('projects-simple'))
+      // Fetch user's projects - corrected endpoint under /api/projects
+      const projectsResponse = await authenticatedFetch(getApiUrl('projects'))
       if (projectsResponse.ok) {
         const projects = await projectsResponse.json()
         
@@ -137,8 +137,7 @@ export default function ProfilePage() {
           name: formData.name,
           phone: formData.phone,
           location: formData.location,
-          company: formData.company,
-          role: formData.role
+          company: formData.company
         })
       })
       
@@ -291,7 +290,7 @@ export default function ProfilePage() {
                     type="email"
                     value={formData.email}
                     onChange={(e) => handleInputChange('email', e.target.value)}
-                    disabled={!isEditing}
+                    disabled={true}
                   />
                 </div>
                 <div className="space-y-2">
@@ -327,7 +326,7 @@ export default function ProfilePage() {
                     id="role"
                     value={formData.role}
                     onChange={(e) => handleInputChange('role', e.target.value)}
-                    disabled={!isEditing}
+                    disabled={true}
                   />
                 </div>
               </div>
