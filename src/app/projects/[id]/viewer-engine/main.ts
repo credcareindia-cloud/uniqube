@@ -1754,6 +1754,14 @@ export async function initializeViewer(containerId: string = "container") {
             showSubmissionsModal(nodeData.localId);
           }
         });
+
+        // Fetch and show badge for unread submissions
+        if (nodeData.localId) {
+          const panelData = localIdPanelMap.get(nodeData.localId);
+          if (panelData && panelData.id) {
+            fetchAndDisplaySubmissionBadge(nodeData.localId, panelData.id);
+          }
+        }
       }
     }
 
@@ -2444,6 +2452,14 @@ export async function initializeViewer(containerId: string = "container") {
                     showSubmissionsModal(nodeData.localId);
                   }
                 });
+
+                // Fetch and show badge for unread submissions
+                if (nodeData.localId) {
+                  const panelData = localIdPanelMap.get(nodeData.localId);
+                  if (panelData && panelData.id) {
+                    fetchAndDisplaySubmissionBadge(nodeData.localId, panelData.id);
+                  }
+                }
               }
             }
 
@@ -5341,19 +5357,52 @@ export async function initializeViewer(containerId: string = "container") {
     };
   };
 
-  // Update submission count badge
-  const updateSubmissionCount = (elementId: number) => {
-    const submissionCountEl = document.getElementById("submission-count");
-    if (!submissionCountEl) return;
+  // Helper to fetch and display submission badge (unread count)
+  const fetchAndDisplaySubmissionBadge = async (elementId: number, panelId: string) => {
+    const badge = document.getElementById('submission-count');
+    if (!badge) return;
 
-    const count = elementSubmissions.filter(s => s.elementId === elementId).length;
-    submissionCountEl.textContent = count.toString();
+    try {
+      const token = localStorage.getItem('auth_token');
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
 
-    if (count > 0) {
-      submissionCountEl.style.display = "block";
-    } else {
-      submissionCountEl.style.display = "none";
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/status-management/history/${panelId}`, {
+        method: 'GET',
+        headers: headers,
+      });
+
+      if (!response.ok) return;
+
+      const data = await response.json();
+      const history = data.history || [];
+      const totalCount = history.length;
+
+      // Get last viewed count
+      const viewedKey = `submissions_viewed_${panelId}`;
+      const lastViewedCount = parseInt(localStorage.getItem(viewedKey) || '0');
+
+      const unreadCount = Math.max(0, totalCount - lastViewedCount);
+
+      badge.textContent = unreadCount.toString();
+
+      // Show badge if there are unread items
+      badge.style.display = unreadCount > 0 ? 'flex' : 'none';
+
+    } catch (e) {
+      console.error('Failed to fetch submission count', e);
+      badge.style.display = 'none';
     }
+  };
+
+  // Update submission count badge (Legacy - kept for compatibility but unused for badge)
+  const updateSubmissionCount = (elementId: number) => {
+    // This function is replaced by fetchAndDisplaySubmissionBadge which handles unread counts
   };
 
   // QR Code Modal
@@ -5698,15 +5747,306 @@ export async function initializeViewer(containerId: string = "container") {
     });
   };
 
-  const showSubmissionsModal = (elementId: number) => {
-    if (!submissionsModal) return;
+  const showSubmissionsModal = async (elementId: number) => {
+    if (!submissionsModal || !submissionsList) return;
 
-    // Reload submissions from localStorage
-    elementSubmissions = loadSubmissions();
-
-    renderSubmissions(elementId);
+    // Show loading state
+    submissionsList.innerHTML = `
+      <div class="empty-submissions">
+        <i class="fas fa-spinner fa-spin"></i>
+        <p>Loading submissions...</p>
+      </div>
+    `;
     submissionsModal.classList.add("show");
+
+    try {
+      // Get the panel UUID from the element ID using localIdPanelMap
+      const panelData = localIdPanelMap.get(elementId);
+
+      if (!panelData || !panelData.id) {
+        console.error('Panel data not found for element ID:', elementId);
+        submissionsList.innerHTML = `
+          <div class="empty-submissions">
+            <i class="fas fa-exclamation-triangle" style="color: #e74c3c;"></i>
+            <p>Panel data not found</p>
+            <p style="font-size: 12px; opacity: 0.7; margin-top: 8px;">Element ID: ${elementId}</p>
+          </div>
+        `;
+        return;
+      }
+
+      const panelId = panelData.id; // This is the UUID string
+      console.log(`📊 Fetching status history for panel: ${panelId} (element ID: ${elementId})`);
+
+      // Fetch status history from database
+      const token = localStorage.getItem('auth_token');
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/status-management/history/${panelId}`, {
+        method: 'GET',
+        headers: headers,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch status history: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      const history = data.history || [];
+      const allStatuses = data.allStatuses || [];
+
+      // Create a map for quick status lookup
+      const statusMap = new Map();
+      allStatuses.forEach((s: any) => statusMap.set(s.id, s));
+
+      console.log(`✅ Fetched ${history.length} history entries for panel ${panelId}`);
+
+      // Update read count in localStorage
+      const viewedKey = `submissions_viewed_${panelId}`;
+      localStorage.setItem(viewedKey, history.length.toString());
+
+      // Update badge immediately to 0 (hidden) since we are viewing them
+      const badge = document.getElementById('submission-count');
+      if (badge) badge.style.display = 'none';
+
+      // Render the history
+      if (history.length === 0) {
+        submissionsList.innerHTML = `
+          <div class="empty-submissions">
+            <i class="fas fa-inbox"></i>
+            <p>No submissions yet for this element</p>
+          </div>
+        `;
+        return;
+      }
+
+      submissionsList.innerHTML = "";
+
+      history.forEach((entry: any) => {
+        const status = entry.status;
+        const timestamp = new Date(entry.createdAt).toLocaleString();
+        const iconClass = status ? getIconClass(status.icon) : 'fa-circle';
+
+        // Parse note and snapshot
+        let note = entry.notes || '';
+        let snapshotIds: string[] = [];
+
+        if (note.includes('\n\n---\nSNAPSHOT:')) {
+          const parts = note.split('\n\n---\nSNAPSHOT:');
+          note = parts[0];
+          try {
+            snapshotIds = JSON.parse(parts[1]);
+          } catch (e) {
+            console.error('Error parsing snapshot:', e);
+          }
+        }
+
+        // Extract reporter name from notes if it exists
+        let reporterName = entry.user?.name || 'Unknown';
+
+        // Check if notes contain "Reporter: " prefix
+        if (note.startsWith('Reporter: ')) {
+          const lines = note.split('\n');
+          const reporterLine = lines[0].replace('Reporter: ', '');
+          reporterName = reporterLine;
+          note = lines.slice(1).join('\n').trim();
+        }
+
+        const subItem = document.createElement("div");
+        subItem.className = "submission-item";
+
+        // Add click handler to show detail modal
+        subItem.onclick = () => showSubmissionDetail(entry, status, reporterName, note, snapshotIds, statusMap);
+
+        // Action color class
+        const actionClass = entry.action === 'ASSIGNED' ? 'assigned' : (entry.action === 'REMOVED' ? 'removed' : (entry.action === 'UPDATED' ? 'updated' : ''));
+
+        // Generate snapshot HTML (limited/compact - just icons like the STATUS screenshot)
+        const snapshotHtml = snapshotIds.length > 0 ? `
+          <div class="submission-snapshot" style="display: flex; gap: 8px; align-items: center;">
+            ${snapshotIds.slice(0, 4).map(id => {
+          const s = statusMap.get(id);
+          if (!s) return '';
+          return `
+                <div style="color: ${s.color}; font-size: 16px; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px;" title="${s.name}">
+                  <i data-lucide="${getIconClass(s.icon)}"></i>
+                </div>
+              `;
+        }).join('')}
+            ${snapshotIds.length > 4 ? `<div style="font-size: 12px; color: var(--slate-400); font-weight: 600;">+${snapshotIds.length - 4}</div>` : ''}
+          </div>
+        ` : '';
+
+        subItem.innerHTML = `
+          <div class="submission-header">
+            <div class="submission-status">
+              <i data-lucide="${iconClass}" style="color: ${status?.color || '#00e5ff'};"></i>
+              <span>${status?.name || 'Unknown Status'}</span>
+              <span class="submission-action ${actionClass}" style="margin-left: 8px; font-size: 11px; opacity: 0.9;">(${entry.action})</span>
+            </div>
+            <div class="submission-timestamp">${timestamp}</div>
+          </div>
+          ${note ? `<div class="submission-note">${note}</div>` : ''}
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--slate-100);">
+            <div class="submission-reporter">
+              <i class="fas fa-user"></i>
+              <span>${reporterName}</span>
+            </div>
+            ${snapshotHtml}
+          </div>
+        `;
+
+        submissionsList.appendChild(subItem);
+      });
+
+      // Initialize Lucide icons after rendering
+      setTimeout(() => initializeLucideIcons(), 50);
+
+    } catch (error) {
+      console.error('Error loading status history:', error);
+      submissionsList.innerHTML = `
+        <div class="empty-submissions">
+          <i class="fas fa-exclamation-triangle" style="color: #e74c3c;"></i>
+          <p>Failed to load submissions</p>
+          <p style="font-size: 12px; opacity: 0.7; margin-top: 8px;">Please try again later</p>
+        </div>
+      `;
+    }
   };
+
+  // Show submission detail modal
+  const showSubmissionDetail = (entry: any, status: any, reporterName: string, note: string, snapshotIds: string[], statusMap: Map<string, any>) => {
+    const detailModal = document.getElementById("submissionDetailModal");
+    const detailContent = document.getElementById("submission-detail-content");
+
+    if (!detailModal || !detailContent) return;
+
+    const timestamp = new Date(entry.createdAt).toLocaleString();
+    const iconClass = status ? getIconClass(status.icon) : 'fa-circle';
+    const actionColor = entry.action === 'ASSIGNED' ? '#10b981' : (entry.action === 'REMOVED' ? '#ef4444' : (entry.action === 'UPDATED' ? '#3b82f6' : 'var(--slate-500)'));
+
+    // Generate full snapshot HTML (pill style like the Statuses screenshot)
+    const fullSnapshotHtml = snapshotIds.length > 0 ? `
+      <div>
+        <div style="font-size: 14px; font-weight: 600; color: var(--slate-700); margin-bottom: 12px;">
+          <i data-lucide="layers" style="margin-right: 6px;"></i>Panel Status Snapshot
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 12px;">
+          ${snapshotIds.map(id => {
+      const s = statusMap.get(id);
+      if (!s) return '';
+      // Create a light background color based on the status color (using opacity)
+      // Since we can't easily manipulate hex to rgba here without a helper, we'll use a generic light background
+      // and use the status color for the text/icon/border
+      return `
+              <div style="
+                display: flex; 
+                align-items: center; 
+                gap: 8px; 
+                padding: 8px 16px; 
+                background: ${s.color}15; 
+                border-radius: 8px; 
+                border: 1px solid ${s.color}40; 
+                color: ${s.color};
+                font-weight: 500;
+                font-size: 14px;
+              ">
+                <i data-lucide="${getIconClass(s.icon)}" style="font-size: 16px;"></i>
+                <span>${s.name}</span>
+              </div>
+            `;
+    }).join('')}
+        </div>
+      </div>
+    ` : '';
+
+    detailContent.innerHTML = `
+      <div style="display: flex; flex-direction: column; gap: 24px;">
+        <div style="padding: 20px; background: var(--slate-50); border-radius: 12px; border-left: 4px solid ${status?.color || '#00e5ff'}; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+          <div style="display: flex; align-items: center; gap: 16px;">
+            <div style="
+              width: 48px; 
+              height: 48px; 
+              border-radius: 12px; 
+              background: ${status?.color || '#00e5ff'}20; 
+              display: flex; 
+              align-items: center; 
+              justify-content: center;
+            ">
+              <i data-lucide="${iconClass}" style="color: ${status?.color || '#00e5ff'}; font-size: 24px;"></i>
+            </div>
+            <div>
+              <div style="font-size: 20px; font-weight: 700; color: var(--slate-900);">${status?.name || 'Unknown Status'}</div>
+              <div style="font-size: 14px; color: var(--slate-500); margin-top: 4px;">
+                <span style="font-weight: 700; color: ${actionColor};">${entry.action}</span> on ${timestamp}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        ${note ? `
+          <div>
+            <div style="font-size: 14px; font-weight: 600; color: var(--slate-700); margin-bottom: 8px;">
+              <i data-lucide="sticky-note" style="margin-right: 6px;"></i>Notes
+            </div>
+            <div style="padding: 16px; background: white; border-radius: 8px; border: 1px solid var(--slate-200); color: var(--slate-700); line-height: 1.6; white-space: pre-wrap;">
+              ${note}
+            </div>
+          </div>
+        ` : ''}
+
+        ${fullSnapshotHtml}
+
+        <div>
+          <div style="font-size: 14px; font-weight: 600; color: var(--slate-700); margin-bottom: 8px;">
+            <i data-lucide="user" style="margin-right: 6px;"></i>Reporter
+          </div>
+          <div style="padding: 12px 16px; background: var(--slate-50); border-radius: 8px; color: var(--slate-900); font-weight: 500; display: inline-block;">
+            ${reporterName}
+          </div>
+        </div>
+      </div>
+    `;
+
+    detailModal.classList.add("show");
+
+    // Initialize Lucide icons after rendering
+    setTimeout(() => initializeLucideIcons(), 50);
+  };
+
+  // Close submission detail modal
+  const closeSubmissionDetailModal = () => {
+    const detailModal = document.getElementById("submissionDetailModal");
+    if (detailModal) {
+      detailModal.classList.remove("show");
+    }
+  };
+
+  const submissionDetailCloseBtn = document.getElementById("submission-detail-modal-close-btn");
+  const closeSubmissionDetailBtn = document.getElementById("close-submission-detail-btn");
+  const submissionDetailModal = document.getElementById("submissionDetailModal");
+
+  if (submissionDetailCloseBtn) {
+    submissionDetailCloseBtn.addEventListener("click", closeSubmissionDetailModal);
+  }
+
+  if (closeSubmissionDetailBtn) {
+    closeSubmissionDetailBtn.addEventListener("click", closeSubmissionDetailModal);
+  }
+
+  if (submissionDetailModal) {
+    submissionDetailModal.addEventListener("click", (e) => {
+      if (e.target === submissionDetailModal) {
+        closeSubmissionDetailModal();
+      }
+    });
+  }
 
   const closeSubmissionsModalFn = () => {
     if (submissionsModal) {

@@ -942,6 +942,24 @@ export default function ViewerPage() {
         </div>
       </div>
 
+      {/* Submission Detail Modal */}
+      <div id="submissionDetailModal" className="modal" style={{ display: 'none' }}>
+        <div className="modal-content">
+          <div className="modal-header">
+            <h3>Submission Details</h3>
+            <button id="submission-detail-modal-close-btn"><i className="fas fa-times"></i></button>
+          </div>
+          <div className="modal-body">
+            <div id="submission-detail-content">
+              {/* Detail content will be populated here */}
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button id="close-submission-detail-btn" className="btn-secondary">Close</button>
+          </div>
+        </div>
+      </div>
+
       {/* Select Status Modal */}
       <div id="selectStatusModal" className="modal" style={{ display: 'none' }}>
         <div className="modal-content">

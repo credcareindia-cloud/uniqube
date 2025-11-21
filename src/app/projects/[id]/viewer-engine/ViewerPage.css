@@ -1963,6 +1963,42 @@ body.mode-2d #infoPanel {
   line-height: 1.5;
 }
 
+.submission-action.assigned {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.submission-action.removed {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.submission-action.updated {
+  color: #3b82f6;
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.submission-snapshot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  /* Push to right */
+  padding-left: 12px;
+}
+
+.snapshot-icon {
+  font-size: 14px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--slate-100);
+  border-radius: 50%;
+  border: 1px solid var(--slate-200);
+}
+
 /* Submissions List */
 .submissions-list {
   display: flex;
@@ -1970,6 +2006,8 @@ body.mode-2d #infoPanel {
   gap: 12px;
   max-height: 500px;
   overflow-y: auto;
+  overflow-x: hidden;
+  /* Prevent horizontal scroll */
 }
 
 .submission-item {
@@ -1979,6 +2017,14 @@ body.mode-2d #infoPanel {
   padding: 16px;
   transition: all 0.2s;
   border: 1px solid var(--slate-200);
+  cursor: pointer;
+  /* Make clickable for detail view */
+  max-width: 100%;
+  /* Prevent overflow */
+  word-wrap: break-word;
+  /* Break long words */
+  overflow-wrap: break-word;
+  /* Modern browsers */
 }
 
 .submission-item:hover {
@@ -1992,6 +2038,10 @@ body.mode-2d #infoPanel {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 12px;
+  gap: 12px;
+  /* Add gap to prevent overlap */
+  flex-wrap: wrap;
+  /* Allow wrapping on small screens */
 }
 
 .submission-status {
@@ -2001,12 +2051,23 @@ body.mode-2d #infoPanel {
   font-weight: 700;
   font-size: 15px;
   color: var(--slate-900);
+  flex: 1;
+  min-width: 0;
+  /* Allow flex item to shrink */
+}
+
+.submission-status span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .submission-timestamp {
   font-size: 12px;
   color: var(--slate-500);
   font-weight: 500;
+  white-space: nowrap;
+  /* Keep timestamp on one line */
 }
 
 .submission-note {
@@ -2018,6 +2079,16 @@ body.mode-2d #infoPanel {
   background: white;
   border-radius: 6px;
   border: 1px solid var(--slate-200);
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  max-height: 100px;
+  /* Limit note height */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  /* Show max 4 lines */
+  -webkit-box-orient: vertical;
 }
 
 .submission-reporter {

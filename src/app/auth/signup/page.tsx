@@ -6,7 +6,7 @@ import { Eye, EyeOff, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 const SignupPage: React.FC = () => {
   const navigate = useNavigate();
   const { register } = useAuth();
-  
+
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -14,7 +14,7 @@ const SignupPage: React.FC = () => {
     password: '',
     confirmPassword: '',
   });
-  
+
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -33,12 +33,12 @@ const SignupPage: React.FC = () => {
       setError('Password must be at least 8 characters long');
       return false;
     }
-    
+
     if (formData.password !== formData.confirmPassword) {
       setError('Passwords do not match');
       return false;
     }
-    
+
     return true;
   };
 
