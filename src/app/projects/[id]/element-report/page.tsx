@@ -304,7 +304,7 @@ export default function ElementReportPage() {
                             <ArrowLeft className="w-5 h-5" />
                         </button> */}
                         <div>
-                            <h1 className="text-lg font-bold text-slate-900 leading-tight">
+                            <h1 className="text-lg font- font-bold text-slate-900 leading-tight">
                                 Element Report
                             </h1>
                         </div>
@@ -423,33 +423,43 @@ export default function ElementReportPage() {
                                     <label className="block text-sm font-medium text-slate-700 mb-3">
                                         Edit Status
                                     </label>
-                                    <div className="grid grid-cols-2 gap-2">
-                                        {availableStatuses.map((status) => {
-                                            const StatusIcon = getIconComponent(status.icon)
-                                            const isSelected = selectedStatusIds.includes(status.id)
+                                    {availableStatuses.length === 0 ? (
+                                        <div className="text-center py-8 px-4 bg-slate-50 border border-slate-200 rounded-lg">
+                                            <div className="text-slate-400 mb-2">
+                                                <LucideIcons.AlertCircle className="w-12 h-12 mx-auto mb-3" />
+                                            </div>
+                                            <p className="text-slate-600 font-medium mb-1">No Statuses Available</p>
+                                            <p className="text-sm text-slate-500">Please create statuses in the project settings first.</p>
+                                        </div>
+                                    ) : (
+                                        <div className="grid grid-cols-2 gap-2">
+                                            {availableStatuses.map((status) => {
+                                                const StatusIcon = getIconComponent(status.icon)
+                                                const isSelected = selectedStatusIds.includes(status.id)
 
-                                            return (
-                                                <button
-                                                    key={status.id}
-                                                    type="button"
-                                                    onClick={() => toggleStatus(status.id)}
-                                                    className={`px-4 py-3 rounded-lg border transition-all text-sm font-medium flex items-center gap-2 ${isSelected
-                                                        ? 'border-[#3A7BD5] bg-[rgba(58,123,213,0.1)] text-slate-900 ring-1 ring-[#3A7BD5]'
-                                                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
-                                                        }`}
-                                                >
-                                                    <StatusIcon
-                                                        className="w-4 h-4"
-                                                        style={{ color: status.color }}
-                                                    />
-                                                    {status.name}
-                                                    {isSelected && (
-                                                        <CheckCircle className="w-4 h-4 ml-auto text-[#3A7BD5]" />
-                                                    )}
-                                                </button>
-                                            )
-                                        })}
-                                    </div>
+                                                return (
+                                                    <button
+                                                        key={status.id}
+                                                        type="button"
+                                                        onClick={() => toggleStatus(status.id)}
+                                                        className={`px-4 py-3 rounded-lg border transition-all text-sm font-medium flex items-center gap-2 ${isSelected
+                                                            ? 'border-[#3A7BD5] bg-[rgba(58,123,213,0.1)] text-slate-900 ring-1 ring-[#3A7BD5]'
+                                                            : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                                                            }`}
+                                                    >
+                                                        <StatusIcon
+                                                            className="w-4 h-4"
+                                                            style={{ color: status.color }}
+                                                        />
+                                                        {status.name}
+                                                        {isSelected && (
+                                                            <CheckCircle className="w-4 h-4 ml-auto text-[#3A7BD5]" />
+                                                        )}
+                                                    </button>
+                                                )
+                                            })}
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* Reporter Name */}
