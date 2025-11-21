@@ -151,25 +151,31 @@ body {
 /* TreeView Container */
 #tree-panel {
   pointer-events: all !important;
-  height: calc(100% - 104px) !important;
-  overflow-y: auto !important;
-  overflow-x: hidden !important;
+  height: calc(100% - 140px) !important;
+  /* Increased gap for footer */
+  overflow: hidden !important;
+  /* Flex container handles scroll */
   position: absolute !important;
-  background-color: var(--panel-bg) !important;
+  background: rgba(255, 255, 255, 0.65) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
   color: var(--slate-900) !important;
-  top: 64px !important;
+  top: 80px !important;
+  /* Increased top spacing */
   z-index: 100 !important;
-  left: 0 !important;
+  left: 16px !important;
+  /* Increased left spacing */
   padding: 20px !important;
   font-size: 14px !important;
   user-select: none !important;
-  width: 350px !important;
-  border-radius: 0 12px 12px 0 !important;
-  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.08) !important;
+  width: 320px !important;
+  border-radius: 16px !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08) !important;
   transform: translateX(0) !important;
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-  border-right: 1px solid var(--panel-border) !important;
-  display: block !important;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease !important;
+  border: 1px solid rgba(255, 255, 255, 0.4) !important;
+  display: flex !important;
+  flex-direction: column !important;
   visibility: visible !important;
   opacity: 1 !important;
   will-change: transform !important;
@@ -240,43 +246,111 @@ body {
 
 /* Tree Container */
 .tree-container {
-  max-height: calc(100vh - 200px);
+  flex: 1;
+  /* Take remaining space */
   overflow-y: auto;
-  padding: 8px;
-  background: var(--slate-50);
+  /* Scroll here */
+  padding: 4px 4px 4px 0;
+  /* Reduced left padding */
+  background: transparent;
   border-radius: 8px;
-  border: 1px solid var(--slate-200);
+  border: none;
+  /* Custom scrollbar for this container */
+  scrollbar-width: thin;
+  scrollbar-color: var(--slate-300) transparent;
 }
 
 .tree-node-container {
-  margin: 2px 0;
+  margin: 0;
+  position: relative;
+  padding-left: 0;
+}
+
+/* Vertical Line Segment for each node */
+.tree-node-container::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background-color: var(--slate-300);
+  opacity: 0.6;
+}
+
+/* Stop the line at the middle for the last child */
+.tree-node-container:last-child::before {
+  height: 22px;
+  /* Adjust to hit middle of node */
+  bottom: auto;
 }
 
 .tree-node {
-  padding: 10px 12px;
+  padding: 6px 8px;
   cursor: pointer;
-  border-radius: 8px;
-  transition: all 0.2s;
+  border-radius: 6px;
+  transition: all 0.2s ease;
   display: flex;
   align-items: center;
   gap: 8px;
   user-select: none;
   position: relative;
-  border-left: 3px solid transparent;
-  background: white;
-  margin-bottom: 4px;
+  background: transparent;
+  margin-bottom: 2px;
+  border: 1px solid transparent;
+  margin-left: 20px;
+  /* Space for the curve */
+}
+
+/* Thread: Curved Connector to Icon */
+.tree-node::before {
+  content: '';
+  position: absolute;
+  left: -20px;
+  /* Connect to the vertical line at 0 */
+  top: -12px;
+  /* Start from above */
+  width: 20px;
+  /* Reach the node start */
+  height: 30px;
+  /* Height to reach middle */
+  border-bottom: 1px solid var(--slate-300);
+  border-left: 1px solid var(--slate-300);
+  border-bottom-left-radius: 12px;
+  /* Smooth curve */
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+/* Remove thread for root nodes (Models) */
+.model-node::before {
+  display: none;
+}
+
+/* Root nodes don't need indentation or lines */
+.model-node {
+  margin-left: 0;
+}
+
+.tree-node-container:has(.model-node)::before {
+  display: none;
 }
 
 .tree-node:hover {
-  background: var(--slate-50);
+  background: rgba(255, 255, 255, 0.5);
   transform: translateX(2px);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  border-color: rgba(255, 255, 255, 0.8);
 }
 
 .tree-node.selected {
-  background: var(--slate-100);
-  border-left-color: var(--primary);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.8);
+  border-color: var(--primary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  font-weight: 500;
+}
+
+.tree-node.selected .tree-label {
+  color: var(--primary-dark);
 }
 
 .tree-node.highlighted {
@@ -325,8 +399,19 @@ body {
 
 .tree-children {
   margin-left: 20px;
-  overflow: hidden;
+  /* Indent for the next level */
+  padding-left: 0;
+  overflow: visible;
   transition: max-height 0.3s ease, opacity 0.3s ease;
+  position: relative;
+  border-left: none;
+  /* Removed continuous border */
+}
+
+/* Hide vertical line if no children or collapsed */
+.tree-children:empty,
+.tree-children.collapsed {
+  border-left-color: transparent;
 }
 
 .tree-children.collapsed {
@@ -461,16 +546,21 @@ body {
 /* Info Panel */
 .info-panel {
   position: absolute;
-  right: 0;
-  top: 64px;
-  height: calc(100% - 104px);
-  width: 350px;
-  background-color: var(--panel-bg);
+  right: 10px;
+  /* Spacing */
+  top: 74px;
+  /* Spacing */
+  height: calc(100% - 84px);
+  width: 320px;
+  background: rgba(255, 255, 255, 0.65);
+  /* Glassmorphism */
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   color: var(--slate-900);
   padding: 20px;
-  border-radius: 12px 0 0 12px;
-  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.08);
-  border-left: 1px solid var(--panel-border);
+  border-radius: 16px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.4);
   z-index: 100;
   transform: translateX(360px);
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -609,11 +699,13 @@ body {
 
 /* Model children container */
 .model-children {
-  margin-left: 0;
+  margin-left: 20px;
   overflow: visible;
   max-height: none;
   opacity: 1;
   transition: max-height 0.3s ease, opacity 0.3s ease;
+  position: relative;
+  border-left: none;
 }
 
 .model-children.collapsed {
@@ -624,11 +716,13 @@ body {
 
 /* Storey children container */
 .storey-children {
-  margin-left: 0;
+  margin-left: 20px;
   overflow: visible;
   max-height: none;
   opacity: 1;
   transition: max-height 0.3s ease, opacity 0.3s ease;
+  position: relative;
+  border-left: none;
 }
 
 .storey-children.collapsed {
@@ -732,11 +826,13 @@ body {
 body.mode-2d #tree-panel {
   transform: translateX(-120%) !important;
 }
+
 body.mode-2d #statusPanel,
 body.mode-2d #groupsPanel,
 body.mode-2d #infoPanel {
   transform: translateX(120%) !important;
 }
+
 body.mode-2d #tree-panel,
 body.mode-2d #statusPanel,
 body.mode-2d #groupsPanel,
@@ -940,6 +1036,7 @@ body.mode-2d #infoPanel {
   from {
     opacity: 0;
   }
+
   to {
     opacity: 1;
   }
@@ -960,6 +1057,7 @@ body.mode-2d #infoPanel {
     transform: translateY(30px);
     opacity: 0;
   }
+
   to {
     transform: translateY(0);
     opacity: 1;
@@ -1962,8 +2060,13 @@ body.mode-2d #infoPanel {
 }
 
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 /* Disabled toolbar buttons in 2D mode */
@@ -2008,6 +2111,7 @@ body.mode-2d #infoPanel {
     opacity: 0;
     transform: translateX(100%);
   }
+
   to {
     opacity: 1;
     transform: translateX(0);
@@ -2155,6 +2259,7 @@ body.mode-2d #infoPanel {
   0% {
     transform: rotate(0deg);
   }
+
   100% {
     transform: rotate(360deg);
   }
@@ -2162,4 +2267,267 @@ body.mode-2d #infoPanel {
 
 .loading-spinner {
   animation: spin 1s linear infinite;
+}
+
+/* Loading & Error Screens */
+.viewer-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  z-index: 9999;
+  overflow: hidden;
+  background: linear-gradient(135deg, var(--slate-50) 0%, var(--slate-100) 100%);
+}
+
+.loading-content {
+  max-width: 480px;
+  width: 90%;
+  text-align: center;
+  position: relative;
+  z-index: 10;
+}
+
+.loader-icon-container {
+  margin-bottom: 48px;
+  display: flex;
+  justify-content: center;
+  position: relative;
+}
+
+.loader-spinner {
+  width: 80px;
+  height: 80px;
+  border: 4px solid rgba(71, 85, 105, 0.1);
+  border-top: 4px solid var(--primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.loader-logo {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 24px;
+  color: var(--primary);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.loader-title {
+  font-size: clamp(1.5rem, 4vw, 2rem);
+  font-weight: 700;
+  color: var(--slate-900);
+  margin: 0 0 8px 0;
+  letter-spacing: -0.025em;
+}
+
+.loader-subtitle {
+  font-size: clamp(0.875rem, 2vw, 1rem);
+  font-weight: 500;
+  color: var(--slate-500);
+  margin: 0 0 40px 0;
+}
+
+.loader-card {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 20px;
+  padding: 32px;
+  margin-bottom: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.04);
+}
+
+.loader-status {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--slate-700);
+  margin: 0 0 20px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.progress-track {
+  height: 6px;
+  background: var(--slate-200);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--primary);
+  width: 0%;
+  transition: width 0.3s ease-out;
+  border-radius: 3px;
+}
+
+.progress-stats {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.875rem;
+}
+
+.progress-label {
+  color: var(--slate-500);
+  font-weight: 500;
+}
+
+.progress-value {
+  color: var(--slate-900);
+  font-weight: 600;
+}
+
+.loading-dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  background: var(--slate-400);
+  border-radius: 50%;
+  animation: bounce 1.4s infinite ease-in-out both;
+}
+
+.dot:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.dot:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+/* Error Screen */
+.error-card {
+  max-width: 480px;
+  width: 90%;
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 24px;
+  padding: 40px;
+  text-align: center;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+}
+
+.error-icon {
+  width: 72px;
+  height: 72px;
+  background: #fee2e2;
+  color: #dc2626;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 24px;
+  font-size: 32px;
+}
+
+.error-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--slate-900);
+  margin: 0 0 12px 0;
+}
+
+.error-message {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 24px;
+  color: #b91c1c;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  text-align: left;
+}
+
+.error-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.btn-reload {
+  background: var(--primary);
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 140px;
+  justify-content: center;
+}
+
+.btn-reload:hover {
+  background: var(--primary-dark);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(71, 85, 105, 0.2);
+}
+
+.btn-reload.btn-secondary {
+  background: transparent;
+  color: var(--slate-700);
+  border: 2px solid var(--slate-300);
+}
+
+.btn-reload.btn-secondary:hover {
+  background: var(--slate-100);
+  border-color: var(--slate-400);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pulse {
+
+  0%,
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  50% {
+    opacity: 0.7;
+    transform: translate(-50%, -50%) scale(0.95);
+  }
+}
+
+@keyframes bounce {
+
+  0%,
+  80%,
+  100% {
+    transform: scale(0);
+  }
+
+  40% {
+    transform: scale(1);
+  }
 }

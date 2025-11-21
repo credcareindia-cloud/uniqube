@@ -3,22 +3,27 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import './ViewerPage.css';
 import { FloorSelector } from './FloorSelector';
 
+// Import custom error types
+import type { ProjectNotFoundError, NetworkError, ModelLoadError, WebGLError } from './main';
+
 export default function ViewerPage() {
   const { id: projectId } = useParams();
   const [searchParams] = useSearchParams();
   const modelId = searchParams.get('model');
-  
+
   // State management
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [errorType, setErrorType] = useState<string | null>(null);
+  const [loadingProgress, setLoadingProgress] = useState(0);
+  const [loadingStatus, setLoadingStatus] = useState('Initializing viewer...');
   const containerRef = useRef<HTMLDivElement>(null);
   const mainScriptRef = useRef(false);
-  const fallbackTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [statusPanelVisible, setStatusPanelVisible] = useState(false);
   const [selectedElement, setSelectedElement] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [treePanelVisible, setTreePanelVisible] = useState(false);
-  
+
   // 2D Views state
   const [viewer, setViewer] = useState<any>(null);
   const [is2DMode, setIs2DMode] = useState(false);
@@ -45,14 +50,14 @@ export default function ViewerPage() {
       }
 
       // Disable toolbar buttons
-      ['tree-toggle-btn','status-toggle-btn','groups-toggle-btn','selection-tool-btn'].forEach(id => {
+      ['tree-toggle-btn', 'status-toggle-btn', 'groups-toggle-btn', 'selection-tool-btn'].forEach(id => {
         const el = document.getElementById(id);
         if (el) {
           el.classList.remove('active');
           el.removeAttribute('aria-expanded');
           el.removeAttribute('aria-pressed');
           el.classList.add('disabled-in-2d');
-          el.setAttribute('disabled','true');
+          el.setAttribute('disabled', 'true');
         }
       });
 
@@ -66,7 +71,7 @@ export default function ViewerPage() {
       document.body.classList.remove('mode-2d');
 
       // Re-enable toolbar buttons
-      ['tree-toggle-btn','status-toggle-btn','groups-toggle-btn','selection-tool-btn'].forEach(id => {
+      ['tree-toggle-btn', 'status-toggle-btn', 'groups-toggle-btn', 'selection-tool-btn'].forEach(id => {
         const el = document.getElementById(id);
         if (el) {
           el.classList.remove('disabled-in-2d');
@@ -75,7 +80,7 @@ export default function ViewerPage() {
       });
 
       // Reset any forced styles on panels
-      ['tree-panel','statusPanel','groupsPanel','infoPanel'].forEach(id => {
+      ['tree-panel', 'statusPanel', 'groupsPanel', 'infoPanel'].forEach(id => {
         const panel = document.getElementById(id) as HTMLElement | null;
         if (panel) {
           panel.style.transform = '';
@@ -89,6 +94,25 @@ export default function ViewerPage() {
   }, [is2DMode]);
   const [floorPanelVisible, setFloorPanelVisible] = useState(false);
 
+  // Initialize Lucide icons when error state changes
+  useEffect(() => {
+    if (error && (window as any).lucide) {
+      setTimeout(() => {
+        (window as any).lucide.createIcons();
+      }, 100);
+    }
+  }, [error]);
+
+  // Initialize Lucide icons when loading state changes
+  useEffect(() => {
+    if (isLoading && (window as any).lucide) {
+      setTimeout(() => {
+        (window as any).lucide.createIcons();
+      }, 100);
+    }
+  }, [isLoading]); ''
+
+
   // Initialize the 3D viewer when container is attached
   const initializeViewer = async (containerElement: HTMLDivElement) => {
     if (mainScriptRef.current) {
@@ -99,7 +123,10 @@ export default function ViewerPage() {
     try {
       setIsLoading(true);
       setError(null);
+      setLoadingProgress(0);
+      setLoadingStatus('Initializing viewer...');
       mainScriptRef.current = true;
+
 
       console.log('🔄 Starting viewer initialization...');
       console.log('📍 Container element:', containerElement);
@@ -123,7 +150,7 @@ export default function ViewerPage() {
       if (modelId) {
         urlParams.set('model', modelId);
       }
-      
+
       // Update the URL search params for the main script
       const newUrl = `${window.location.pathname}?${urlParams.toString()}`;
       window.history.replaceState({}, '', newUrl);
@@ -134,47 +161,80 @@ export default function ViewerPage() {
       // Verify container is accessible
       const verifyContainer = document.getElementById('container');
       console.log('🔍 Verifying container accessibility:', !!verifyContainer);
-      
+
       if (!verifyContainer) {
         throw new Error('Container element not accessible in DOM');
       }
 
       console.log('📦 Importing and initializing viewer...');
+
+      // Setup progress listener before import
+      const handleProgress = (event: CustomEvent) => {
+        setLoadingProgress(Math.min(event.detail.progress, 99));
+        setLoadingStatus(event.detail.status);
+      };
+
+      window.addEventListener('viewer-progress' as any, handleProgress);
+
       // Import and call the initialization function
       const { initializeViewer } = await import('./main');
-      
-      // Add timeout to prevent infinite loading (increased to 120s for large models)
-      const initializationPromise = initializeViewer('container');
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Viewer initialization timeout after 120 seconds')), 120000);
-      });
-      
-      console.log('⏳ Starting viewer initialization with 120s timeout...');
-      const viewerInstance = await Promise.race([initializationPromise, timeoutPromise]);
-      
+
+      console.log('⏳ Starting viewer initialization...');
+      const viewerInstance = await initializeViewer('container');
+
       console.log('✅ Viewer initialized successfully:', viewerInstance);
-      
+
       // Store viewer instance for 2D views access
       setViewer(viewerInstance);
-      
+
+      // Final progress update
+      setLoadingProgress(100);
+      setLoadingStatus('Finalizing...');
+
       // Shorter delay - no need to wait so long
       await new Promise(resolve => setTimeout(resolve, 300));
-      
+
       setIsLoading(false);
       console.log('🎯 Loading overlay removed');
-      if (fallbackTimeoutRef.current) {
-        clearTimeout(fallbackTimeoutRef.current);
-        fallbackTimeoutRef.current = null;
-      }
+
+      // Cleanup progress listener
+      window.removeEventListener('viewer-progress' as any, handleProgress);
     } catch (err) {
       console.error('❌ Failed to load viewer:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load viewer');
-      setIsLoading(false);
-      if (fallbackTimeoutRef.current) {
-        clearTimeout(fallbackTimeoutRef.current);
-        fallbackTimeoutRef.current = null;
+
+      // Determine error type and set appropriate message
+      let errorMsg = 'Failed to load viewer';
+      let errType = 'unknown';
+
+      if (err && typeof err === 'object' && 'name' in err) {
+        const errorName = (err as any).name;
+
+        if (errorName === 'ProjectNotFoundError') {
+          errType = 'project_not_found';
+          errorMsg = err instanceof Error ? err.message : 'Project not found';
+        } else if (errorName === 'NetworkError') {
+          errType = 'network';
+          errorMsg = err instanceof Error ? err.message : 'Network error occurred';
+        } else if (errorName === 'ModelLoadError') {
+          errType = 'model_load';
+          errorMsg = err instanceof Error ? err.message : 'Failed to load 3D models';
+        } else if (errorName === 'WebGLError') {
+          errType = 'webgl';
+          errorMsg = err instanceof Error ? err.message : 'WebGL not supported';
+        } else if (err instanceof Error) {
+          errorMsg = err.message;
+        }
+      } else if (err instanceof Error) {
+        errorMsg = err.message;
       }
+
+      setError(errorMsg);
+      setErrorType(errType);
+      setIsLoading(false);
       mainScriptRef.current = false;
+
+      // Cleanup progress listener
+      window.removeEventListener('viewer-progress' as any, () => { });
     }
   };
 
@@ -205,19 +265,13 @@ export default function ViewerPage() {
     console.log('📍 containerRef.current:', containerRef.current);
     console.log('📍 mainScriptRef.current:', mainScriptRef.current);
 
-    // Fallback: Remove loading overlay after maximum time regardless of initialization status
-    fallbackTimeoutRef.current = setTimeout(() => {
-      console.log('⚠️ Fallback: Removing loading overlay after 45 seconds');
-      setIsLoading(false);
-    }, 45000);
-
     let retryCount = 0;
     const maxRetries = 50; // 5 seconds max wait time
-    
+
     const tryInitialize = () => {
       const containerElement = document.getElementById('container') as HTMLDivElement;
       console.log(`🔄 Attempt ${retryCount + 1}/${maxRetries} - Container (ref):`, !!containerRef.current, 'Container (DOM):', !!containerElement, 'Initialized:', mainScriptRef.current);
-      
+
       if (containerElement && !mainScriptRef.current) {
         console.log('⏰ Container found via DOM, initializing viewer...');
         initializeViewer(containerElement);
@@ -230,14 +284,13 @@ export default function ViewerPage() {
         console.log(`❌ Container not ready, retrying in 100ms... (${retryCount}/${maxRetries})`);
         setTimeout(tryInitialize, 100);
       } else {
-      // Remove body guard class
-      document.body.classList.remove('mode-2d');
+        document.body.classList.remove('mode-2d');
         console.error('💥 Failed to initialize viewer: Container never became available');
         setError('Failed to initialize 3D viewer: Container not found');
         setIsLoading(false);
       }
     };
-    
+
     // Use multiple approaches to ensure DOM is ready
     requestAnimationFrame(() => {
       setTimeout(tryInitialize, 50); // Small initial delay
@@ -256,7 +309,7 @@ export default function ViewerPage() {
   useLayoutEffect(() => {
     return () => {
       console.log('🧹 Component cleanup');
-      
+
       // Dispose 2D views
       if (viewer?.views2d) {
         try {
@@ -265,7 +318,7 @@ export default function ViewerPage() {
           console.warn('Failed to dispose 2D views:', e);
         }
       }
-      
+
       const container = document.getElementById('container') as HTMLDivElement;
       if (container) {
         const canvas = container.querySelector('canvas');
@@ -311,11 +364,11 @@ export default function ViewerPage() {
       console.warn('⚠️ 2D views not available');
       return;
     }
-    
+
     const newMode = !is2DMode;
     setIs2DMode(newMode);
     setFloorPanelVisible(newMode);
-    
+
     // When entering 2D mode, close and disable other panels
     if (newMode) {
       // Add body guard class to enforce hiding via CSS too
@@ -358,11 +411,11 @@ export default function ViewerPage() {
       // Disable toolbar buttons for other panels
       const buttonsToDisable = [
         'tree-toggle-btn',
-        'selection-tool-btn', 
+        'selection-tool-btn',
         'status-toggle-btn',
         'groups-toggle-btn'
       ];
-      
+
       buttonsToDisable.forEach(buttonId => {
         const button = document.getElementById(buttonId);
         if (button) {
@@ -373,20 +426,20 @@ export default function ViewerPage() {
           button.setAttribute('disabled', 'true');
         }
       });
-      
+
       console.log('🔒 Other panels disabled and closed for 2D mode');
     } else {
       // Remove body guard class
       document.body.classList.remove('mode-2d');
-      
+
       // When exiting 2D mode, re-enable toolbar buttons
       const buttonsToEnable = [
         'tree-toggle-btn',
         'selection-tool-btn',
-        'status-toggle-btn', 
+        'status-toggle-btn',
         'groups-toggle-btn'
       ];
-      
+
       buttonsToEnable.forEach(buttonId => {
         const button = document.getElementById(buttonId);
         if (button) {
@@ -394,15 +447,15 @@ export default function ViewerPage() {
           button.removeAttribute('disabled');
         }
       });
-      
+
       // Reset panel transforms to allow normal operation
       const panelsToReset = [
         'tree-panel',
-        'statusPanel', 
+        'statusPanel',
         'groupsPanel',
         'infoPanel'
       ];
-      
+
       panelsToReset.forEach(panelId => {
         const panel = document.getElementById(panelId);
         if (panel) {
@@ -411,10 +464,10 @@ export default function ViewerPage() {
           panel.style.pointerEvents = '';
         }
       });
-      
+
       console.log('🔓 Other panels re-enabled for 3D mode');
     }
-    
+
     try {
       if (newMode) {
         // Switch to 2D mode - open full model 2D view
@@ -424,21 +477,21 @@ export default function ViewerPage() {
         await viewer.views2d.close3DMode();
         setCurrentFloor(null);
         setFloorPanelVisible(false);
-        
+
         // Force remove mode-2d class and ensure UI is reset
         document.body.classList.remove('mode-2d');
-        
+
         // Re-enable all toolbar buttons immediately
-        ['tree-toggle-btn','status-toggle-btn','groups-toggle-btn','selection-tool-btn'].forEach(id => {
+        ['tree-toggle-btn', 'status-toggle-btn', 'groups-toggle-btn', 'selection-tool-btn'].forEach(id => {
           const el = document.getElementById(id);
           if (el) {
             el.classList.remove('disabled-in-2d');
             el.removeAttribute('disabled');
           }
         });
-        
+
         // Reset panel styles immediately
-        ['tree-panel','statusPanel','groupsPanel','infoPanel'].forEach(id => {
+        ['tree-panel', 'statusPanel', 'groupsPanel', 'infoPanel'].forEach(id => {
           const panel = document.getElementById(id) as HTMLElement | null;
           if (panel) {
             panel.style.transform = '';
@@ -479,108 +532,167 @@ export default function ViewerPage() {
   return (
     <div className="viewer-container">
       {/* Main 3D Container */}
-      <div 
-        id="container" 
+      <div
+        id="container"
         ref={containerRef}
-        style={{ 
-          width: '100%', 
-          height: '100%', 
-          position: 'relative' 
+        style={{
+          width: '100%',
+          height: '100%',
+          position: 'relative'
         }}
       ></div>
 
-      {/* Loading Overlay */}
+      {/* Modern Glassmorphism Loading Overlay */}
       {isLoading && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          background: 'rgba(248, 250, 252, 0.98)', // slate-50 with opacity
-          backdropFilter: 'blur(8px)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          flexDirection: 'column',
-          zIndex: 9999
-        }}>
-          <div className="loading-spinner" style={{ 
-            width: '60px', 
-            height: '60px', 
-            marginBottom: '24px',
-            border: '4px solid #e2e8f0', // slate-200
-            borderTop: '4px solid #475569', // slate-600 (matches your theme primary)
-            borderRadius: '50%',
-            animation: 'spin 1s linear infinite'
-          }}></div>
-          <p style={{ 
-            fontSize: '1.5rem', 
-            marginBottom: '12px', 
-            color: '#1e293b', // slate-800
-            fontWeight: '600'
-          }}>Loading 3D Viewer...</p>
-          <p style={{ 
-            color: '#64748b', // slate-500
-            fontSize: '1rem'
-          }}>Initializing Uniqube Engine</p>
+        <div className="viewer-overlay">
+          <div className="loading-content">
+            <div className="loader-card">
+              <div className="loader-icon-container">
+                <div className="loader-spinner"></div>
+                <div className="loader-logo">
+                  <i data-lucide="box"></i>
+                </div>
+              </div>
+
+              <h1 className="loader-title">Loading Viewer</h1>
+              <p className="loader-subtitle">Initializing Uniqube Engine</p>
+
+              <p className="loader-status">{loadingStatus}</p>
+
+              <div className="progress-track">
+                <div
+                  className="progress-fill"
+                  style={{ width: `${loadingProgress}%` }}
+                ></div>
+              </div>
+
+              <div className="progress-stats">
+                <span className="progress-label">Progress</span>
+                <span className="progress-value">{Math.round(loadingProgress)}%</span>
+              </div>
+            </div>
+
+            <div className="loading-dots">
+              <div className="dot"></div>
+              <div className="dot"></div>
+              <div className="dot"></div>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* Error Overlay */}
+      {/* Modern Glassmorphism Error Overlay */}
       {error && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          background: 'rgba(248, 250, 252, 0.98)', // slate-50 with opacity
-          backdropFilter: 'blur(8px)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          flexDirection: 'column',
-          zIndex: 9999
-        }}>
-          <div style={{ 
-            fontSize: '4rem', 
-            marginBottom: '24px',
-            color: '#ef4444' // red-500
-          }}>⚠️</div>
-          <h2 style={{ 
-            fontSize: '2rem', 
-            marginBottom: '12px', 
-            color: '#1e293b', // slate-800
-            fontWeight: '600'
-          }}>Viewer Error</h2>
-          <p style={{ 
-            marginBottom: '24px', 
-            color: '#ef4444', // red-500
-            textAlign: 'center',
-            maxWidth: '500px',
-            lineHeight: '1.5'
-          }}>{error}</p>
-          <button 
-            className="btn btn-primary"
-            onClick={() => window.location.reload()}
-          >
-            Reload Page
-          </button>
+        <div className="viewer-overlay">
+          <div className="error-card">
+            <div className="error-icon">
+              <i data-lucide={
+                errorType === 'project_not_found' ? 'folder-x' :
+                  errorType === 'network' ? 'wifi-off' :
+                    errorType === 'model_load' ? 'package-x' :
+                      errorType === 'webgl' ? 'monitor-x' :
+                        'alert-triangle'
+              }></i>
+            </div>
+
+            <h2 className="error-title">
+              {errorType === 'project_not_found' ? 'Project Not Found' :
+                errorType === 'network' ? 'Connection Error' :
+                  errorType === 'model_load' ? 'Model Load Failed' :
+                    errorType === 'webgl' ? 'WebGL Not Supported' :
+                      'Failed to Load Viewer'}
+            </h2>
+
+            <div className="error-message">
+              {error}
+            </div>
+
+            <div className="error-actions">
+              {/* Conditional buttons based on error type */}
+              {errorType === 'network' && (
+                <button
+                  className="btn-reload"
+                  onClick={() => window.location.reload()}
+                >
+                  <i data-lucide="refresh-cw"></i>
+                  Reload Viewer
+                </button>
+              )}
+
+              {errorType === 'project_not_found' && (
+                <>
+                  <button
+                    className="btn-reload btn-secondary"
+                    onClick={() => window.history.back()}
+                  >
+                    <i data-lucide="arrow-left"></i>
+                    Go Back
+                  </button>
+                  <button
+                    className="btn-reload"
+                    onClick={() => window.location.href = '/'}
+                  >
+                    <i data-lucide="home"></i>
+                    Projects
+                  </button>
+                </>
+              )}
+
+              {errorType === 'model_load' && (
+                <>
+                  <button
+                    className="btn-reload btn-secondary"
+                    onClick={() => window.location.reload()}
+                  >
+                    <i data-lucide="refresh-cw"></i>
+                    Retry
+                  </button>
+                  <button
+                    className="btn-reload"
+                    onClick={() => window.location.href = `/projects/${projectId}`}
+                  >
+                    <i data-lucide="upload"></i>
+                    Upload Model
+                  </button>
+                </>
+              )}
+
+              {errorType === 'webgl' && (
+                <button
+                  className="btn-reload"
+                  onClick={() => window.open('https://get.webgl.org/', '_blank')}
+                >
+                  <i data-lucide="external-link"></i>
+                  Learn More
+                </button>
+              )}
+
+              {/* Default fallback for unknown errors */}
+              {!errorType || errorType === 'unknown' && (
+                <button
+                  className="btn-reload"
+                  onClick={() => window.location.reload()}
+                >
+                  <i data-lucide="refresh-cw"></i>
+                  Reload Viewer
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
       {/* Toolbar */}
       <div id="toolbar">
-   
-         <div className="w-8 h-8 sm:w-10 sm:h-10 bg-slate-700 rounded-lg flex items-center justify-center shadow-sm">
-                <img src="/uniQube.png" alt="UniQube Logo" className="w-8 h-8 sm:w-12 sm:h-8" />
-              </div>
-       <h1 className="text-lg sm:text-xl font-bold text-slate-900">
-  UniQube <span className="bg-gradient-to-r from-yellow-400 via-yellow-500 to-amber-600 bg-clip-text text-transparent">3D</span>
-</h1>
 
-             <button id="tree-toggle-btn" className="toolbar-button">
+        <div className="w-8 h-8 sm:w-10 sm:h-10 bg-slate-700 rounded-lg flex items-center justify-center shadow-sm">
+          <img src="/uniQube.png" alt="UniQube Logo" className="w-8 h-8 sm:w-12 sm:h-8" />
+        </div>
+        <h1 className="text-lg sm:text-xl font-bold text-slate-900">
+          UniQube <span className="bg-gradient-to-r from-yellow-400 via-yellow-500 to-amber-600 bg-clip-text text-transparent">3D</span>
+        </h1>
+
+        <button id="tree-toggle-btn" className="toolbar-button">
           <i className="fas fa-sitemap"></i>
           <span className="tooltip">Model Structure</span>
         </button>
@@ -588,8 +700,8 @@ export default function ViewerPage() {
           <i className="fas fa-mouse-pointer"></i>
           <span className="tooltip">Selection Tool</span>
         </button>
-        <button 
-          id="plan-toggle-btn" 
+        <button
+          id="plan-toggle-btn"
           className={`toolbar-button ${is2DMode ? 'active' : ''}`}
           onClick={toggle2DMode}
           disabled={isLoading}
@@ -907,26 +1019,30 @@ export default function ViewerPage() {
       </div>
 
       {/* Floor Plans Panel */}
-      {floorPanelVisible && viewer?.views2d && (
-        <div className="floor-plans-panel">
-          <FloorSelector 
-            views2d={viewer.views2d}
-            onFloorChange={handleFloorChange}
-            onModeChange={handleModeChange}
-          />
-        </div>
-      )}
+      {
+        floorPanelVisible && viewer?.views2d && (
+          <div className="floor-plans-panel">
+            <FloorSelector
+              views2d={viewer.views2d}
+              onFloorChange={handleFloorChange}
+              onModeChange={handleModeChange}
+            />
+          </div>
+        )
+      }
 
       {/* Current Floor Indicator */}
-      {currentFloor && (
-        <div className="current-floor-indicator">
-          <i className="fas fa-building"></i>
-          <span>{currentFloor}</span>
-          <span className="mode-badge">
-            {is2DMode ? '2D Plan' : '3D View'}
-          </span>
-        </div>
-      )}
-    </div>
+      {
+        currentFloor && (
+          <div className="current-floor-indicator">
+            <i className="fas fa-building"></i>
+            <span>{currentFloor}</span>
+            <span className="mode-badge">
+              {is2DMode ? '2D Plan' : '3D View'}
+            </span>
+          </div>
+        )
+      }
+    </div >
   );
 };

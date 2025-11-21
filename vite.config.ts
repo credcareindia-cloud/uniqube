@@ -13,6 +13,18 @@ export default defineConfig({
   server: {
     port: 3000,
     host: true,
+    proxy: {
+      '/qr': {
+        target: 'http://localhost:4000',
+        changeOrigin: true,
+        secure: false,
+      },
+      '/api': {
+        target: 'http://localhost:4000',
+        changeOrigin: true,
+        secure: false,
+      }
+    }
   },
   build: {
     // Skip type checking during build for faster builds

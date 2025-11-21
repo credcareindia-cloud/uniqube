@@ -65,15 +65,15 @@ export function AppLayout({ children }: AppLayoutProps) {
         title: n.title || 'Project Created Successfully',
         description: n.message,
         action: n.metadata?.projectId ? (
-          <ToastAction altText="View Project" onClick={() => navigate(`/projects/${n.metadata!.projectId}`)}>
+          <ToastAction altText="View Project" onClick={() => {
+            markAsRead(n.id).catch(() => {})
+            navigate(`/projects/${n.metadata!.projectId}`)
+          }}>
             View
           </ToastAction>
         ) : undefined,
         className: 'border-slate-700'
       })
-
-      // Mark as read to avoid showing again later
-      markAsRead(n.id).catch(() => {})
     })
   }, [notifications, navigate, markAsRead, user?.role, user?.id])
 
