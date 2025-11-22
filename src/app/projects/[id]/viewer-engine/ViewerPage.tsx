@@ -717,6 +717,30 @@ export default function ViewerPage() {
           <i className="fas fa-layer-group"></i>
           <span className="tooltip">Groups</span>
         </button>
+
+        {/* Element Type Filters */}
+        <div className="toolbar-divider"></div>
+        <button id="filter-mep-btn" className="toolbar-button filter-btn" data-filter="MEP">
+          <i data-lucide="wrench"></i>
+          <span className="tooltip">Filter MEP</span>
+        </button>
+        <button id="filter-doors-windows-btn" className="toolbar-button filter-btn" data-filter="DOORS_WINDOWS">
+          <i data-lucide="door-open"></i>
+          <span className="tooltip">Filter Doors & Windows</span>
+        </button>
+        <button id="filter-frames-btn" className="toolbar-button filter-btn" data-filter="FRAMES">
+          <i data-lucide="frame"></i>
+          <span className="tooltip">Filter Frames</span>
+        </button>
+        <button id="filter-structural-btn" className="toolbar-button filter-btn" data-filter="STRUCTURAL">
+          <i data-lucide="building-2"></i>
+          <span className="tooltip">Filter Structural</span>
+        </button>
+        <button id="filter-clear-btn" className="toolbar-button">
+          <i data-lucide="x-circle"></i>
+          <span className="tooltip">Clear Filters</span>
+        </button>
+
         <button id="tree-reset-btn" className="toolbar-button">
           <i className="fas fa-home"></i>
           <span className="tooltip">Reset View</span>

@@ -148,6 +148,15 @@ body {
   visibility: visible;
 }
 
+/* Toolbar Divider */
+.toolbar-divider {
+  width: 1px;
+  height: 32px;
+  background-color: var(--slate-300);
+  margin: 0 8px;
+  flex-shrink: 0;
+}
+
 /* TreeView Container */
 #tree-panel {
   pointer-events: all !important;

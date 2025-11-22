@@ -767,10 +767,31 @@ export async function initializeViewer(containerId: string = "container") {
   // Helper: select corresponding tree node and ensure it is visible
   // List of IFC types that are considered "Panels" and tracked in the database
   const PANEL_TYPES = [
+    // Structural
     'IFCWALL', 'IFCWALLSTANDARDCASE', 'IFCSLAB', 'IFCBEAM', 'IFCCOLUMN',
-    'IFCDOOR', 'IFCWINDOW', 'IFCROOF', 'IFCSTAIR', 'IFCRAILING',
-    'IFCFURNISHINGELEMENT', 'IFCMEMBER', 'IFCPLATE', 'IFCCURTAINWALL',
-    'IFCFOOTING', 'IFCPILE', 'IFCRAMP', 'IFCSPACE'
+    'IFCMEMBER', 'IFCPLATE', 'IFCCURTAINWALL', 'IFCFOOTING', 'IFCPILE',
+
+    // Doors and Windows
+    'IFCDOOR', 'IFCWINDOW', 'IFCDOORSTANDARDCASE', 'IFCWINDOWSTANDARDCASE',
+
+    // Building Elements
+    'IFCROOF', 'IFCSTAIR', 'IFCRAILING', 'IFCRAMP', 'IFCSPACE',
+    'IFCFURNISHINGELEMENT',
+
+    // MEP - Distribution
+    'IFCDUCTFITTING', 'IFCDUCTSEGMENT', 'IFCPIPEFITTING', 'IFCPIPESEGMENT',
+    'IFCFLOWSEGMENT',
+
+    // MEP - Control & Terminals
+    'IFCFLOWCONTROLLER', 'IFCFLOWTERMINAL', 'IFCVALVE', 'IFCDAMPER',
+    'IFCAIRTERMINAL',
+
+    // MEP - Electrical
+    'IFCCABLECARRIERFITTING', 'IFCCABLECARRIERSEGMENT', 'IFCCABLESEGMENT',
+    'IFCELECTRICALELEMENT', 'IFCELECTRICDISTRIBUTIONBOARD', 'IFCLIGHTFIXTURE',
+
+    // MEP - HVAC Equipment
+    'IFCFAN', 'IFCPUMP', 'IFCBOILER', 'IFCCHILLER', 'IFCCOIL', 'IFCHEATEXCHANGER'
   ];
 
   // Helper: Find the ID of the nearest ancestor that is a "Panel" type
@@ -6083,6 +6104,372 @@ export async function initializeViewer(containerId: string = "container") {
     emitProgress(90, 'Loading groups and statuses...');
     fetchGroupsFromDatabase(projectIdFromUrl);
     fetchStatusesFromDatabase(projectIdFromUrl);
+  }
+
+  /* MD
+    ### 🎨 Element Category Filtering
+    Filter and highlight elements by category (MEP, Doors & Windows, Frames)
+  */
+
+  // Element category filtering state
+  let activeElementFilters = new Set<string>();
+
+  // IFC Element type categorization
+  const IFC_ELEMENT_CATEGORIES: Record<string, string[]> = {
+    MEP: [
+      // Distribution Flow Elements
+      'IFCDUCTFITTING', 'IFCDUCTSEGMENT', 'IFCPIPEFITTING', 'IFCPIPESEGMENT',
+      'IFCFLOWSEGMENT', 'IFCFLOWFITTING', 'IFCCABLECARRIERFITTING', 'IFCCABLECARRIERSEGMENT',
+      'IFCCABLESEGMENT',
+
+      // Flow Control and Terminals
+      'IFCFLOWCONTROLLER', 'IFCFLOWTERMINAL', 'IFCVALVE', 'IFCDAMPER',
+      'IFCAIRTERMINAL', 'IFCAIRTOAIRHEATRECOVERY', 'IFCFIRESUPPRESSIONTERMINAL',
+      'IFCSANITARYTERMINAL', 'IFCSTACKTERMINAL', 'IFCWASTETERMINAL',
+
+      // Electrical
+      'IFCELECTRICALELEMENT', 'IFCELECTRICDISTRIBUTIONBOARD', 'IFCELECTRICFLOWSTORAGEDEVICE',
+      'IFCELECTRICGENERATOR', 'IFCELECTRICMOTOR', 'IFCJUNCTIONBOX', 'IFCLIGHTFIXTURE',
+      'IFCOUTLET', 'IFCSWITCHINGDEVICE', 'IFCTRANSFORMER', 'IFCPROTECTIVEDEVICE',
+
+      // HVAC Equipment
+      'IFCFAN', 'IFCPUMP', 'IFCBOILER', 'IFCCHILLER', 'IFCCOIL', 'IFCHEATEXCHANGER',
+      'IFCHUMIDIFIER', 'IFCUNITARYEQUIPMENT', 'IFCAIRCONDITIONER', 'IFCCOMPRESSOR',
+      'IFCCONDENSER', 'IFCCOOLEDBEAM', 'IFCCOOLINGTOWER', 'IFCEVAPORATIVECOOLER',
+      'IFCFILTER', 'IFCTANK'
+    ],
+    DOORS_WINDOWS: [
+      'IFCDOOR', 'IFCWINDOW', 'IFCDOORSTANDARDCASE', 'IFCWINDOWSTANDARDCASE'
+    ],
+    FRAMES: [
+      'IFCMEMBER',
+      'IFCELEMENTASSEMBLY'
+    ],
+    STRUCTURAL: [
+      'IFCWALL', 'IFCWALLSTANDARDCASE', 'IFCSLAB', 'IFCSLABSTANDARDCASE',
+      'IFCBEAM', 'IFCCOLUMN', 'IFCFOOTING', 'IFCPILE', 'IFCPLATE', 'IFCCURTAINWALL',
+      'IFCROOF', 'IFCSTAIR', 'IFCSTAIRFLIGHT', 'IFCRAILING', 'IFCRAMP', 'IFCRAMPFLIGHT',
+      'IFCCOVERING', 'IFCBUILDINGELEMENTPART'
+    ]
+  };
+
+  // Check if an IFC type matches any active filters
+  const matchesElementFilter = (ifcType: string): boolean => {
+    if (activeElementFilters.size === 0) return true; // No filters = show all
+
+    if (!ifcType) return false;
+
+    const typeUpper = ifcType.toUpperCase();
+    console.log(`🔍 matchesElementFilter checking: "${ifcType}" (uppercase: "${typeUpper}") against filters:`, Array.from(activeElementFilters));
+
+    for (const filter of activeElementFilters) {
+      const categoryTypes = IFC_ELEMENT_CATEGORIES[filter];
+      if (categoryTypes) {
+        // Check if any category type is contained in the IFC type
+        const match = categoryTypes.some(t => {
+          const isMatch = typeUpper.includes(t);
+          if (isMatch) {
+            console.log(`  ✓ Match found: "${typeUpper}" contains "${t}" (filter: ${filter})`);
+          }
+          return isMatch;
+        });
+        if (match) return true;
+      }
+    }
+
+    console.log(`  ✗ No match for "${typeUpper}"`);
+    return false;
+  };
+
+  // Apply element category filter (highlight matching, dim others)
+  const applyElementFilter = async () => {
+    try {
+      console.log(`🎨 Applying element filters:`, Array.from(activeElementFilters));
+
+      // If no filters active, reset all highlights
+      if (activeElementFilters.size === 0) {
+        console.log('✨ No filters active, resetting highlights');
+        for (const [_, model] of models.entries()) {
+          await model.resetHighlight(undefined);
+        }
+        await fragments.update(true);
+        return;
+      }
+
+      // Fetch all panels from database with their IFC types
+      const pathParts = window.location.pathname.split('/');
+      const projectsIndex = pathParts.indexOf('projects');
+      const projectId = projectsIndex >= 0 ? pathParts[projectsIndex + 1] : null;
+
+      if (!projectId) {
+        console.error('❌ Project ID not found');
+        return;
+      }
+
+      console.log(`📡 Fetching panel filter data from database for project ${projectId}...`);
+
+      // Fetch minimal panel data for filtering (only id, elementId, ifcType)
+      // This is much lighter than fetching all panel data
+      const token = localStorage.getItem('auth_token');
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      // Use lightweight filter-data endpoint that only returns essential fields
+      const response = await fetch(`/api/panels/${projectId}/filter-data`, {
+        headers
+      });
+
+      if (!response.ok) {
+        console.error('❌ Failed to fetch panel filter data:', response.statusText);
+        return;
+      }
+
+      // The /filter-data endpoint returns {panels, total}
+      const data = await response.json();
+      const allPanels = data.panels || [];
+      console.log(`📊 Fetched ${allPanels.length} panels (lightweight filter data) from database`);
+
+      // Debug: Log sample panel data to see structure
+      if (allPanels.length > 0) {
+        console.log('🔍 Sample panel data:', {
+          panel: allPanels[0],
+          ifcType: allPanels[0].element?.ifcType,
+          type: allPanels[0].type,
+          objectType: allPanels[0].objectType
+        });
+
+        // Log all unique IFC types in the dataset
+        const uniqueTypes = new Set<string>();
+        allPanels.forEach((p: any) => {
+          const ifcType = p.element?.ifcType || p.type || p.objectType || '';
+          if (ifcType) uniqueTypes.add(ifcType);
+        });
+        console.log('📋 All unique IFC types in database:', Array.from(uniqueTypes));
+      }
+
+      // Filter panels by IFC type matching active filters
+      const matchingPanels = allPanels.filter((panel: any) => {
+        const ifcType = panel.element?.ifcType || panel.type || panel.objectType || '';
+        console.log(`🔎 Checking panel "${panel.name || panel.tag}" - IFC Type: "${ifcType}"`);
+        const matches = matchesElementFilter(ifcType);
+        if (matches) {
+          console.log(`✓ Matched panel: ${panel.name || panel.tag} - Type: ${ifcType}`);
+        }
+        return matches;
+      });
+
+      console.log(`📊 Found ${matchingPanels.length} panels matching filters`);
+
+      if (matchingPanels.length === 0) {
+        console.warn('⚠️ No panels found matching the selected filters');
+        // Still dim all elements to show filter is active
+        for (const [_, model] of models.entries()) {
+          await model.resetHighlight(undefined);
+          await model.highlight(undefined, {
+            color: new THREE.Color(0xcccccc),
+            opacity: 0.2,
+            transparent: true,
+            renderedFaces: FRAGS.RenderedFaces.TWO,
+          });
+        }
+        await fragments.update(true);
+        return;
+      }
+
+      // Extract element IDs from matching panels (same logic as groups/statuses)
+      const panelElementIds: string[] = [];
+      matchingPanels.forEach((panel: any) => {
+        // Priority 1: Use metadata.ifcElementId (real IFC element ID from model)
+        if (panel.metadata?.ifcElementId) {
+          panelElementIds.push(panel.metadata.ifcElementId);
+        }
+        // Priority 2: Use element.globalId from database relation
+        else if (panel.element && panel.element.globalId) {
+          panelElementIds.push(panel.element.globalId);
+        }
+        // Priority 3: Use elementId field if available
+        else if (panel.elementId) {
+          panelElementIds.push(panel.elementId);
+        }
+      });
+
+      console.log(`🔑 Extracted ${panelElementIds.length} element IDs:`, panelElementIds.slice(0, 10));
+
+      // Convert IFC element IDs to numbers for matching with localId
+      const localIds: number[] = [];
+      panelElementIds.forEach(elementId => {
+        const numericId = parseInt(elementId);
+        if (!isNaN(numericId)) {
+          localIds.push(numericId);
+        }
+      });
+
+      if (localIds.length === 0) {
+        console.error('❌ Could not parse any element IDs as numbers');
+        return;
+      }
+
+      console.log(`🎯 Converted to ${localIds.length} local IDs for highlighting`);
+
+      // Reset all highlights first (batch operation)
+      const resetPromises = [];
+      for (const [_, m] of models.entries()) {
+        resetPromises.push(m.resetHighlight(undefined));
+      }
+      await Promise.all(resetPromises);
+
+      // Make all elements semi-transparent (ghost mode) - batch operation
+      const ghostPromises = [];
+      for (const [_, m] of models.entries()) {
+        ghostPromises.push(
+          m.highlight(undefined, {
+            color: new THREE.Color(0xcccccc),
+            opacity: 0.2,
+            transparent: true,
+            renderedFaces: FRAGS.RenderedFaces.TWO,
+          })
+        );
+      }
+      await Promise.all(ghostPromises);
+
+      // Highlight matching elements with parent-child relationships
+      // Process in batches to avoid memory issues with very large datasets
+      const BATCH_SIZE = 1000; // Process 1000 elements at a time
+
+      for (const [_, model] of models.entries()) {
+        try {
+          let allIdsToHighlight: number[] = [];
+
+          try {
+            const cacheKey = (model as any).modelId || (model as any).threads?.modelId || 'default';
+            let spatialStructure = spatialStructureCache.get(cacheKey);
+            if (!spatialStructure) {
+              spatialStructure = await model.getSpatialStructure();
+              spatialStructureCache.set(cacheKey, spatialStructure);
+            }
+
+            if (spatialStructure) {
+              // For each panel ID, collect parent + children (in batches)
+              for (let i = 0; i < localIds.length; i += BATCH_SIZE) {
+                const batch = localIds.slice(i, i + BATCH_SIZE);
+
+                for (const localId of batch) {
+                  const relatedIds = collectParentAndChildIds(spatialStructure, localId);
+                  if (relatedIds.length > 0) {
+                    allIdsToHighlight.push(...relatedIds);
+                  } else {
+                    allIdsToHighlight.push(localId);
+                  }
+                }
+
+                // Log progress for large datasets
+                if (localIds.length > BATCH_SIZE) {
+                  const progress = Math.min(100, Math.round(((i + batch.length) / localIds.length) * 100));
+                  console.log(`📦 Processing elements: ${progress}% (${i + batch.length}/${localIds.length})`);
+                }
+              }
+
+              // Remove duplicates
+              allIdsToHighlight = [...new Set(allIdsToHighlight)];
+              console.log(`📦 Expanded ${localIds.length} panels to ${allIdsToHighlight.length} elements (with parent-child relationships)`);
+            } else {
+              allIdsToHighlight = localIds;
+            }
+          } catch (structureError) {
+            console.log(`⚠️ Could not get spatial structure, using original IDs`);
+            allIdsToHighlight = localIds;
+          }
+
+          // Highlight in batches for better performance
+          if (allIdsToHighlight.length > BATCH_SIZE) {
+            console.log(`🎨 Highlighting ${allIdsToHighlight.length} elements in batches...`);
+            for (let i = 0; i < allIdsToHighlight.length; i += BATCH_SIZE) {
+              const batch = allIdsToHighlight.slice(i, i + BATCH_SIZE);
+              await model.highlight(batch, {
+                color: new THREE.Color('gold'),
+                opacity: 1,
+                transparent: false,
+                renderedFaces: FRAGS.RenderedFaces.TWO,
+              });
+
+              // Update fragments periodically for visual feedback
+              if (i % (BATCH_SIZE * 5) === 0) {
+                await fragments.update(true);
+              }
+            }
+          } else {
+            await model.highlight(allIdsToHighlight, {
+              color: new THREE.Color('gold'),
+              opacity: 1,
+              transparent: false,
+              renderedFaces: FRAGS.RenderedFaces.TWO,
+            });
+          }
+
+          console.log(`✅ Highlighted ${allIdsToHighlight.length} elements in model`);
+        } catch (error) {
+          console.warn('⚠️ Could not highlight elements in this model:', error);
+        }
+      }
+
+      await fragments.update(true);
+      console.log('✅ Element filter applied successfully');
+    } catch (error) {
+      console.error('❌ Error applying element filter:', error);
+    }
+  };
+
+  // Wire up filter buttons
+  const filterButtons = document.querySelectorAll('.filter-btn');
+  console.log(`🔘 Found ${filterButtons.length} filter buttons`);
+
+  filterButtons.forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const filterType = btn.getAttribute('data-filter');
+      console.log(`🖱️ Filter button clicked: ${filterType}`);
+
+      if (!filterType) return;
+
+      // Toggle filter
+      if (activeElementFilters.has(filterType)) {
+        activeElementFilters.delete(filterType);
+        btn.classList.remove('active');
+        console.log(`➖ Removed filter: ${filterType}`);
+      } else {
+        activeElementFilters.add(filterType);
+        btn.classList.add('active');
+        console.log(`➕ Added filter: ${filterType}`);
+      }
+
+      console.log(`📋 Active filters:`, Array.from(activeElementFilters));
+
+      // Apply filter
+      await applyElementFilter();
+    });
+  });
+
+  // Wire up clear filters button
+  const clearFiltersBtn = document.getElementById('filter-clear-btn');
+  if (clearFiltersBtn) {
+    clearFiltersBtn.addEventListener('click', async () => {
+      console.log('🧹 Clearing all filters');
+
+      // Remove active class from all filter buttons
+      filterButtons.forEach(btn => {
+        btn.classList.remove('active');
+      });
+
+      // Clear the active filters set
+      activeElementFilters.clear();
+      console.log('📋 Active filters cleared');
+
+      // Reset highlights
+      await applyElementFilter();
+    });
   }
 
   console.log('🎉 That Open Engine viewer initialized successfully!');
