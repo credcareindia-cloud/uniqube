@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/api/(.*)",
+      "destination": "https://3-234-154-19.sslip.io/api/$1"
+    },
+    {
       "source": "/qr/(.*)",
       "destination": "https://3-234-154-19.sslip.io/qr/$1"
     },
