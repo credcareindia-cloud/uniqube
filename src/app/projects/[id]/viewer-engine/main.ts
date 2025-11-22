@@ -5060,6 +5060,12 @@ export async function initializeViewer(containerId: string = "container") {
         await fetchGroupsFromDatabase(projectId);
         await fetchStatusesFromDatabase(projectId);
         console.log('✅ Groups and Status panels refreshed');
+
+        // Refresh the submission badge to show updated unread count
+        if (nodeData.localId) {
+          await fetchAndDisplaySubmissionBadge(nodeData.localId, panelId);
+          console.log('✅ Submission badge refreshed');
+        }
       } else {
         console.error('Panel not found in response');
       }
@@ -5401,14 +5407,10 @@ export async function initializeViewer(containerId: string = "container") {
       if (!response.ok) return;
 
       const data = await response.json();
-      const history = data.history || [];
-      const totalCount = history.length;
-
-      // Get last viewed count
-      const viewedKey = `submissions_viewed_${panelId}`;
-      const lastViewedCount = parseInt(localStorage.getItem(viewedKey) || '0');
-
-      const unreadCount = Math.max(0, totalCount - lastViewedCount);
+      console.log('🔔 Badge data received:', data);
+      // Backend now calculates unread count based on database records
+      const unreadCount = data.unreadCount !== undefined ? data.unreadCount : 0;
+      console.log('🔔 Calculated unread count:', unreadCount);
 
       badge.textContent = unreadCount.toString();
 
@@ -5807,6 +5809,9 @@ export async function initializeViewer(containerId: string = "container") {
 
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
+        console.log('🔑 Sending token for history fetch:', token.substring(0, 10) + '...');
+      } else {
+        console.warn('⚠️ No token found in localStorage for history fetch');
       }
 
       const response = await fetch(`${API_BASE_URL}/status-management/history/${panelId}`, {
@@ -5828,9 +5833,16 @@ export async function initializeViewer(containerId: string = "container") {
 
       console.log(`✅ Fetched ${history.length} history entries for panel ${panelId}`);
 
-      // Update read count in localStorage
-      const viewedKey = `submissions_viewed_${panelId}`;
-      localStorage.setItem(viewedKey, history.length.toString());
+      // Mark submissions as viewed in the database
+      try {
+        await fetch(`${API_BASE_URL}/status-management/history/${panelId}/mark-viewed`, {
+          method: 'POST',
+          headers: headers,
+          body: JSON.stringify({})
+        });
+      } catch (e) {
+        console.warn('Failed to mark submissions as viewed:', e);
+      }
 
       // Update badge immediately to 0 (hidden) since we are viewing them
       const badge = document.getElementById('submission-count');
