@@ -5,6 +5,7 @@ export interface User {
   email: string;
   role?: 'USER' | 'ADMIN' | 'MANAGER';
   avatar?: string;
+  organizationId?: string;
 }
 
 export interface ProjectMember {
@@ -70,7 +71,7 @@ export interface Notification {
   type: 'system' | 'project-update' | 'model-processed' | 'group-status-change' | 'user-mention' | 'info' | 'warning' | 'error' | 'success';
   read: boolean;
   createdAt: string;
-  metadata?: { projectId?: string; projectName?: string; [key: string]: any };
+  metadata?: { projectId?: string; projectName?: string;[key: string]: any };
 }
 
 export interface AuthResponse {
@@ -121,7 +122,7 @@ class ApiClient {
     options: RequestInit = {}
   ): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
-    
+
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
@@ -168,7 +169,7 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
-    
+
     this.setToken(response.token);
     return response;
   }
@@ -178,7 +179,7 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ email, password, name, organizationName }),
     });
-    
+
     this.setToken(response.token);
     return response;
   }

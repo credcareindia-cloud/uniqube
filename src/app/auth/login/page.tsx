@@ -1,17 +1,18 @@
-import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Eye, EyeOff, Loader2, AlertCircle } from 'lucide-react';
 
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();
   const { login } = useAuth();
-  
+  const [searchParams] = useSearchParams();
+
   const [formData, setFormData] = useState({
     email: '',
     password: '',
   });
-  
+
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -31,7 +32,16 @@ const LoginPage: React.FC = () => {
 
     try {
       await login(formData.email, formData.password);
-      navigate('/projects');
+
+      // Check if there's a redirect parameter
+      const redirectUrl = searchParams.get('redirect');
+      if (redirectUrl) {
+        // Decode and navigate to the redirect URL
+        navigate(decodeURIComponent(redirectUrl));
+      } else {
+        // Default redirect to projects
+        navigate('/projects');
+      }
     } catch (err: any) {
       setError(err.message || 'Invalid email or password. Please try again.');
     } finally {

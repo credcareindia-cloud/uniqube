@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { authenticatedFetch } from '@/utils/authenticatedFetch'
 import { CheckCircle, ArrowLeft, Box, MapPin, Layers, Tag, FileText } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
 import { getLucideIconName } from '@/utils/iconMapping'
+import { useAuth } from '@/contexts/AuthContext'
+import { useRBAC } from '@/contexts/RBACContext'
 
 interface Status {
     id: string
@@ -37,15 +39,24 @@ interface Panel {
     groups: Array<{ group: Group }>
 }
 
+interface Project {
+    id: string
+    organizationId: string
+}
+
 export default function ElementReportPage() {
     const params = useParams()
     const navigate = useNavigate()
+    const location = useLocation()
     const projectId = params.id as string
+    const { isAuthenticated, isLoading: authLoading, user } = useAuth()
+    const { canViewProject, isLoading: rbacLoading } = useRBAC()
 
     // Get UUID from hash fragment (e.g., #cmi8s5dv1000bugu1exk91jxl)
     const [uuid, setUuid] = useState<string | null>(null)
 
     const [panel, setPanel] = useState<Panel | null>(null)
+    const [project, setProject] = useState<Project | null>(null)
     const [availableStatuses, setAvailableStatuses] = useState<Status[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
@@ -65,9 +76,37 @@ export default function ElementReportPage() {
         setUuid(hash || null)
     }, [])
 
+    // Authentication and authorization check
+    useEffect(() => {
+        // Wait for auth to initialize
+        if (authLoading || rbacLoading) {
+            return
+        }
+
+        // Check if user is authenticated
+        if (!isAuthenticated) {
+            // Build the return URL with the current path and hash
+            const returnUrl = encodeURIComponent(location.pathname + location.hash)
+            navigate(`/login?redirect=${returnUrl}`, { replace: true })
+            return
+        }
+
+        // Check if user has access to the project
+        if (projectId && !canViewProject(projectId)) {
+            setError('Access Denied: You do not have permission to view this project.')
+            setLoading(false)
+            return
+        }
+    }, [isAuthenticated, authLoading, rbacLoading, projectId, canViewProject, navigate, location])
+
     // Load data
     useEffect(() => {
         const loadData = async () => {
+            // Don't load data if not authenticated or still checking auth
+            if (authLoading || rbacLoading || !isAuthenticated) {
+                return
+            }
+
             try {
                 setLoading(true)
                 setError(null)
@@ -76,7 +115,18 @@ export default function ElementReportPage() {
                     throw new Error('Panel UUID is required')
                 }
 
-                // 1. Fetch Panel Details
+                // 1. Fetch Project Details (for reference, RBAC already verified access)
+                const projectRes = await authenticatedFetch(`/projects/${projectId}`)
+                if (!projectRes.ok) {
+                    throw new Error('Failed to load project details')
+                }
+                const projectData = await projectRes.json()
+                setProject(projectData)
+
+                // Note: Organization check is handled by RBAC canViewProject above
+                // No need for additional organization validation here
+
+                // 2. Fetch Panel Details
                 const panelRes = await authenticatedFetch(`/panels/${projectId}/${uuid}`)
                 if (!panelRes.ok) {
                     const errorData = await panelRes.json().catch(() => ({}))
@@ -91,7 +141,7 @@ export default function ElementReportPage() {
                 setInitialStatusIds(currentStatusIds)
                 setSelectedStatusIds(currentStatusIds)
 
-                // 2. Fetch Available Statuses
+                // 3. Fetch Available Statuses
                 const statusRes = await authenticatedFetch(`/status-management/${projectId}`)
                 if (statusRes.ok) {
                     const statusData = await statusRes.json()
@@ -106,13 +156,13 @@ export default function ElementReportPage() {
             }
         }
 
-        if (uuid && projectId) {
+        if (uuid && projectId && isAuthenticated && !authLoading && !rbacLoading) {
             loadData()
-        } else if (!uuid) {
+        } else if (!uuid && !authLoading && !rbacLoading) {
             setError('Panel UUID is missing from URL')
             setLoading(false)
         }
-    }, [uuid, projectId])
+    }, [uuid, projectId, isAuthenticated, authLoading, rbacLoading, user])
 
     const handleInitialSubmit = (e: React.FormEvent) => {
         e.preventDefault()
@@ -309,11 +359,11 @@ export default function ElementReportPage() {
                             </h1>
                         </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    {/* <div className="flex items-center gap-2">
                         <span className="px-2 py-1 bg-slate-100 rounded text-xs font-medium text-slate-600">
                             {panel.objectType || 'Element'}
                         </span>
-                    </div>
+                    </div> */}
                 </div>
             </header>
 
@@ -531,7 +581,7 @@ export default function ElementReportPage() {
                     {/* 4. Metadata / Extra Info */}
                     {(panel.metadata as any)?.ifcElementId && (
                         <div className="text-center text-xs text-slate-400 font-mono pb-8">
-                            IFC ID: {(panel.metadata as any).ifcElementId}
+                            ELEMENT ID: {(panel.metadata as any).ifcElementId}
                         </div>
                     )}
                 </div>
