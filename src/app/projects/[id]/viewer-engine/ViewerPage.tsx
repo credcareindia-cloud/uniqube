@@ -16,6 +16,8 @@ export default function ViewerPage() {
   const [error, setError] = useState<string | null>(null);
   const [errorType, setErrorType] = useState<string | null>(null);
   const [loadingProgress, setLoadingProgress] = useState(0);
+  const [loadingTitle, setLoadingTitle] = useState('Loading Viewer');
+  const [loadingSubtitle, setLoadingSubtitle] = useState('Initializing Uniqube Engine');
   const [loadingStatus, setLoadingStatus] = useState('Initializing viewer...');
   const containerRef = useRef<HTMLDivElement>(null);
   const mainScriptRef = useRef(false);
@@ -93,7 +95,6 @@ export default function ViewerPage() {
     }
   }, [is2DMode]);
   const [floorPanelVisible, setFloorPanelVisible] = useState(false);
-
   // Initialize Lucide icons when error state changes
   useEffect(() => {
     if (error && (window as any).lucide) {
@@ -110,8 +111,54 @@ export default function ViewerPage() {
         (window as any).lucide.createIcons();
       }, 100);
     }
-  }, [isLoading]); ''
+  }, [isLoading]);
 
+  // Ref to track the reset timeout
+  const resetTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Listen for custom loading events from main.ts
+  useEffect(() => {
+    const handleViewerLoading = (event: CustomEvent) => {
+      const { isLoading: loading, status, title, subtitle, progress } = event.detail;
+
+      // If starting a new load, clear any pending reset
+      if (loading === true && resetTimeoutRef.current) {
+        clearTimeout(resetTimeoutRef.current);
+        resetTimeoutRef.current = null;
+      }
+
+      if (loading !== undefined) setIsLoading(loading);
+      if (status) setLoadingStatus(status);
+      if (title) setLoadingTitle(title);
+      if (subtitle) setLoadingSubtitle(subtitle);
+      if (progress !== undefined) setLoadingProgress(progress);
+
+      // Reset titles to default when loading finishes
+      if (loading === false) {
+        // Clear any existing timeout first
+        if (resetTimeoutRef.current) {
+          clearTimeout(resetTimeoutRef.current);
+        }
+
+        // Small delay to let the animation finish
+        resetTimeoutRef.current = setTimeout(() => {
+          setLoadingTitle('Loading Viewer');
+          setLoadingSubtitle('Initializing Uniqube Engine');
+          setLoadingProgress(0);
+          resetTimeoutRef.current = null;
+        }, 500);
+      }
+    };
+
+    window.addEventListener('viewer-loading' as any, handleViewerLoading);
+
+    return () => {
+      window.removeEventListener('viewer-loading' as any, handleViewerLoading);
+      if (resetTimeoutRef.current) {
+        clearTimeout(resetTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Initialize the 3D viewer when container is attached
   const initializeViewer = async (containerElement: HTMLDivElement) => {
@@ -125,6 +172,8 @@ export default function ViewerPage() {
       setError(null);
       setLoadingProgress(0);
       setLoadingStatus('Initializing viewer...');
+      setLoadingTitle('Loading Viewer');
+      setLoadingSubtitle('Initializing Uniqube Engine');
       mainScriptRef.current = true;
 
 
@@ -342,6 +391,48 @@ export default function ViewerPage() {
     }
   };
 
+  // Draggable resize for the Model Structure (tree) panel
+  // -------------------------------------------------
+  useEffect(() => {
+    const panel = document.getElementById('tree-panel');
+    const resizer = panel?.querySelector('.tree-resizer') as HTMLElement | null;
+    if (!panel || !resizer) return;
+
+    let startX = 0;
+    let startWidth = 0;
+    const minWidth = 320; // px
+    const maxWidth = 600; // px
+
+    const onMouseDown = (e: MouseEvent) => {
+      e.preventDefault();
+      startX = e.clientX;
+      startWidth = panel.getBoundingClientRect().width;
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      const dx = e.clientX - startX;
+      let newWidth = startWidth + dx;
+      if (newWidth < minWidth) newWidth = minWidth;
+      if (newWidth > maxWidth) newWidth = maxWidth;
+      panel.style.width = `${newWidth}px`;
+    };
+
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+
+    resizer.addEventListener('mousedown', onMouseDown);
+
+    return () => {
+      resizer.removeEventListener('mousedown', onMouseDown);
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+  }, []);
+
   // Toggle panels
   const toggleTreePanel = () => {
     setTreePanelVisible(!treePanelVisible);
@@ -544,7 +635,7 @@ export default function ViewerPage() {
 
       {/* Modern Glassmorphism Loading Overlay */}
       {isLoading && (
-        <div className="viewer-overlay">
+        <div className={`viewer-overlay ${['Filtering Elements', 'Clearing Filters', 'Removing Filter'].includes(loadingTitle) ? 'transparent' : ''}`}>
           <div className="loading-content">
             <div className="loader-card">
               <div className="loader-icon-container">
@@ -554,29 +645,35 @@ export default function ViewerPage() {
                 </div>
               </div>
 
-              <h1 className="loader-title">Loading Viewer</h1>
-              <p className="loader-subtitle">Initializing Uniqube Engine</p>
+              <h1 className="loader-title">{loadingTitle}</h1>
+              <p className="loader-subtitle">{loadingSubtitle}</p>
 
-              <p className="loader-status">{loadingStatus}</p>
+              {!['Filtering Elements', 'Clearing Filters', 'Removing Filter'].includes(loadingTitle) && (
+                <>
+                  <p className="loader-status">{loadingStatus}</p>
 
-              <div className="progress-track">
-                <div
-                  className="progress-fill"
-                  style={{ width: `${loadingProgress}%` }}
-                ></div>
-              </div>
+                  <div className="progress-track">
+                    <div
+                      className="progress-fill"
+                      style={{ width: `${loadingProgress}%` }}
+                    ></div>
+                  </div>
 
-              <div className="progress-stats">
-                <span className="progress-label">Progress</span>
-                <span className="progress-value">{Math.round(loadingProgress)}%</span>
-              </div>
+                  <div className="progress-stats">
+                    <span className="progress-label">Progress</span>
+                    <span className="progress-value">{Math.round(loadingProgress)}%</span>
+                  </div>
+                </>
+              )}
             </div>
 
-            <div className="loading-dots">
-              <div className="dot"></div>
-              <div className="dot"></div>
-              <div className="dot"></div>
-            </div>
+            {!['Filtering Elements', 'Clearing Filters', 'Removing Filter'].includes(loadingTitle) && (
+              <div className="loading-dots">
+                <div className="dot"></div>
+                <div className="dot"></div>
+                <div className="dot"></div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -760,6 +857,8 @@ export default function ViewerPage() {
           className="tree-search-input"
         />
         <div id="tree-container" className="tree-container"></div>
+        {/* Resizer handle */}
+        <div className="tree-resizer" />
       </div>
 
       {/* Info Panel */}

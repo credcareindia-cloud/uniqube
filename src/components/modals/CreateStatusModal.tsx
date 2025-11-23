@@ -27,7 +27,7 @@ const ICON_OPTIONS = [
   // { value: 'truck-load', label: 'Truck Load', icon: 'Truck' },
   // { value: 'shipped', label: 'Shipped', icon: 'Send' },
   // { value: 'edit', label: 'Edit', icon: 'Edit' },
-  
+
   // General Icons
   { value: 'angle-double-down', label: 'Angle Double Down', icon: 'ChevronsDown' },
   { value: 'angle-double-left', label: 'Angle Double Left', icon: 'ChevronsLeft' },
@@ -171,10 +171,43 @@ function hslToHex(h: number, s: number, l: number): string {
   return `#${f(0)}${f(8)}${f(4)}`
 }
 
+// Helper function to convert Hex to HSL
+function hexToHSL(hex: string): { h: number; s: number; l: number } {
+  // Remove # if present
+  hex = hex.replace('#', '')
+
+  // Convert to RGB
+  const r = parseInt(hex.substring(0, 2), 16) / 255
+  const g = parseInt(hex.substring(2, 4), 16) / 255
+  const b = parseInt(hex.substring(4, 6), 16) / 255
+
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  let h = 0, s = 0, l = (max + min) / 2
+
+  if (max !== min) {
+    const d = max - min
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+
+    switch (max) {
+      case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break
+      case g: h = ((b - r) / d + 2) / 6; break
+      case b: h = ((r - g) / d + 4) / 6; break
+    }
+  }
+
+  return {
+    h: Math.round(h * 360),
+    s: Math.round(s * 100),
+    l: Math.round(l * 100)
+  }
+}
+
 export function CreateStatusModal({ isOpen, onClose, onSubmit }: CreateStatusModalProps) {
   const [name, setName] = useState('')
   const [icon, setIcon] = useState('circle')
   const [color, setColor] = useState('#3B82F6')
+  const [currentHue, setCurrentHue] = useState(217) // Track current hue for gradient
   const [description, setDescription] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -182,21 +215,38 @@ export function CreateStatusModal({ isOpen, onClose, onSubmit }: CreateStatusMod
   const [iconSearch, setIconSearch] = useState('')
   const [showColorPicker, setShowColorPicker] = useState(false)
   const [pickerPosition, setPickerPosition] = useState({ x: 50, y: 50 })
-  
+  const [isDraggingPicker, setIsDraggingPicker] = useState(false)
+  const [isDraggingHue, setIsDraggingHue] = useState(false)
+
   const dropdownRef = useRef<HTMLDivElement>(null)
   const colorPickerRef = useRef<HTMLDivElement>(null)
-  
+  const gradientRef = useRef<HTMLDivElement>(null)
+  const hueSliderRef = useRef<HTMLDivElement>(null)
+
+  // Update hue when color changes
+  useEffect(() => {
+    if (color && color.match(/^#[0-9A-F]{6}$/i)) {
+      const hsl = hexToHSL(color)
+      setCurrentHue(hsl.h)
+      // Update picker position based on saturation and lightness
+      setPickerPosition({
+        x: hsl.s,
+        y: 100 - hsl.l
+      })
+    }
+  }, [color])
+
   // Get the icon component
   const getIconComponent = (iconName: string) => {
     const IconComponent = (LucideIcons as any)[iconName]
     return IconComponent || LucideIcons.Circle
   }
-  
+
   // Filter icons based on search
   const filteredIcons = ICON_OPTIONS.filter(option =>
     option.label.toLowerCase().includes(iconSearch.toLowerCase())
   )
-  
+
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -208,11 +258,11 @@ export function CreateStatusModal({ isOpen, onClose, onSubmit }: CreateStatusMod
         setShowColorPicker(false)
       }
     }
-    
+
     if (showIconDropdown || showColorPicker) {
       document.addEventListener('mousedown', handleClickOutside)
     }
-    
+
     return () => {
       document.removeEventListener('mousedown', handleClickOutside)
     }
@@ -220,7 +270,7 @@ export function CreateStatusModal({ isOpen, onClose, onSubmit }: CreateStatusMod
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    
+
     if (!name.trim()) {
       setError('Status name is required')
       return
@@ -238,7 +288,7 @@ export function CreateStatusModal({ isOpen, onClose, onSubmit }: CreateStatusMod
       };
       console.log('🔵 Modal - Submitting status data:', statusData);
       await onSubmit(statusData)
-      
+
       // Reset form
       setName('')
       setIcon('circle')
@@ -266,11 +316,11 @@ export function CreateStatusModal({ isOpen, onClose, onSubmit }: CreateStatusMod
   if (!isOpen) return null
 
   const modalContent = (
-    <div 
+    <div
       className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[9999]"
       onClick={handleClose}
     >
-      <div 
+      <div
         className="bg-white border border-slate-200 rounded-lg p-6 max-w-md w-full mx-4"
         onClick={(e) => e.stopPropagation()}
       >
@@ -332,7 +382,7 @@ export function CreateStatusModal({ isOpen, onClose, onSubmit }: CreateStatusMod
                 </div>
                 <LucideIcons.ChevronDown className="w-4 h-4" />
               </button>
-              
+
               {showIconDropdown && !isSubmitting && (
                 <div className="absolute z-10 w-full mt-1 bg-white border border-slate-300 rounded-lg shadow-lg max-h-96 overflow-hidden">
                   {/* Search Input */}
@@ -348,7 +398,7 @@ export function CreateStatusModal({ isOpen, onClose, onSubmit }: CreateStatusMod
                       />
                     </div>
                   </div>
-                  
+
                   {/* Icons List */}
                   <div className="max-h-64 overflow-y-auto bg-white">
                     {filteredIcons.map((option) => {
@@ -362,9 +412,8 @@ export function CreateStatusModal({ isOpen, onClose, onSubmit }: CreateStatusMod
                             setShowIconDropdown(false)
                             setIconSearch('')
                           }}
-                          className={`w-full px-4 py-2 flex items-center gap-3 hover:bg-slate-100 transition-colors ${
-                            icon === option.value ? 'bg-slate-100 border-l-4 border-blue-500' : ''
-                          }`}
+                          className={`w-full px-4 py-2 flex items-center gap-3 hover:bg-slate-100 transition-colors ${icon === option.value ? 'bg-slate-100 border-l-4 border-blue-500' : ''
+                            }`}
                         >
                           <IconComponent className="w-4 h-4 text-slate-700" />
                           <span className="text-slate-900 text-sm">{option.label}</span>
@@ -396,7 +445,7 @@ export function CreateStatusModal({ isOpen, onClose, onSubmit }: CreateStatusMod
                 className="w-12 h-12 rounded-lg border-2 border-[rgba(58,123,213,0.3)] hover:border-[rgba(58,123,213,0.5)] transition-all disabled:opacity-50"
                 style={{ backgroundColor: color }}
               />
-              
+
               {/* Hex Input */}
               <input
                 type="text"
@@ -408,42 +457,58 @@ export function CreateStatusModal({ isOpen, onClose, onSubmit }: CreateStatusMod
                 maxLength={7}
               />
             </div>
-            
+
             {/* Color Picker Dropdown */}
             {showColorPicker && !isSubmitting && (
               <div className="absolute z-10 mt-2 p-4 bg-[#1A1F2E] border border-[rgba(58,123,213,0.3)] rounded-lg shadow-lg">
                 {/* Gradient Picker */}
                 <div className="mb-4">
-                  <div 
+                  <div
+                    ref={gradientRef}
                     className="w-64 h-48 rounded-lg cursor-crosshair relative overflow-hidden"
                     style={{
                       background: `
                         linear-gradient(to bottom, transparent, black),
-                        linear-gradient(to right, white, hsl(${Math.round((PRESET_COLORS.indexOf(color) / PRESET_COLORS.length) * 360)}, 100%, 50%))
+                        linear-gradient(to right, white, hsl(${currentHue}, 100%, 50%))
                       `
                     }}
-                    onClick={(e) => {
+                    onMouseDown={(e) => {
+                      setIsDraggingPicker(true)
                       const rect = e.currentTarget.getBoundingClientRect()
                       const x = e.clientX - rect.left
                       const y = e.clientY - rect.top
-                      const xPercent = (x / rect.width) * 100
-                      const yPercent = (y / rect.height) * 100
+                      const xPercent = Math.max(0, Math.min(100, (x / rect.width) * 100))
+                      const yPercent = Math.max(0, Math.min(100, (y / rect.height) * 100))
                       setPickerPosition({ x: xPercent, y: yPercent })
-                      
+
                       const saturation = Math.round(xPercent)
                       const lightness = Math.round(100 - yPercent)
-                      // Simple HSL to Hex conversion approximation
-                      const hue = Math.round((PRESET_COLORS.indexOf(color) / PRESET_COLORS.length) * 360)
-                      const hex = hslToHex(hue, saturation, lightness)
+                      const hex = hslToHex(currentHue, saturation, lightness)
                       setColor(hex)
                     }}
+                    onMouseMove={(e) => {
+                      if (!isDraggingPicker) return
+                      const rect = e.currentTarget.getBoundingClientRect()
+                      const x = e.clientX - rect.left
+                      const y = e.clientY - rect.top
+                      const xPercent = Math.max(0, Math.min(100, (x / rect.width) * 100))
+                      const yPercent = Math.max(0, Math.min(100, (y / rect.height) * 100))
+                      setPickerPosition({ x: xPercent, y: yPercent })
+
+                      const saturation = Math.round(xPercent)
+                      const lightness = Math.round(100 - yPercent)
+                      const hex = hslToHex(currentHue, saturation, lightness)
+                      setColor(hex)
+                    }}
+                    onMouseUp={() => setIsDraggingPicker(false)}
+                    onMouseLeave={() => setIsDraggingPicker(false)}
                   >
                     <div className="absolute inset-0 rounded-lg" style={{
                       background: 'linear-gradient(to bottom, transparent, rgba(0,0,0,1))'
                     }} />
-                    
+
                     {/* Color Position Indicator */}
-                    <div 
+                    <div
                       className="absolute w-4 h-4 rounded-full border-2 border-white shadow-lg pointer-events-none"
                       style={{
                         left: `${pickerPosition.x}%`,
@@ -454,24 +519,49 @@ export function CreateStatusModal({ isOpen, onClose, onSubmit }: CreateStatusMod
                     />
                   </div>
                 </div>
-                
+
                 {/* Hue Slider */}
                 <div className="mb-4">
-                  <div 
-                    className="w-full h-4 rounded-lg cursor-pointer"
+                  <div
+                    ref={hueSliderRef}
+                    className="w-full h-4 rounded-lg cursor-pointer relative"
                     style={{
                       background: 'linear-gradient(to right, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)'
                     }}
-                    onClick={(e) => {
+                    onMouseDown={(e) => {
+                      setIsDraggingHue(true)
                       const rect = e.currentTarget.getBoundingClientRect()
                       const x = e.clientX - rect.left
                       const hue = Math.round((x / rect.width) * 360)
-                      const hex = hslToHex(hue, 100, 50)
+                      setCurrentHue(hue)
+                      const hsl = hexToHSL(color)
+                      const hex = hslToHex(hue, hsl.s, hsl.l)
                       setColor(hex)
                     }}
-                  />
+                    onMouseMove={(e) => {
+                      if (!isDraggingHue) return
+                      const rect = e.currentTarget.getBoundingClientRect()
+                      const x = e.clientX - rect.left
+                      const hue = Math.max(0, Math.min(360, Math.round((x / rect.width) * 360)))
+                      setCurrentHue(hue)
+                      const hsl = hexToHSL(color)
+                      const hex = hslToHex(hue, hsl.s, hsl.l)
+                      setColor(hex)
+                    }}
+                    onMouseUp={() => setIsDraggingHue(false)}
+                    onMouseLeave={() => setIsDraggingHue(false)}
+                  >
+                    {/* Hue indicator */}
+                    <div
+                      className="absolute w-1 h-full bg-white border border-slate-800 pointer-events-none"
+                      style={{
+                        left: `${(currentHue / 360) * 100}%`,
+                        transform: 'translateX(-50%)'
+                      }}
+                    />
+                  </div>
                 </div>
-                
+
                 {/* Preset Colors */}
                 <div className="grid grid-cols-6 gap-2">
                   {PRESET_COLORS.map((presetColor) => (
@@ -482,11 +572,10 @@ export function CreateStatusModal({ isOpen, onClose, onSubmit }: CreateStatusMod
                         setColor(presetColor)
                         setShowColorPicker(false)
                       }}
-                      className={`w-full h-8 rounded-lg border-2 transition-all hover:scale-110 ${
-                        color === presetColor 
-                          ? 'border-white ring-2 ring-text-slate-700' 
-                          : 'border-[rgba(58,123,213,0.3)]'
-                      }`}
+                      className={`w-full h-8 rounded-lg border-2 transition-all hover:scale-110 ${color === presetColor
+                        ? 'border-white ring-2 ring-text-slate-700'
+                        : 'border-[rgba(58,123,213,0.3)]'
+                        }`}
                       style={{ backgroundColor: presetColor }}
                     />
                   ))}

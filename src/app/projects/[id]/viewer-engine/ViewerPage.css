@@ -162,7 +162,8 @@ body {
   pointer-events: all !important;
   height: calc(100% - 140px) !important;
   /* Increased gap for footer */
-  overflow: hidden !important;
+  overflow: auto !important;
+  /* allow scrolling when content exceeds height */
   /* Flex container handles scroll */
   position: absolute !important;
   background: rgba(255, 255, 255, 0.65) !important;
@@ -177,7 +178,10 @@ body {
   padding: 20px !important;
   font-size: 14px !important;
   user-select: none !important;
-  width: 320px !important;
+  width: 320px;
+  min-width: 320px;
+  max-width: 600px;
+  resize: horizontal !important;
   border-radius: 16px !important;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08) !important;
   transform: translateX(0) !important;
@@ -311,6 +315,26 @@ body {
   /* Space for the curve */
 }
 
+#tree-panel {
+  cursor: ew-resize;
+  /* show resize cursor on panel */
+  right: auto;
+  /* ensure right side is not constrained */
+}
+
+/* side grip for easier dragging */
+.tree-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 100%;
+  cursor: ew-resize;
+  /* optional visual cue */
+  /* background: rgba(0,0,0,0.05); */
+  z-index: 10;
+}
+
 /* Thread: Curved Connector to Icon */
 .tree-node::before {
   content: '';
@@ -415,6 +439,10 @@ body {
   position: relative;
   border-left: none;
   /* Removed continuous border */
+}
+
+.tree-node-container.filtered-hidden {
+  display: none !important;
 }
 
 /* Hide vertical line if no children or collapsed */
@@ -2363,6 +2391,47 @@ body.mode-2d #infoPanel {
   z-index: 9999;
   overflow: hidden;
   background: linear-gradient(135deg, var(--slate-50) 0%, var(--slate-100) 100%);
+}
+
+/* Transparent overlay for filtering */
+.viewer-overlay.transparent {
+  background: rgba(255, 255, 255, 0.0);
+  pointer-events: none;
+  /* Allow clicking through to the model if needed, though usually we want to block interaction */
+}
+
+.viewer-overlay.transparent .loader-card {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  padding: 20px;
+  border-radius: 16px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  max-width: 300px;
+}
+
+.viewer-overlay.transparent .loader-title {
+  font-size: 1.2rem;
+  margin-bottom: 4px;
+}
+
+.viewer-overlay.transparent .loader-subtitle {
+  font-size: 0.9rem;
+  margin-bottom: 16px;
+}
+
+.viewer-overlay.transparent .loader-icon-container {
+  margin-bottom: 16px;
+}
+
+.viewer-overlay.transparent .loader-spinner {
+  width: 40px;
+  height: 40px;
+  border-width: 3px;
+}
+
+.viewer-overlay.transparent .loader-logo {
+  font-size: 14px;
 }
 
 .loading-content {

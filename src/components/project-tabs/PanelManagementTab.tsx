@@ -153,17 +153,17 @@ const getIconComponent = (iconName: string) => {
     'wrench': 'Wrench',
     'package': 'Package',
   }
-  
+
   // Map the icon name from database format to Lucide format
   const mappedName = iconNameMap[iconName] || iconName
-  
+
   // Try to get the icon
   const IconComponent = (LucideIcons as any)[mappedName]
-  
+
   if (IconComponent) {
     return IconComponent
   }
-  
+
   // Fallback to Circle
   console.warn(`❌ Icon "${iconName}" (mapped to "${mappedName}") not found in Lucide, using Circle`)
   return Circle
@@ -217,7 +217,8 @@ interface PanelManagementTabProps {
 export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementTabProps) {
   const [panels, setPanels] = useState<Panel[]>([])
   const [loading, setLoading] = useState(true)
-  const [searchTerm, setSearchTerm] = useState('')
+  const [searchTerm, setSearchTerm] = useState('') // Server search term
+  const [searchInput, setSearchInput] = useState('') // Local input value
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [totalPanels, setTotalPanels] = useState(0)
@@ -233,35 +234,59 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
   const [showEditPanel, setShowEditPanel] = useState(false)
   const limit = 50
 
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchTerm(searchInput)
+      setPage(1) // Reset to first page when search changes
+    }, 500) // 500ms debounce
+
+    return () => clearTimeout(timer)
+  }, [searchInput])
+
   useEffect(() => {
     loadPanels()
     loadGroups()
     loadStatuses()
     loadModels()
-  }, [projectId, page])
+  }, [projectId, page, searchTerm, selectedModelId])
 
-  useEffect(() => {
-    // Reload panels when model selection changes
-    loadPanels()
-  }, [selectedModelId])
 
   const loadPanels = async () => {
     try {
       setLoading(true)
-      // Use new API endpoint with model filtering
-      const url = selectedModelId !== 'all' 
-        ? getApiUrl(`projects/${projectId}/panels?modelId=${selectedModelId}`)
-        : getApiUrl(`projects/${projectId}/panels`)
-      
+
+      // Build query parameters for server-side pagination
+      const params = new URLSearchParams({
+        page: page.toString(),
+        limit: limit.toString(),
+      })
+
+      // Add model filter if selected
+      if (selectedModelId !== 'all') {
+        params.append('modelId', selectedModelId)
+      }
+
+      // Add search term if present
+      if (searchTerm.trim()) {
+        params.append('search', searchTerm.trim())
+      }
+
+      // Use /api/panels/:projectId endpoint which supports pagination
+      const url = getApiUrl(`panels/${projectId}?${params.toString()}`)
+      console.log('🔍 Loading panels with URL:', url)
+      console.log('📊 Params:', { page, limit, selectedModelId, searchTerm })
+
       const response = await authenticatedFetch(url)
       if (response.ok) {
         const data = await response.json()
-        const allPanels = data.panels || []
-        setPanels(allPanels)
-        setTotalPanels(allPanels.length)
-        // Calculate total pages for client-side pagination
-        setTotalPages(Math.ceil(allPanels.length / limit))
-        console.log(`✅ Loaded ${allPanels.length} panels for model filter: ${selectedModelId}`)
+        console.log('📦 Response data:', data)
+        setPanels(data.panels || [])
+        setTotalPanels(data.pagination?.total || 0)
+        setTotalPages(data.pagination?.totalPages || 1)
+        console.log(`✅ Loaded ${data.panels?.length || 0} panels (page ${page}/${data.pagination?.totalPages || 1})`)
+      } else {
+        console.error('❌ Response not OK:', response.status, response.statusText)
       }
     } catch (error) {
       console.error('Error loading panels:', error)
@@ -275,12 +300,12 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
       const response = await authenticatedFetch(getApiUrl(`projects/${projectId}/models-list`))
       if (response.ok) {
         const data = await response.json()
-        
+
         // Remove duplicates on frontend as extra safety measure
-        const uniqueModels = data.models?.filter((model: Model, index: number, array: Model[]) => 
+        const uniqueModels = data.models?.filter((model: Model, index: number, array: Model[]) =>
           array.findIndex(m => m.id === model.id) === index
         ) || []
-        
+
         setAvailableModels(uniqueModels)
         console.log(`✅ Loaded ${uniqueModels.length} unique models for project ${projectId}`)
       }
@@ -292,6 +317,11 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
   const handleModelChange = (modelId: string) => {
     setSelectedModelId(modelId)
     setPage(1) // Reset to first page when changing model filter
+  }
+
+  const handleSearchChange = (value: string) => {
+    setSearchInput(value) // Update local input value
+    // The actual search term update and page reset will happen via the debounced useEffect
   }
 
   const loadGroups = async () => {
@@ -318,53 +348,10 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
     }
   }
 
-  // Helper function to extract storey/floor number from panel
-  const getStorey = (panel: Panel): number => {
-    // Try to extract storey number from location (e.g., "1ST FLOOR", "2ND FLOOR", "FLOOR 3")
-    const location = panel.location?.toLowerCase() || ''
-    const storeyMatch = location.match(/(\d+)(st|nd|rd|th)?\s*floor|floor\s*(\d+)|storey\s*(\d+)|level\s*(\d+)/i)
-    if (storeyMatch) {
-      return parseInt(storeyMatch[1] || storeyMatch[3] || storeyMatch[4] || storeyMatch[5] || '0')
-    }
-    
-    // Try to extract from metadata if available
-    if (panel.metadata && typeof panel.metadata === 'object') {
-      const metadata = panel.metadata as any
-      if (metadata.storey) return parseInt(metadata.storey) || 0
-      if (metadata.floor) return parseInt(metadata.floor) || 0
-      if (metadata.level) return parseInt(metadata.level) || 0
-    }
-    
-    return 999 // Put panels without storey info at the end
-  }
-
-  // Filter and sort all panels
-  const filteredAndSortedPanels = panels
-    .filter(panel =>
-      panel.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      panel.tag?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      panel.location?.toLowerCase().includes(searchTerm.toLowerCase())
-    )
-    .sort((a, b) => {
-      const storeyA = getStorey(a)
-      const storeyB = getStorey(b)
-      
-      // First sort by storey (ascending)
-      if (storeyA !== storeyB) {
-        return storeyA - storeyB
-      }
-      
-      // Then sort by name (ascending)
-      return (a.name || '').localeCompare(b.name || '', undefined, { numeric: true, sensitivity: 'base' })
-    })
-
-  // Apply client-side pagination
-  const startIndex = (page - 1) * limit
-  const endIndex = startIndex + limit
-  const filteredPanels = filteredAndSortedPanels.slice(startIndex, endIndex)
-  
-  // Update total pages based on filtered results
-  const filteredTotalPages = Math.ceil(filteredAndSortedPanels.length / limit)
+  // Panels are already filtered and sorted by the server
+  // No need for client-side filtering or pagination
+  const filteredPanels = panels
+  const filteredTotalPages = totalPages
 
   const handlePanelClick = (panel: Panel) => {
     setSelectedPanel(panel)
@@ -407,7 +394,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
   // Get unique statuses from selected panels
   const getStatusesFromSelectedPanels = (): Status[] => {
     const statusMap = new Map<string, Status>()
-    
+
     panels.forEach(panel => {
       if (selectedPanels.has(panel.id) && panel.statuses) {
         panel.statuses.forEach((ps: any) => {
@@ -421,14 +408,14 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
         })
       }
     })
-    
+
     return Array.from(statusMap.values())
   }
 
   // Get unique groups from selected panels
   const getGroupsFromSelectedPanels = (): Group[] => {
     const groupMap = new Map<string, Group>()
-    
+
     panels.forEach(panel => {
       if (selectedPanels.has(panel.id) && panel.groups) {
         panel.groups.forEach((pg: any) => {
@@ -441,7 +428,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
         })
       }
     })
-    
+
     return Array.from(groupMap.values())
   }
 
@@ -453,7 +440,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
       const response = await authenticatedFetch(getApiUrl('status-management/assign-to-panels'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           panelIds,
           statusId,
           projectId
@@ -524,13 +511,13 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
 
     try {
       const panelIds = Array.from(selectedPanels)
-      
+
       // Remove each selected status from the panels
       for (const statusId of statusIds) {
         await authenticatedFetch(getApiUrl('status-management/remove-from-panels'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
+          body: JSON.stringify({
             panelIds,
             statusId,
             projectId
@@ -560,7 +547,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
 
     try {
       const panelIds = Array.from(selectedPanels)
-      
+
       // Remove panels from each selected group
       for (const groupId of groupIds) {
         await authenticatedFetch(getApiUrl(`groups/${projectId}/${groupId}/panels`), {
@@ -627,13 +614,13 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
               type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search panels by name, tag, or location..."
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Search panels by name, tag, location, or type..."
               className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:border-slate-500 focus:outline-none"
             />
           </div>
-          
+
           {/* Model Selection Dropdown */}
           <div className="min-w-[250px]">
             <select
@@ -652,17 +639,17 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
                     default: return ''; // No prefix for OTHER
                   }
                 };
-                
+
                 // Truncate long model names
                 const truncateName = (name: string, maxLength: number = 30) => {
                   if (name.length <= maxLength) return name;
                   return name.substring(0, maxLength - 3) + '...';
                 };
-                
+
                 // Use original filename instead of display name
                 const modelName = model.filename?.replace(/\.(ifc|frag)$/i, '') || model.name;
                 const displayName = `${getCategoryPrefix(model.category)}${truncateName(modelName)} (${model.elementCount || 0})`;
-                
+
                 return (
                   <option key={model.id} value={model.id} title={`${modelName} (${model.elementCount || 0} elements)`}>
                     {displayName}
@@ -676,64 +663,64 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
 
       {/* Bulk Actions Toolbar */}
       {selectedPanels.size > 0 && (
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <p className="text-slate-900 font-semibold">
-                  {selectedPanels.size} panel{selectedPanels.size !== 1 ? 's' : ''} selected
-                </p>
-                <button
-                  onClick={clearSelection}
-                  className="text-slate-600 hover:text-slate-900 text-sm underline"
-                >
-                  Clear selection
-                </button>
-              </div>
-              <div className="flex items-center gap-2">
-                <select
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      handleBulkAssignStatus(e.target.value)
-                      e.target.value = ''
-                    }
-                  }}
-                  className="px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 text-sm focus:outline-none focus:border-slate-700"
-                >
-                  <option value="">Assign Status...</option>
-                  {statuses.map((status) => (
-                    <option key={status.id} value={status.id}>{status.name}</option>
-                  ))}
-                </select>
-                <button
-                  onClick={() => setShowRemoveStatusModal(true)}
-                  className="px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 text-sm hover:bg-slate-50 transition-colors"
-                >
-                  Remove Status...
-                </button>
-                <select
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      handleBulkAddToGroup(e.target.value)
-                      e.target.value = ''
-                    }
-                  }}
-                  className="px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 text-sm focus:outline-none focus:border-slate-700"
-                >
-                  <option value="">Add to Group...</option>
-                  {groups.map((group) => (
-                    <option key={group.id} value={group.id}>{group.name}</option>
-                  ))}
-                </select>
-                <button
-                  onClick={() => setShowRemoveGroupModal(true)}
-                  className="px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 text-sm hover:bg-slate-50 transition-colors"
-                >
-                  Remove from Group...
-                </button>
-              </div>
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <p className="text-slate-900 font-semibold">
+                {selectedPanels.size} panel{selectedPanels.size !== 1 ? 's' : ''} selected
+              </p>
+              <button
+                onClick={clearSelection}
+                className="text-slate-600 hover:text-slate-900 text-sm underline"
+              >
+                Clear selection
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <select
+                onChange={(e) => {
+                  if (e.target.value) {
+                    handleBulkAssignStatus(e.target.value)
+                    e.target.value = ''
+                  }
+                }}
+                className="px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 text-sm focus:outline-none focus:border-slate-700"
+              >
+                <option value="">Assign Status...</option>
+                {statuses.map((status) => (
+                  <option key={status.id} value={status.id}>{status.name}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => setShowRemoveStatusModal(true)}
+                className="px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 text-sm hover:bg-slate-50 transition-colors"
+              >
+                Remove Status...
+              </button>
+              <select
+                onChange={(e) => {
+                  if (e.target.value) {
+                    handleBulkAddToGroup(e.target.value)
+                    e.target.value = ''
+                  }
+                }}
+                className="px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 text-sm focus:outline-none focus:border-slate-700"
+              >
+                <option value="">Add to Group...</option>
+                {groups.map((group) => (
+                  <option key={group.id} value={group.id}>{group.name}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => setShowRemoveGroupModal(true)}
+                className="px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 text-sm hover:bg-slate-50 transition-colors"
+              >
+                Remove from Group...
+              </button>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
       {/* Panel Table */}
       <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
@@ -809,29 +796,29 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
                         {panel.model?.category === 'STRUCTURE' && (
                           <div className="w-4 h-4 text-blue-600">
                             <svg viewBox="0 0 24 24" fill="currentColor">
-                              <path d="M3 21h18v-2H3v2zM5 10h4V8H5v2zm0 4h4v-2H5v2zm6-10h4V2h-4v2zm0 4h4V6h-4v2zm0 4h4v-2h-4v2zm6-8h4V2h-4v2zm0 4h4V6h-4v2zm0 4h4v-2h-4v2z"/>
+                              <path d="M3 21h18v-2H3v2zM5 10h4V8H5v2zm0 4h4v-2H5v2zm6-10h4V2h-4v2zm0 4h4V6h-4v2zm0 4h4v-2h-4v2zm6-8h4V2h-4v2zm0 4h4V6h-4v2zm0 4h4v-2h-4v2z" />
                             </svg>
                           </div>
                         )}
                         {panel.model?.category === 'MEP' && (
                           <div className="w-4 h-4 text-green-600">
                             <svg viewBox="0 0 24 24" fill="currentColor">
-                              <path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z"/>
+                              <path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z" />
                             </svg>
                           </div>
                         )}
                         {panel.model?.category === 'ELECTRICAL' && (
                           <div className="w-4 h-4 text-yellow-600">
                             <svg viewBox="0 0 24 24" fill="currentColor">
-                              <path d="M11.5 2L6.5 9h4v6l5-7h-4V2z"/>
+                              <path d="M11.5 2L6.5 9h4v6l5-7h-4V2z" />
                             </svg>
                           </div>
                         )}
                         {(panel.model?.category === 'OTHER' || !panel.model?.category) && (
                           <div className="w-4 h-4 text-slate-500">
                             <svg viewBox="0 0 24 24" fill="currentColor">
-                              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"/>
-                              <path d="M14 2v6h6"/>
+                              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z" />
+                              <path d="M14 2v6h6" />
                             </svg>
                           </div>
                         )}
@@ -857,9 +844,9 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
                           {panel.statuses.map((ps: any) => {
                             const IconComponent = getIconComponent(ps.status.icon)
                             return (
-                              <IconComponent 
+                              <IconComponent
                                 key={ps.id}
-                                className="w-5 h-5" 
+                                className="w-5 h-5"
                                 style={{ color: ps.status.color }}
                                 title={ps.status.name}
                               />
@@ -882,15 +869,22 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
                 ))
               ) : (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center">
-                    <div className="text-slate-400">
-                      <p className="text-lg font-semibold text-slate-900 mb-2">
-                        No Panels Found
+                  <td colSpan={8} className="py-16 text-center">
+                    <div className="flex flex-col items-center justify-center">
+                      <div className="w-16 h-16 mb-4 rounded-full bg-slate-100 flex items-center justify-center">
+                        <svg className="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+                        </svg>
+                      </div>
+                      <p className="text-lg font-semibold text-slate-900 mb-1">
+                        {searchTerm || selectedModelId !== 'all' ? 'No panels match your filters' : 'No panels found'}
                       </p>
-                      <p className="text-sm text-slate-600">
+                      <p className="text-sm text-slate-500">
                         {searchTerm
-                          ? 'Try adjusting your search'
-                          : 'Upload a model to see panels'}
+                          ? `No results for "${searchTerm}". Try different keywords or clear filters.`
+                          : selectedModelId !== 'all'
+                            ? 'Try selecting a different model or clearing filters.'
+                            : 'Upload a 3D model to get started with panel management.'}
                       </p>
                     </div>
                   </td>
@@ -904,9 +898,9 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
         {filteredTotalPages > 1 && (
           <div className="flex items-center justify-between px-6 py-4 border-t border-slate-200 bg-white">
             <div className="text-sm text-slate-600">
-              Showing {((page - 1) * limit) + 1} to {Math.min(page * limit, filteredAndSortedPanels.length)} of{' '}
-              {filteredAndSortedPanels.length.toLocaleString()} panels
-              {searchTerm && <span className="text-slate-500"> (filtered from {totalPanels.toLocaleString()} total)</span>}
+              Showing {((page - 1) * limit) + 1} to {Math.min(page * limit, totalPanels)} of{' '}
+              {totalPanels.toLocaleString()} panels
+              {searchTerm && <span className="text-slate-500"> (filtered)</span>}
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -923,9 +917,48 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
               >
                 Previous
               </button>
-              <span className="px-4 py-2 text-sm font-semibold text-slate-900">
-                Page {page} of {filteredTotalPages}
-              </span>
+
+              {/* Page number display and input */}
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-slate-600">Page</span>
+                <input
+                  key={page} // Force re-render when page changes externally
+                  type="number"
+                  min="1"
+                  max={filteredTotalPages}
+                  defaultValue={page}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const newPage = parseInt(e.currentTarget.value);
+                      if (!isNaN(newPage) && newPage >= 1 && newPage <= filteredTotalPages) {
+                        setPage(newPage);
+                        e.currentTarget.blur();
+                      } else if (!isNaN(newPage) && newPage < 1) {
+                        setPage(1);
+                        e.currentTarget.value = '1';
+                      } else if (!isNaN(newPage) && newPage > filteredTotalPages) {
+                        setPage(filteredTotalPages);
+                        e.currentTarget.value = filteredTotalPages.toString();
+                      }
+                    }
+                  }}
+                  onBlur={(e) => {
+                    const newPage = parseInt(e.target.value);
+                    if (isNaN(newPage) || newPage < 1) {
+                      setPage(1);
+                      e.target.value = '1';
+                    } else if (newPage > filteredTotalPages) {
+                      setPage(filteredTotalPages);
+                      e.target.value = filteredTotalPages.toString();
+                    } else if (newPage >= 1 && newPage <= filteredTotalPages) {
+                      setPage(newPage);
+                    }
+                  }}
+                  className="w-16 px-2 py-1 text-sm text-center font-semibold text-slate-900 border border-slate-300 rounded-lg focus:outline-none focus:border-slate-500"
+                />
+                <span className="text-sm text-slate-600">of {filteredTotalPages}</span>
+              </div>
+
               <button
                 onClick={() => setPage(page + 1)}
                 disabled={page === filteredTotalPages}

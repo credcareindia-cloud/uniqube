@@ -1868,8 +1868,17 @@ export async function initializeViewer(containerId: string = "container") {
     }
   };
 
+  // Cache for tree structure
+  let treeStructureCache: any = null;
+
   const fetchTreeStructureFromDatabase = async (projectId: string) => {
     try {
+      // Return cached structure if available
+      if (treeStructureCache) {
+        console.log('📦 Using cached tree structure');
+        return treeStructureCache;
+      }
+
       console.log(`🗄️ Fetching tree hierarchy from database for project ${projectId}...`);
 
       const token = localStorage.getItem('auth_token');
@@ -1917,6 +1926,9 @@ export async function initializeViewer(containerId: string = "container") {
         })),
         totalPanels: model.storeys.reduce((sum: any, s: any) => sum + s.elementCount, 0)
       }));
+
+      // Cache the result
+      treeStructureCache = treeStructure;
 
       return treeStructure;
 
@@ -2315,6 +2327,11 @@ export async function initializeViewer(containerId: string = "container") {
     }
     typeBadge.style.cssText = "font-size: 10px; color: #64748b; margin-left: 8px;";
     panelNode.appendChild(typeBadge);
+
+    // Add to tree node map for filtering
+    if (panel.localId) {
+      treeNodeMap.set(panel.localId, panelNode);
+    }
 
     // Click handler for highlighting and showing element info
     panelNode.onclick = async () => {
@@ -3506,77 +3523,132 @@ export async function initializeViewer(containerId: string = "container") {
   };
 
   // Highlight panels in a group and make others transparent
+  // Helper: Resolve GlobalIds to LocalIds
+  const resolveGlobalIdsToLocalIds = async (model: FRAGS.FragmentsModel, globalIds: string[]): Promise<number[]> => {
+    const resolvedIds: number[] = [];
+    if (!globalIds || globalIds.length === 0) return resolvedIds;
+
+    try {
+      // Optimization: Check if we have a cached map
+      const cacheKey = (model as any).modelId || 'default';
+      if (!(model as any)._globalIdMap) {
+        console.log(`⚙️ Building GlobalId map for model ${cacheKey}...`);
+        (model as any)._globalIdMap = new Map<string, number>();
+
+        if (model.properties) {
+          for (const expressID in model.properties) {
+            const props = model.properties[expressID];
+            if (props.GlobalId && props.GlobalId.value) {
+              (model as any)._globalIdMap.set(props.GlobalId.value, parseInt(expressID));
+            }
+          }
+        }
+        console.log(`✅ Built GlobalId map with ${(model as any)._globalIdMap.size} entries`);
+      }
+
+      const map = (model as any)._globalIdMap;
+      if (map) {
+        for (const gid of globalIds) {
+          if (map.has(gid)) {
+            resolvedIds.push(map.get(gid));
+          }
+        }
+      }
+
+    } catch (e) {
+      console.warn("Error resolving GlobalIds:", e);
+    }
+
+    return resolvedIds;
+  };
+
+  // Highlight panels in a group and make others transparent
   const highlightGroupPanels = async (group: DatabaseGroup) => {
     try {
       console.log(`Highlighting panels for group: ${group.name}`);
 
       // Get panel element IDs from the group (using elementId as the unique identifier)
-      const panelElementIds: string[] = [];
-      const panelIds: string[] = [];
+      const panelElementIds: string[] = []; // These are likely LocalIds (ifcElementId)
+      const panelGlobalIds: string[] = [];  // These are GlobalIds
+      const panelTags: string[] = [];       // Fallback tags
+
+      // Helper to process a panel
+      const processPanel = (panel: any) => {
+        let foundId = false;
+
+        // Priority 1: Use metadata.ifcElementId (LocalId)
+        if (panel.metadata?.ifcElementId) {
+          panelElementIds.push(panel.metadata.ifcElementId);
+          foundId = true;
+        }
+
+        // Priority 2: Use element.globalId (GlobalId)
+        if (panel.element && panel.element.globalId) {
+          panelGlobalIds.push(panel.element.globalId);
+          if (!foundId) foundId = true; // We have at least a GlobalId
+        }
+
+        // Priority 3: Use elementId field (Could be either, but usually LocalId if numeric)
+        if (!foundId && panel.elementId) {
+          // Check if it looks like a number
+          if (/^\d+$/.test(panel.elementId)) {
+            panelElementIds.push(panel.elementId);
+          } else {
+            // Assume GlobalId if not numeric
+            panelGlobalIds.push(panel.elementId);
+          }
+          foundId = true;
+        }
+
+        // Fallback: Tag
+        if (panel.tag) {
+          panelTags.push(panel.tag.trim());
+        }
+      };
 
       // First try panelGroups (new structure)
       if (group.panelGroups && group.panelGroups.length > 0) {
         group.panelGroups.forEach(pg => {
-          if (pg.panel) {
-            panelIds.push(pg.panel.id);
-
-            // Priority 1: Use metadata.ifcElementId (real IFC element ID from model)
-            if ((pg.panel as any).metadata?.ifcElementId) {
-              panelElementIds.push((pg.panel as any).metadata.ifcElementId);
-            }
-            // Priority 2: Use element.globalId from database relation
-            else if (pg.panel.element && pg.panel.element.globalId) {
-              panelElementIds.push(pg.panel.element.globalId);
-            }
-            // Priority 3: Use elementId field if available
-            else if ((pg.panel as any).elementId) {
-              panelElementIds.push((pg.panel as any).elementId);
-            }
-          }
+          if (pg.panel) processPanel(pg.panel);
         });
       }
       // Fallback to panels (old structure)
       else if (group.panels && group.panels.length > 0) {
-        group.panels.forEach(panel => {
-          panelIds.push(panel.id);
-
-          // Priority 1: Use metadata.ifcElementId
-          if ((panel as any).metadata?.ifcElementId) {
-            panelElementIds.push((panel as any).metadata.ifcElementId);
-          }
-          // Priority 2: Use element.globalId
-          else if (panel.element && panel.element.globalId) {
-            panelElementIds.push(panel.element.globalId);
-          }
-          // Priority 3: Use elementId field
-          else if ((panel as any).elementId) {
-            panelElementIds.push((panel as any).elementId);
-          }
-        });
+        group.panels.forEach(panel => processPanel(panel));
       }
 
-      if (panelElementIds.length === 0) {
-        console.log("No element IDs found in this group, falling back to panel tags");
-        // Fallback to tag-based matching if no element IDs available
-        return highlightGroupPanelsByTag(group);
-      }
-
-      console.log(`Found ${panelElementIds.length} element IDs in group:`, panelElementIds);
-
-      // Convert IFC element IDs to numbers for matching with localId
+      // Collect all resolved local IDs
       const localIds: number[] = [];
 
+      // 1. Process explicit Local IDs
       panelElementIds.forEach(elementId => {
-        // IFC element IDs are stored as strings but represent the localId (numeric)
         const numericId = parseInt(elementId);
         if (!isNaN(numericId)) {
           localIds.push(numericId);
         }
       });
 
-      if (localIds.length === 0) {
-        console.log("Could not parse element IDs as numbers, falling back to tag matching");
+      // 2. Resolve Global IDs if we have any
+      if (panelGlobalIds.length > 0) {
+        console.log(`🔍 Attempting to resolve ${panelGlobalIds.length} GlobalIds...`);
+        for (const [_, model] of models.entries()) {
+          const resolved = await resolveGlobalIdsToLocalIds(model, panelGlobalIds);
+          if (resolved.length > 0) {
+            console.log(`✅ Resolved ${resolved.length} GlobalIds in model`);
+            localIds.push(...resolved);
+          }
+        }
+      }
+
+      // 3. Fallback to Tags if no IDs found
+      if (localIds.length === 0 && panelTags.length > 0) {
+        console.log("No element IDs resolved, falling back to panel tags");
         return highlightGroupPanelsByTag(group);
+      }
+
+      if (localIds.length === 0) {
+        console.warn("❌ No panels found to highlight (no valid IDs or tags)");
+        return;
       }
 
       console.log(`Converted to ${localIds.length} local IDs for highlighting:`, localIds);
@@ -3614,17 +3686,22 @@ export async function initializeViewer(containerId: string = "container") {
             if (spatialStructure) {
               // For each panel ID, collect parent + children
               for (const localId of localIds) {
+                // Check if this localId belongs to this model
+                // (Optimization: we could check model.ids, but getBoxes check inside highlight might be enough)
+                // However, collectParentAndChildIds assumes the ID exists in the structure.
+
                 const relatedIds = collectParentAndChildIds(spatialStructure, localId);
                 if (relatedIds.length > 0) {
                   allIdsToHighlight.push(...relatedIds);
                 } else {
+                  // If not found in structure, it might not be in this model, or just isolated.
+                  // We'll add it anyway, highlight will ignore if invalid.
                   allIdsToHighlight.push(localId);
                 }
               }
 
               // Remove duplicates
               allIdsToHighlight = [...new Set(allIdsToHighlight)];
-              console.log(`📦 Expanded ${localIds.length} panels to ${allIdsToHighlight.length} elements (with parent-child relationships)`);
             } else {
               allIdsToHighlight = localIds;
             }
@@ -3633,20 +3710,19 @@ export async function initializeViewer(containerId: string = "container") {
             allIdsToHighlight = localIds;
           }
 
-          await model.highlight(allIdsToHighlight, {
-            color: new THREE.Color('gold'),
-            opacity: 1,
-            transparent: false,
-            renderedFaces: FRAGS.RenderedFaces.TWO,
-          });
-          console.log(`Highlighted ${allIdsToHighlight.length} elements in model`);
+          if (allIdsToHighlight.length > 0) {
+            await model.highlight(allIdsToHighlight, {
+              color: new THREE.Color('gold'),
+              opacity: 1,
+              transparent: false,
+              renderedFaces: FRAGS.RenderedFaces.TWO,
+            });
+            console.log(`Highlighted ${allIdsToHighlight.length} elements in model`);
+          }
         } catch (error) {
           console.warn("Could not highlight panels in this model:", error);
         }
       }
-
-      // Show the whole model at a good angle (not too close)
-      // await focusCameraOnWholeModel({ closer: 1.3 });
 
       // frame entire model with fixed diagonal angle
       {
@@ -3687,41 +3763,48 @@ export async function initializeViewer(containerId: string = "container") {
       console.log(`Highlighting panels for status: ${status.name}`);
 
       // Get panel element IDs from the status (using elementId as the unique identifier)
-      const panelElementIds: string[] = [];
-      const panelIds: string[] = [];
+      const panelElementIds: string[] = []; // LocalIds
+      const panelGlobalIds: string[] = [];  // GlobalIds
+      const panelTags: string[] = [];       // Tags
 
       // Extract panel data from panelStatuses
       if (status.panelStatuses && status.panelStatuses.length > 0) {
         status.panelStatuses.forEach((ps: any) => {
           if (ps.panel) {
-            panelIds.push(ps.panel.id);
+            let foundId = false;
 
-            // Priority 1: Use metadata.ifcElementId (real IFC element ID from model)
+            // Priority 1: Use metadata.ifcElementId (LocalId)
             if (ps.panel.metadata?.ifcElementId) {
               panelElementIds.push(ps.panel.metadata.ifcElementId);
+              foundId = true;
             }
-            // Priority 2: Use element.globalId from database relation
-            else if (ps.panel.element && ps.panel.element.globalId) {
-              panelElementIds.push(ps.panel.element.globalId);
+            // Priority 2: Use element.globalId (GlobalId)
+            if (ps.panel.element && ps.panel.element.globalId) {
+              panelGlobalIds.push(ps.panel.element.globalId);
+              if (!foundId) foundId = true;
             }
-            // Priority 3: Use elementId field if available
-            else if (ps.panel.elementId) {
-              panelElementIds.push(ps.panel.elementId);
+            // Priority 3: Use elementId field
+            if (!foundId && ps.panel.elementId) {
+              if (/^\d+$/.test(ps.panel.elementId)) {
+                panelElementIds.push(ps.panel.elementId);
+              } else {
+                panelGlobalIds.push(ps.panel.elementId);
+              }
+              foundId = true;
+            }
+
+            // Fallback: Tag
+            if (ps.panel.tag) {
+              panelTags.push(ps.panel.tag.trim());
             }
           }
         });
       }
 
-      if (panelElementIds.length === 0) {
-        console.log("No element IDs found in this status, falling back to panel tags");
-        return highlightStatusPanelsByTag(status);
-      }
-
-      console.log(`Found ${panelElementIds.length} element IDs in status:`, panelElementIds);
-
-      // Convert IFC element IDs to numbers for matching with localId
+      // Collect all resolved local IDs
       const localIds: number[] = [];
 
+      // 1. Process explicit Local IDs
       panelElementIds.forEach(elementId => {
         const numericId = parseInt(elementId);
         if (!isNaN(numericId)) {
@@ -3729,9 +3812,27 @@ export async function initializeViewer(containerId: string = "container") {
         }
       });
 
-      if (localIds.length === 0) {
-        console.log("Could not parse element IDs as numbers, falling back to tag matching");
+      // 2. Resolve Global IDs
+      if (panelGlobalIds.length > 0) {
+        console.log(`🔍 Attempting to resolve ${panelGlobalIds.length} GlobalIds...`);
+        for (const [_, model] of models.entries()) {
+          const resolved = await resolveGlobalIdsToLocalIds(model, panelGlobalIds);
+          if (resolved.length > 0) {
+            console.log(`✅ Resolved ${resolved.length} GlobalIds in model`);
+            localIds.push(...resolved);
+          }
+        }
+      }
+
+      // 3. Fallback to Tags
+      if (localIds.length === 0 && panelTags.length > 0) {
+        console.log("No element IDs resolved, falling back to panel tags");
         return highlightStatusPanelsByTag(status);
+      }
+
+      if (localIds.length === 0) {
+        console.warn("❌ No panels found to highlight (no valid IDs or tags)");
+        return;
       }
 
       console.log(`Converted to ${localIds.length} local IDs for highlighting:`, localIds);
@@ -3780,7 +3881,6 @@ export async function initializeViewer(containerId: string = "container") {
 
               // Remove duplicates
               allIdsToHighlight = [...new Set(allIdsToHighlight)];
-              console.log(`📦 Expanded ${localIds.length} panels to ${allIdsToHighlight.length} elements (with parent-child relationships)`);
             } else {
               allIdsToHighlight = localIds;
             }
@@ -3789,20 +3889,19 @@ export async function initializeViewer(containerId: string = "container") {
             allIdsToHighlight = localIds;
           }
 
-          await model.highlight(allIdsToHighlight, {
-            color: statusColor,
-            opacity: 1,
-            transparent: false,
-            renderedFaces: FRAGS.RenderedFaces.TWO,
-          });
-          console.log(`Highlighted ${allIdsToHighlight.length} elements in model`);
+          if (allIdsToHighlight.length > 0) {
+            await model.highlight(allIdsToHighlight, {
+              color: statusColor,
+              opacity: 1,
+              transparent: false,
+              renderedFaces: FRAGS.RenderedFaces.TWO,
+            });
+            console.log(`Highlighted ${allIdsToHighlight.length} elements in model`);
+          }
         } catch (error) {
           console.warn("Could not highlight panels in this model:", error);
         }
       }
-
-      // Show the whole model at a good angle (not too close)
-      // await focusCameraOnWholeModel({ closer: 1.3 });
 
       // OLD FIXED-ANGLE METHOD (requested): frame entire model with fixed diagonal angle
       {
@@ -6193,19 +6292,432 @@ export async function initializeViewer(containerId: string = "container") {
     return false;
   };
 
+  // Render filtered tree view (replaces tree content with filtered panels)
+  const renderFilteredTree = async (filterTypes: Set<string>, page: number = 1) => {
+    const treeContainer = document.getElementById('tree-container');
+    if (!treeContainer) return;
+
+    // Show loading on first page
+    if (page === 1) {
+      treeContainer.innerHTML = `
+        <div style="padding: 20px; text-align: center; color: var(--slate-500);">
+          <i class="fas fa-spinner fa-spin" style="font-size: 20px;"></i>
+          <div style="margin-top: 10px;">Filtering elements...</div>
+        </div>
+      `;
+    }
+
+    try {
+      // Convert filter types to IFC types
+      const ifcTypes: string[] = [];
+      filterTypes.forEach(filter => {
+        const categoryTypes = IFC_ELEMENT_CATEGORIES[filter];
+        if (categoryTypes) {
+          ifcTypes.push(...categoryTypes);
+        }
+      });
+
+      if (ifcTypes.length === 0) {
+        treeContainer.innerHTML = `
+          <div style="padding: 20px; text-align: center; color: var(--slate-500);">
+            No filter types configured
+          </div>
+        `;
+        return;
+      }
+
+      // Fetch filtered panels from backend
+      const token = localStorage.getItem('auth_token');
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(
+        `/api/panels/${projectIdFromUrl}/filter-by-type?ifcTypes=${ifcTypes.join(',')}&page=${page}&limit=50`,
+        { headers }
+      );
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch filtered panels: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      console.log(`📊 Fetched ${data.panels.length} of ${data.total} filtered panels (page ${page})`);
+
+      // Map backend data to frontend model (same as search)
+      if (data.panels) {
+        data.panels = data.panels.map((p: any) => ({
+          ...p,
+          type: p.objectType || p.element?.ifcType || p.type || 'Unknown',
+          localId: p.metadata?.ifcElementId ? parseInt(p.metadata.ifcElementId) : (p.element?.id || null)
+        }));
+      }
+
+      // Clear tree on first page
+      if (page === 1) {
+        treeContainer.innerHTML = '';
+
+        // Clear tree node map to remove stale references from previous view
+        treeNodeMap.clear();
+        console.log('🧹 Cleared tree node map for filtered view');
+
+        // Add header with filter names and count
+        const header = document.createElement('div');
+        header.className = 'filtered-tree-header';
+        const filterNames = Array.from(filterTypes).join(', ');
+        header.innerHTML = `
+          <div style="padding: 12px; background: var(--slate-100); border-bottom: 1px solid var(--slate-200); font-size: 14px;">
+            <div style="font-weight: 600; color: var(--slate-900);">Filtered Results</div>
+            <div style="color: var(--slate-600); margin-top: 4px; font-size: 12px;">
+              ${data.panels.length} of ${data.total} ${filterNames} elements
+            </div>
+          </div>
+        `;
+        treeContainer.appendChild(header);
+      }
+
+      // Render panel nodes
+      data.panels.forEach((panel: any) => {
+        renderFilteredPanelNode(panel, treeContainer);
+      });
+
+      // Add or update "Load More" button
+      const existingLoadMore = treeContainer.querySelector('.filtered-load-more');
+      if (existingLoadMore) {
+        existingLoadMore.remove();
+      }
+
+      if (data.hasMore) {
+        const loadMoreBtn = document.createElement('button');
+        loadMoreBtn.className = 'filtered-load-more';
+        loadMoreBtn.textContent = `Load More (${data.total - data.panels.length * page} remaining)`;
+        loadMoreBtn.style.cssText = `
+          width: 100%;
+          padding: 12px;
+          background: var(--slate-100);
+          border: none;
+          border-top: 1px solid var(--slate-200);
+          color: var(--primary);
+          cursor: pointer;
+          font-weight: 500;
+          transition: background 0.2s;
+        `;
+        loadMoreBtn.onmouseenter = () => {
+          loadMoreBtn.style.background = 'var(--slate-200)';
+        };
+        loadMoreBtn.onmouseleave = () => {
+          loadMoreBtn.style.background = 'var(--slate-100)';
+        };
+        loadMoreBtn.onclick = async () => {
+          loadMoreBtn.textContent = 'Loading...';
+          loadMoreBtn.disabled = true;
+          await renderFilteredTree(filterTypes, page + 1);
+        };
+        treeContainer.appendChild(loadMoreBtn);
+      }
+
+      // Initialize Lucide icons for the new nodes
+      if ((window as any).lucide) {
+        (window as any).lucide.createIcons();
+      }
+    } catch (error) {
+      console.error('Error rendering filtered tree:', error);
+      treeContainer.innerHTML = `
+        <div style="padding: 20px; text-align: center; color: var(--danger);">
+          Failed to load filtered elements
+        </div>
+      `;
+    }
+  };
+
+  // Render a single filtered panel node
+  const renderFilteredPanelNode = (panel: any, container: HTMLElement) => {
+    const node = document.createElement('div');
+    node.className = 'tree-node panel-node filtered-panel';
+    node.style.paddingLeft = '20px';
+    node.style.cursor = 'pointer';
+    node.style.transition = 'background 0.2s';
+
+    // Extract localId from metadata
+    const localId = panel.metadata?.ifcElementId;
+    if (localId) {
+      const numericId = typeof localId === 'number' ? localId : parseInt(localId);
+      if (!isNaN(numericId)) {
+        node.dataset.localId = numericId.toString();
+        treeNodeMap.set(numericId, node);
+      }
+    }
+
+    // Icon
+    const icon = document.createElement('i');
+    icon.setAttribute('data-lucide', 'box');
+    icon.style.marginRight = '8px';
+    icon.style.color = 'var(--primary)';
+    node.appendChild(icon);
+
+    // Name
+    const label = document.createElement('span');
+    label.className = 'tree-label';
+    label.textContent = panel.name || panel.tag || 'Unnamed Element';
+    label.style.flex = '1';
+    node.appendChild(label);
+
+    // Type badge
+    const badge = document.createElement('span');
+    badge.className = 'tree-type-badge';
+    const ifcType = panel.element?.ifcType || 'Unknown';
+    badge.textContent = ifcType.replace('IFC', '').replace('Ifc', '');
+    badge.style.cssText = `
+      font-size: 10px;
+      color: var(--slate-500);
+      background: var(--slate-100);
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-left: 8px;
+    `;
+    node.appendChild(badge);
+
+    // Hover effect
+    node.onmouseenter = () => {
+      node.style.background = 'var(--slate-100)';
+    };
+    node.onmouseleave = () => {
+      if (!node.classList.contains('selected')) {
+        node.style.background = '';
+      }
+    };
+
+    // Click handler - highlight and focus on element
+    node.onclick = async () => {
+      if (localId) {
+        const numericId = typeof localId === 'number' ? localId : parseInt(localId);
+
+        // Update selection in tree
+        container.querySelectorAll('.selected').forEach(n => {
+          n.classList.remove('selected');
+          (n as HTMLElement).style.background = '';
+        });
+        node.classList.add('selected');
+        node.style.background = 'var(--slate-200)';
+
+        // Populate localIdPanelMap for other functions to use
+        if (!localIdPanelMap.has(numericId)) {
+          localIdPanelMap.set(numericId, panel);
+        }
+
+        // Highlight and focus in 3D viewer
+        try {
+          // Reset all highlights
+          const resetPromises = [];
+          for (const [_, m] of models.entries()) {
+            resetPromises.push(m.resetHighlight(undefined));
+          }
+          await Promise.all(resetPromises);
+
+          // Ghost mode for all elements
+          const ghostPromises = [];
+          for (const [_, m] of models.entries()) {
+            ghostPromises.push(
+              m.highlight(undefined, {
+                color: new THREE.Color(0xcccccc),
+                opacity: 0.2,
+                transparent: true,
+                renderedFaces: FRAGS.RenderedFaces.TWO,
+              })
+            );
+          }
+          await Promise.all(ghostPromises);
+
+          // Highlight selected element
+          for (const [_, model] of models.entries()) {
+            try {
+              await model.highlight([numericId], {
+                color: new THREE.Color('gold'),
+                opacity: 1,
+                transparent: false,
+                renderedFaces: FRAGS.RenderedFaces.TWO,
+              });
+            } catch (err) {
+              console.warn('Could not highlight in this model:', err);
+            }
+          }
+
+          // Focus camera on element
+          await focusCameraOnLocalIds([numericId], { closer: 0.9 });
+
+          // Update fragments
+          await fragments.update(true);
+
+          console.log(`✅ Focused on element: ${panel.name || panel.tag} (localId: ${numericId})`);
+
+          // Show element information panel
+          const nodeData = {
+            localId: numericId,
+            name: panel.name || panel.tag || 'Unnamed',
+            type: panel.element?.ifcType || 'Unknown',
+            tag: panel.tag,
+            id: panel.id,
+            elementId: panel.elementId,
+            metadata: panel.metadata,
+            category: 'element',
+            children: [],
+            panelData: panel,
+          } as any;
+
+          // Show info panel and update with element data
+          const infoPanel = document.getElementById("infoPanel");
+          const statusPanel = document.getElementById("statusPanel");
+          const groupsPanel = document.getElementById("groupsPanel");
+
+          if (statusPanel) statusPanel.classList.add("panel-hidden");
+          if (groupsPanel) groupsPanel.classList.add("panel-hidden");
+          if (infoPanel) {
+            infoPanel.classList.remove("panel-hidden");
+
+            // Update basic info
+            const infoSection = infoPanel.querySelector(".info-section");
+            if (infoSection) {
+              infoSection.innerHTML = `
+                <div class="info-row">
+                  <div class="info-label">Name</div>
+                  <div class="info-value">${nodeData.name}</div>
+                </div>
+                <div class="info-row">
+                  <div class="info-label">ID</div>
+                  <div class="info-value">${nodeData.localId}</div>
+                </div>
+                <div class="info-row">
+                  <div class="info-label">Type</div>
+                  <div class="info-value">${nodeData.type}</div>
+                </div>
+                <div class="info-actions">
+                  <button id="show-qr-btn" class="info-action-btn" title="Show QR Code">
+                    <i class="fas fa-qrcode"></i>
+                  </button>
+                  <button id="show-submissions-btn" class="info-action-btn" title="View Submissions">
+                    <i class="fas fa-bell"></i>
+                    <span id="submission-count" class="notification-badge">0</span>
+                  </button>
+                </div>
+              `;
+            }
+
+            // Update groups and status sections
+            if (typeof updateElementInfoPanel === 'function') {
+              updateElementInfoPanel(nodeData);
+            }
+
+            // Attach QR code button event listener
+            const showQrBtnInPanel = infoPanel.querySelector("#show-qr-btn");
+            if (showQrBtnInPanel) {
+              showQrBtnInPanel.addEventListener("click", () => {
+                if (nodeData.localId) {
+                  showQRCode(nodeData.localId);
+                }
+              });
+            }
+
+            // Attach submissions button event listener
+            const showSubmissionsBtnInPanel = infoPanel.querySelector("#show-submissions-btn");
+            if (showSubmissionsBtnInPanel) {
+              showSubmissionsBtnInPanel.addEventListener("click", () => {
+                if (nodeData.localId) {
+                  showSubmissionsModal(nodeData.localId);
+                }
+              });
+
+              // Fetch and show badge for unread submissions
+              if (panel.id) {
+                fetchAndDisplaySubmissionBadge(nodeData.localId, panel.id);
+              }
+            }
+          }
+
+        } catch (error) {
+          console.error('Error focusing on element:', error);
+        }
+      }
+    };
+
+    container.appendChild(node);
+  };
+
+  // Restore normal tree view (when filters are cleared)
+  const restoreNormalTree = async () => {
+    const treeContainer = document.getElementById('tree-container');
+    if (!treeContainer) return;
+
+    // Clear filtered tree
+    treeContainer.innerHTML = `
+      <div style="padding: 20px; text-align: center; color: var(--slate-500);">
+        <i class="fas fa-spinner fa-spin" style="font-size: 20px;"></i>
+        <div style="margin-top: 10px;">Restoring tree view...</div>
+      </div>
+    `;
+
+    // Clear tree node map to remove stale references
+    treeNodeMap.clear();
+    console.log('🧹 Cleared tree node map');
+
+    // Re-initialize the tree (uses cache if available)
+    await initializeObjectTree();
+
+    // Ensure tree panel is visible
+    const treePanel = document.getElementById('tree-panel');
+    if (treePanel && treePanel.classList.contains('panel-hidden')) {
+      treePanel.classList.remove('panel-hidden');
+    }
+  };
+
+
   // Apply element category filter (highlight matching, dim others)
-  const applyElementFilter = async () => {
+  const applyElementFilter = async (loadingTitle = 'Filtering Elements') => {
+    // Start loading
+    window.dispatchEvent(new CustomEvent('viewer-loading', {
+      detail: {
+        isLoading: true,
+        title: loadingTitle,
+        subtitle: loadingTitle === 'Clearing Filters' ? 'Restoring original view...' : 'Applying filters to 3D model...',
+        status: 'Preparing...',
+        progress: 0
+      }
+    }));
+
+    // Disable all filter buttons during operation
+    const filterButtons = document.querySelectorAll('.filter-btn');
+    const clearFiltersBtn = document.getElementById('filter-clear-btn');
+
+    filterButtons.forEach(btn => btn.setAttribute('disabled', 'true'));
+    if (clearFiltersBtn) clearFiltersBtn.setAttribute('disabled', 'true');
+
     try {
       console.log(`🎨 Applying element filters:`, Array.from(activeElementFilters));
 
-      // If no filters active, reset all highlights
+      // If no filters active, reset all highlights and restore normal tree
       if (activeElementFilters.size === 0) {
         console.log('✨ No filters active, resetting highlights');
         for (const [_, model] of models.entries()) {
           await model.resetHighlight(undefined);
         }
+
+        // Restore normal tree view
+        restoreNormalTree();
+
         await fragments.update(true);
         return;
+      }
+
+      // Render filtered tree view (replaces tree content with filtered panels)
+      await renderFilteredTree(activeElementFilters);
+
+      // Automatically open tree panel to show results
+      const treePanel = document.getElementById('tree-panel');
+      if (treePanel && treePanel.classList.contains('panel-hidden')) {
+        treePanel.classList.remove('panel-hidden');
+        console.log('📂 Automatically opened tree panel for filtered results');
       }
 
       // Fetch all panels from database with their IFC types
@@ -6292,33 +6804,27 @@ export async function initializeViewer(containerId: string = "container") {
         return;
       }
 
-      // Extract element IDs from matching panels (same logic as groups/statuses)
-      const panelElementIds: string[] = [];
-      matchingPanels.forEach((panel: any) => {
-        // Priority 1: Use metadata.ifcElementId (real IFC element ID from model)
-        if (panel.metadata?.ifcElementId) {
-          panelElementIds.push(panel.metadata.ifcElementId);
-        }
-        // Priority 2: Use element.globalId from database relation
-        else if (panel.element && panel.element.globalId) {
-          panelElementIds.push(panel.element.globalId);
-        }
-        // Priority 3: Use elementId field if available
-        else if (panel.elementId) {
-          panelElementIds.push(panel.elementId);
-        }
-      });
-
-      console.log(`🔑 Extracted ${panelElementIds.length} element IDs:`, panelElementIds.slice(0, 10));
-
-      // Convert IFC element IDs to numbers for matching with localId
+      // Extract localIds from matching panels
+      // metadata.ifcElementId contains the numeric localId from the IFC model
       const localIds: number[] = [];
-      panelElementIds.forEach(elementId => {
-        const numericId = parseInt(elementId);
-        if (!isNaN(numericId)) {
-          localIds.push(numericId);
+      matchingPanels.forEach((panel: any) => {
+        // Only use metadata.ifcElementId - this is the numeric localId from the model
+        if (panel.metadata?.ifcElementId) {
+          const id = typeof panel.metadata.ifcElementId === 'number'
+            ? panel.metadata.ifcElementId
+            : parseInt(panel.metadata.ifcElementId);
+
+          if (!isNaN(id)) {
+            localIds.push(id);
+          } else {
+            console.warn(`⚠️ Invalid ifcElementId for panel ${panel.id}:`, panel.metadata.ifcElementId);
+          }
+        } else {
+          console.warn(`⚠️ Panel ${panel.id} missing metadata.ifcElementId, skipping`);
         }
       });
+
+      console.log(`🔑 Extracted ${localIds.length} localIds from ${matchingPanels.length} matching panels`);
 
       if (localIds.length === 0) {
         console.error('❌ Could not parse any element IDs as numbers');
@@ -6382,6 +6888,15 @@ export async function initializeViewer(containerId: string = "container") {
                 if (localIds.length > BATCH_SIZE) {
                   const progress = Math.min(100, Math.round(((i + batch.length) / localIds.length) * 100));
                   console.log(`📦 Processing elements: ${progress}% (${i + batch.length}/${localIds.length})`);
+
+                  // Update loading progress
+                  window.dispatchEvent(new CustomEvent('viewer-loading', {
+                    detail: {
+                      isLoading: true,
+                      status: `Processing elements... ${progress}%`,
+                      progress: progress
+                    }
+                  }));
                 }
               }
 
@@ -6432,6 +6947,18 @@ export async function initializeViewer(containerId: string = "container") {
       console.log('✅ Element filter applied successfully');
     } catch (error) {
       console.error('❌ Error applying element filter:', error);
+    } finally {
+      // Stop loading
+      window.dispatchEvent(new CustomEvent('viewer-loading', {
+        detail: { isLoading: false }
+      }));
+
+      // Re-enable all filter buttons
+      const filterButtons = document.querySelectorAll('.filter-btn');
+      const clearFiltersBtn = document.getElementById('filter-clear-btn');
+
+      filterButtons.forEach(btn => btn.removeAttribute('disabled'));
+      if (clearFiltersBtn) clearFiltersBtn.removeAttribute('disabled');
     }
   };
 
@@ -6447,9 +6974,11 @@ export async function initializeViewer(containerId: string = "container") {
       if (!filterType) return;
 
       // Toggle filter
+      let title = 'Filtering Elements';
       if (activeElementFilters.has(filterType)) {
         activeElementFilters.delete(filterType);
         btn.classList.remove('active');
+        title = 'Removing Filter';
         console.log(`➖ Removed filter: ${filterType}`);
       } else {
         activeElementFilters.add(filterType);
@@ -6460,7 +6989,7 @@ export async function initializeViewer(containerId: string = "container") {
       console.log(`📋 Active filters:`, Array.from(activeElementFilters));
 
       // Apply filter
-      await applyElementFilter();
+      await applyElementFilter(title);
     });
   });
 
@@ -6480,7 +7009,7 @@ export async function initializeViewer(containerId: string = "container") {
       console.log('📋 Active filters cleared');
 
       // Reset highlights
-      await applyElementFilter();
+      await applyElementFilter('Clearing Filters');
     });
   }
 

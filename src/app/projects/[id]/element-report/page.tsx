@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { authenticatedFetch } from '@/utils/authenticatedFetch'
-import { CheckCircle, ArrowLeft, Box, MapPin, Layers, Tag, FileText } from 'lucide-react'
+import { CheckCircle, ArrowLeft, Box, MapPin, Layers, Tag, FileText, AlertTriangle, Lock, FileQuestion, WifiOff } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
 import { getLucideIconName } from '@/utils/iconMapping'
 import { useAuth } from '@/contexts/AuthContext'
@@ -44,6 +44,12 @@ interface Project {
     organizationId: string
 }
 
+interface ErrorState {
+    title: string
+    message: string
+    type: 'auth' | 'access' | 'not_found' | 'generic'
+}
+
 export default function ElementReportPage() {
     const params = useParams()
     const navigate = useNavigate()
@@ -59,7 +65,7 @@ export default function ElementReportPage() {
     const [project, setProject] = useState<Project | null>(null)
     const [availableStatuses, setAvailableStatuses] = useState<Status[]>([])
     const [loading, setLoading] = useState(true)
-    const [error, setError] = useState<string | null>(null)
+    const [errorState, setErrorState] = useState<ErrorState | null>(null)
     const [submitting, setSubmitting] = useState(false)
     const [success, setSuccess] = useState(false)
     const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false)
@@ -93,7 +99,11 @@ export default function ElementReportPage() {
 
         // Check if user has access to the project
         if (projectId && !canViewProject(projectId)) {
-            setError('Access Denied: You do not have permission to view this project.')
+            setErrorState({
+                type: 'access',
+                title: 'Access Denied',
+                message: 'You do not have permission to view this project.'
+            })
             setLoading(false)
             return
         }
@@ -102,14 +112,14 @@ export default function ElementReportPage() {
     // Load data
     useEffect(() => {
         const loadData = async () => {
-            // Don't load data if not authenticated or still checking auth
-            if (authLoading || rbacLoading || !isAuthenticated) {
+            // Don't load data if not authenticated, still checking auth, or if access is denied
+            if (authLoading || rbacLoading || !isAuthenticated || !canViewProject(projectId)) {
                 return
             }
 
             try {
                 setLoading(true)
-                setError(null)
+                setErrorState(null)
 
                 if (!uuid) {
                     throw new Error('Panel UUID is required')
@@ -118,6 +128,14 @@ export default function ElementReportPage() {
                 // 1. Fetch Project Details (for reference, RBAC already verified access)
                 const projectRes = await authenticatedFetch(`/projects/${projectId}`)
                 if (!projectRes.ok) {
+                    if (projectRes.status === 404) {
+                        setErrorState({
+                            type: 'not_found',
+                            title: 'Project Not Found',
+                            message: 'The project you are looking for does not exist or has been deleted.'
+                        })
+                        return
+                    }
                     throw new Error('Failed to load project details')
                 }
                 const projectData = await projectRes.json()
@@ -131,6 +149,16 @@ export default function ElementReportPage() {
                 if (!panelRes.ok) {
                     const errorData = await panelRes.json().catch(() => ({}))
                     console.error('Panel fetch error:', errorData)
+
+                    if (panelRes.status === 404) {
+                        setErrorState({
+                            type: 'not_found',
+                            title: 'Element Not Found',
+                            message: 'The requested element could not be found in this project.'
+                        })
+                        return
+                    }
+
                     throw new Error(errorData.details || errorData.error || 'Failed to load element data')
                 }
                 const panelData = await panelRes.json()
@@ -150,7 +178,11 @@ export default function ElementReportPage() {
 
             } catch (err) {
                 console.error('Error loading data:', err)
-                setError(err instanceof Error ? err.message : 'Failed to load element data. Please check the URL or try again.')
+                setErrorState({
+                    type: 'generic',
+                    title: 'Unable to Load Report',
+                    message: err instanceof Error ? err.message : 'Failed to load element data. Please check the URL or try again.'
+                })
             } finally {
                 setLoading(false)
             }
@@ -159,10 +191,14 @@ export default function ElementReportPage() {
         if (uuid && projectId && isAuthenticated && !authLoading && !rbacLoading) {
             loadData()
         } else if (!uuid && !authLoading && !rbacLoading) {
-            setError('Panel UUID is missing from URL')
+            setErrorState({
+                type: 'not_found',
+                title: 'Invalid Link',
+                message: 'The link you followed is incomplete (missing element ID).'
+            })
             setLoading(false)
         }
-    }, [uuid, projectId, isAuthenticated, authLoading, rbacLoading, user])
+    }, [uuid, projectId, isAuthenticated, authLoading, rbacLoading, user, canViewProject])
 
     const handleInitialSubmit = (e: React.FormEvent) => {
         e.preventDefault()
@@ -261,14 +297,6 @@ export default function ElementReportPage() {
         }
     }
 
-    // const toggleStatus = (statusId: string) => {
-    //     setSelectedStatusIds(prev =>
-    //         prev.includes(statusId)
-    //             ? prev.filter(id => id !== statusId)
-    //             : [...prev, statusId]
-    //     )
-    // }
-
     // Enforce single status change at a time
     const toggleStatus = (statusId: string) => {
         setSelectedStatusIds(prev => {
@@ -320,15 +348,26 @@ export default function ElementReportPage() {
         )
     }
 
-    if (error || !panel) {
+    if (errorState || !panel) {
+        const getErrorIcon = () => {
+            switch (errorState?.type) {
+                case 'access': return Lock
+                case 'not_found': return FileQuestion
+                case 'generic': return WifiOff
+                default: return AlertTriangle
+            }
+        }
+
+        const ErrorIcon = getErrorIcon()
+
         return (
             <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
                 <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-8 max-w-md w-full text-center">
                     <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <LucideIcons.AlertTriangle className="w-8 h-8 text-red-500" />
+                        <ErrorIcon className="w-8 h-8 text-red-500" />
                     </div>
-                    <h2 className="text-2xl font-bold text-slate-900 mb-2">Unable to Load Report</h2>
-                    <p className="text-slate-500 mb-6">{error || 'Element not found'}</p>
+                    <h2 className="text-2xl font-bold text-slate-900 mb-2">{errorState?.title || 'Unable to Load Report'}</h2>
+                    <p className="text-slate-500 mb-6">{errorState?.message || 'Element not found'}</p>
                     <button
                         onClick={() => navigate(-1)}
                         className="px-6 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg transition-colors inline-flex items-center gap-2"
