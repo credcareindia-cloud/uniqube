@@ -6674,13 +6674,13 @@ export async function initializeViewer(containerId: string = "container") {
 
 
   // Apply element category filter (highlight matching, dim others)
-  const applyElementFilter = async (loadingTitle = 'Filtering Elements') => {
+  const applyElementFilter = async (loadingTitle = 'Filtering Elements', loadingSubtitle = 'Applying filters to 3D model...') => {
     // Start loading
     window.dispatchEvent(new CustomEvent('viewer-loading', {
       detail: {
         isLoading: true,
         title: loadingTitle,
-        subtitle: loadingTitle === 'Clearing Filters' ? 'Restoring original view...' : 'Applying filters to 3D model...',
+        subtitle: loadingSubtitle,
         status: 'Preparing...',
         progress: 0
       }
@@ -6975,10 +6975,12 @@ export async function initializeViewer(containerId: string = "container") {
 
       // Toggle filter
       let title = 'Filtering Elements';
+      let subtitle = 'Applying filters to 3D model...';
       if (activeElementFilters.has(filterType)) {
         activeElementFilters.delete(filterType);
         btn.classList.remove('active');
         title = 'Removing Filter';
+        subtitle = 'Restoring view...';
         console.log(`➖ Removed filter: ${filterType}`);
       } else {
         activeElementFilters.add(filterType);
@@ -6989,7 +6991,7 @@ export async function initializeViewer(containerId: string = "container") {
       console.log(`📋 Active filters:`, Array.from(activeElementFilters));
 
       // Apply filter
-      await applyElementFilter(title);
+      await applyElementFilter(title, subtitle);
     });
   });
 
@@ -7009,7 +7011,7 @@ export async function initializeViewer(containerId: string = "container") {
       console.log('📋 Active filters cleared');
 
       // Reset highlights
-      await applyElementFilter('Clearing Filters');
+      await applyElementFilter('Clearing Filters', 'Restoring original view...');
     });
   }
 
