@@ -6371,7 +6371,7 @@ export async function initializeViewer(containerId: string = "container") {
         header.innerHTML = `
           <div style="padding: 12px; background: var(--slate-100); border-bottom: 1px solid var(--slate-200); font-size: 14px;">
             <div style="font-weight: 600; color: var(--slate-900);">Filtered Results</div>
-            <div style="color: var(--slate-600); margin-top: 4px; font-size: 12px;">
+            <div id="filtered-results-count" style="color: var(--slate-600); margin-top: 4px; font-size: 12px;">
               ${data.panels.length} of ${data.total} ${filterNames} elements
             </div>
           </div>
@@ -6384,16 +6384,27 @@ export async function initializeViewer(containerId: string = "container") {
         renderFilteredPanelNode(panel, treeContainer);
       });
 
+      // Update count if not first page
+      if (page > 1) {
+        const countDisplay = document.getElementById('filtered-results-count');
+        if (countDisplay) {
+          const currentCount = treeContainer.querySelectorAll('.filtered-panel').length;
+          const filterNames = Array.from(filterTypes).join(', ');
+          countDisplay.textContent = `${currentCount} of ${data.total} ${filterNames} elements`;
+        }
+      }
+
       // Add or update "Load More" button
       const existingLoadMore = treeContainer.querySelector('.filtered-load-more');
       if (existingLoadMore) {
         existingLoadMore.remove();
       }
 
-      if (data.hasMore) {
+      const currentLoadedCount = treeContainer.querySelectorAll('.filtered-panel').length;
+      if (currentLoadedCount < data.total) {
         const loadMoreBtn = document.createElement('button');
         loadMoreBtn.className = 'filtered-load-more';
-        loadMoreBtn.textContent = `Load More (${data.total - data.panels.length * page} remaining)`;
+        loadMoreBtn.textContent = `Load More (${data.total - currentLoadedCount} remaining)`;
         loadMoreBtn.style.cssText = `
           width: 100%;
           padding: 12px;
