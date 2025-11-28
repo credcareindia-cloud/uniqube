@@ -35,6 +35,8 @@ interface Panel {
     installationDate: string
     notes: string
     metadata: any
+    modelId: string
+    elementId: string
     statuses: Array<{ status: Status }>
     groups: Array<{ group: Group }>
 }
@@ -418,6 +420,22 @@ export default function ElementReportPage() {
                                     <span className="font-mono">{(panel.metadata as any).ifcElementId}</span>
                                 </div>
                             </div>
+
+                            {/* Focus Button */}
+                            <button
+                                onClick={() => {
+                                    // Navigate to viewer with focus params
+                                    // We use window.location.href to ensure a full reload if needed, or navigate for SPA
+                                    // Using navigate from react-router-dom is better for SPA
+                                    navigate(`/projects/${projectId}/viewer-engine?model=${panel.modelId}&element=${panel.id}`)
+                                }}
+                                className="ml-auto mr-4 px-3 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5 border border-blue-200"
+                                title="View in 3D Model"
+                            >
+                                <LucideIcons.Crosshair className="w-4 h-4" />
+                                Locate
+                            </button>
+
                             {/* Current Statuses - Icon Only, Limited to 5 */}
                             <div className="flex flex-wrap gap-2 justify-end items-center">
                                 {panel.statuses && panel.statuses.length > 0 ? (

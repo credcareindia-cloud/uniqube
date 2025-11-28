@@ -200,6 +200,11 @@ export default function ViewerPage() {
         urlParams.set('model', modelId);
       }
 
+      const elementId = searchParams.get('element');
+      if (elementId) {
+        urlParams.set('element', elementId);
+      }
+
       // Update the URL search params for the main script
       const newUrl = `${window.location.pathname}?${urlParams.toString()}`;
       window.history.replaceState({}, '', newUrl);
@@ -785,9 +790,28 @@ export default function ViewerPage() {
         <div className="w-8 h-8 sm:w-10 sm:h-10 bg-slate-700 rounded-lg flex items-center justify-center shadow-sm">
           <img src="/uniQube.png" alt="UniQube Logo" className="w-8 h-8 sm:w-12 sm:h-8" />
         </div>
+
         <h1 className="text-lg sm:text-xl font-bold text-slate-900">
           UniQube <span className="bg-gradient-to-r from-yellow-400 via-yellow-500 to-amber-600 bg-clip-text text-transparent">3D</span>
         </h1>
+
+        {/* Back Button */}
+        <button
+          className="toolbar-button"
+          onClick={() => {
+            const elementId = searchParams.get('element');
+            if (elementId) {
+              window.location.href = `/projects/${projectId}/element-report#${elementId}`;
+            } else {
+              window.location.href = `/projects/${projectId}`;
+            }
+          }}
+          title=""
+          style={{ marginLeft: '12px', marginRight: 'auto' }}
+        >
+          <i className="fas fa-arrow-left"></i>
+          <span className="tooltip">{searchParams.get('element') ? 'Back to Report' : 'Back to Project'}</span>
+        </button>
 
         <button id="tree-toggle-btn" className="toolbar-button">
           <i className="fas fa-sitemap"></i>

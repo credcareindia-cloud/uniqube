@@ -5,6 +5,7 @@ import Stats from "stats.js";
 import * as FRAGS from "@thatopen/fragments";
 import QRCode from 'qrcode';
 import { Views2DManager } from './views2d';
+import { localId } from "three/src/nodes/TSL.js";
 
 // API Configuration - must be defined before any functions that use it
 const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL;
@@ -551,7 +552,7 @@ export async function initializeViewer(containerId: string = "container") {
     emitProgress(80, 'Setting up camera...');
 
     // Auto-fit camera and position grid after all models loaded
-    setTimeout(() => {
+    setTimeout(async () => {
       const combinedBbox = new THREE.Box3();
 
       models.forEach(model => {
@@ -585,6 +586,7 @@ export async function initializeViewer(containerId: string = "container") {
           true
         );
       }
+
     }, 200);
   };
 
@@ -637,6 +639,62 @@ export async function initializeViewer(containerId: string = "container") {
   const localIdPanelMap = new Map<number, any>();
   // Toggle: synchronize tree selection when selecting in canvas
   let SYNC_TREE_ON_SELECT = true;
+
+  // Auto-focus on element from URL (fetch from database)
+  const elementIdFromUrl = urlParams.get('element');
+  if (elementIdFromUrl) {
+    console.log(`🎯 Auto-focusing on element from URL: ${elementIdFromUrl}`);
+
+    // Fetch panel directly from database API
+    setTimeout(async () => {
+      try {
+        const token = localStorage.getItem('auth_token');
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json'
+        };
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        const response = await fetch(`${API_BASE_URL}/panels/${projectIdFromUrl}/${elementIdFromUrl}`, {
+          headers
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.warn(`⚠️ Failed to fetch panel ${elementIdFromUrl}: ${response.status}`);
+          console.warn('Error response:', errorText);
+          console.warn('Requested URL:', `${API_BASE_URL}/panels/${projectIdFromUrl}/${elementIdFromUrl}`);
+          return;
+        }
+
+        const panel = await response.json();
+
+        if (panel && panel.metadata?.ifcElementId) {
+          const foundLocalId = parseInt(panel.metadata.ifcElementId);
+          console.log(`✅ Found localId ${foundLocalId} for database element ${elementIdFromUrl}`);
+          console.log(`📦 Panel belongs to model: ${panel.modelId}`);
+
+          // Check if the panel's model is loaded
+          const panelModel = models.get(panel.modelId);
+          if (!panelModel) {
+            console.error(`❌ Panel's model ${panel.modelId} is not loaded. Loaded models:`, Array.from(models.keys()));
+            console.error(`💡 The URL specifies model=${modelIdFromUrl} but panel belongs to model=${panel.modelId}`);
+            return;
+          }
+
+          // Force tree to open for this selection
+          openTreeNextSelection = true;
+          selectElementByLocalId(foundLocalId, panel.modelId);
+        } else {
+          console.warn(`⚠️ Panel ${elementIdFromUrl} missing metadata.ifcElementId`);
+          console.log('Panel data:', panel);
+        }
+      } catch (error) {
+        console.error('❌ Error fetching panel for auto-focus:', error);
+      }
+    }, 1500); // Wait for viewer to be fully initialized
+  }
 
   // Get icon based on IFC type
   const getIconForType = (type: string): string => {
@@ -753,14 +811,21 @@ export async function initializeViewer(containerId: string = "container") {
   }
   // Helper: find model that contains a given localId
   const findModelForLocalId = async (localId: number): Promise<FRAGS.FragmentsModel | null> => {
-    for (const [_, m] of models.entries()) {
+    console.log(`🔍 Searching for localId ${localId} in ${models.size} loaded models`);
+    for (const [modelId, m] of models.entries()) {
       try {
+        console.log(`  Checking model: ${modelId}`);
         const boxes = await m.getBoxes([localId]);
-        if (boxes && boxes.length > 0 && !boxes[0].isEmpty()) return m;
-      } catch {
-        // not in this model
+        if (boxes && boxes.length > 0 && !boxes[0].isEmpty()) {
+          console.log(`  ✅ Found localId ${localId} in model ${modelId}`);
+          return m;
+        }
+        console.log(`  ❌ LocalId ${localId} not in model ${modelId}`);
+      } catch (e) {
+        console.log(`  ❌ Error checking model ${modelId}:`, e);
       }
     }
+    console.warn(`⚠️ LocalId ${localId} not found in any of the ${models.size} loaded models`);
     return null;
   };
 
@@ -774,9 +839,13 @@ export async function initializeViewer(containerId: string = "container") {
     // Doors and Windows
     'IFCDOOR', 'IFCWINDOW', 'IFCDOORSTANDARDCASE', 'IFCWINDOWSTANDARDCASE',
 
-    // Building Elements
+    // Building Elements & Assemblies
     'IFCROOF', 'IFCSTAIR', 'IFCRAILING', 'IFCRAMP', 'IFCSPACE',
-    'IFCFURNISHINGELEMENT',
+    'IFCFURNISHINGELEMENT', 'IFCELEMENTASSEMBLY', 'IFCBUILDINGELEMENTPART',
+    'IFCELEMENTCOMPONENT', 'IFCDISCRETEACCESSORY', 'IFCMECHANICALFASTENER',
+
+    // Reinforcement & Structural Components
+    'IFCREINFORCINGBAR', 'IFCREINFORCINGMESH', 'IFCTENDON', 'IFCTENDONANCHOR',
 
     // MEP - Distribution
     'IFCDUCTFITTING', 'IFCDUCTSEGMENT', 'IFCPIPEFITTING', 'IFCPIPESEGMENT',
@@ -810,13 +879,16 @@ export async function initializeViewer(containerId: string = "container") {
         // Debug log to see values
         console.log(`🔍 Hierarchy path for ${localId}:`, path.map(n => `${n.type || n.category} (${n.localId || n.expressID})`));
 
-        // Walk up the path to find the first "Panel" type
+        // Find ALL panel types in the path, then return the TOPMOST one
+        let topmostPanelId: number | null = null;
+        let topmostPanelType: string | null = null;
+
+        // Walk up the path to find all "Panel" types
         for (let i = path.length - 1; i >= 0; i--) {
           const node = path[i];
           const parent = i > 0 ? path[i - 1] : null;
 
           // Use type OR category (fallback)
-          // If node doesn't have type, check parent (common in some spatial structures where Type wraps Instance)
           let typeRaw = node.type || node.category;
           if (!typeRaw && parent) {
             typeRaw = parent.type || parent.category;
@@ -836,10 +908,17 @@ export async function initializeViewer(containerId: string = "container") {
           });
 
           if (isPanel && id !== null && id !== undefined) {
-            console.log(`✅ Found parent panel: ${typeRaw} (${id})`);
-            return id;
+            // Keep updating to find the topmost panel
+            topmostPanelId = id;
+            topmostPanelType = typeRaw;
           }
         }
+
+        if (topmostPanelId !== null) {
+          console.log(`✅ Found topmost parent panel: ${topmostPanelType} (${topmostPanelId})`);
+          return topmostPanelId;
+        }
+
         console.log(`❌ No parent panel found in path for ${localId}`);
       }
     } catch (e) {
@@ -878,7 +957,10 @@ export async function initializeViewer(containerId: string = "container") {
         }
       }
 
-      (target as HTMLElement).scrollIntoView({ block: 'nearest' });
+      // Scroll into view with centering and a small delay to ensure layout is stable
+      setTimeout(() => {
+        (target as HTMLElement).scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }, 100);
 
       // Ensure tree panel is open
       const treePanel = document.getElementById('tree-panel');
@@ -996,6 +1078,10 @@ export async function initializeViewer(containerId: string = "container") {
                   if (!storeyData._page || location.page > storeyData._page) {
                     storeyData._page = location.page;
                   }
+                  // Initialize start page for deep linking
+                  if (!storeyData._startPage || location.page < storeyData._startPage) {
+                    storeyData._startPage = location.page;
+                  }
                   storeyData._hasMore = result.panels.length < result.total;
 
                   // Render children
@@ -1003,6 +1089,12 @@ export async function initializeViewer(containerId: string = "container") {
 
                   if (isContainerEmpty) {
                     childrenContainer.innerHTML = "";
+
+                    // Add Load Previous button if we're not on page 1
+                    if (storeyData._startPage > 1) {
+                      renderStoreyLoadPreviousButton(storeyData, childrenContainer, location.modelId);
+                    }
+
                     // If container was empty, we must render ALL children, not just new ones
                     // because they might be in data but not in DOM
                     console.log(`Rendering all ${storeyData.children.length} panels for storey`);
@@ -1075,14 +1167,37 @@ export async function initializeViewer(containerId: string = "container") {
     return false;
   };
 
+
+
   // Helper: select element by localId (highlight + camera + info panel)
-  const selectElementByLocalId = async (localId: number) => {
+  const selectElementByLocalId = async (localId: number, modelId?: string) => {
     try {
       // Determine which model contains this localId
-      const model = await findModelForLocalId(localId);
+      let model: FRAGS.FragmentsModel | null = null;
+
+      if (modelId) {
+        model = models.get(modelId) || null;
+        if (!model) {
+          console.warn(`Specified model ${modelId} not found in loaded models`);
+          // Fallback to search if specific model not found
+          model = await findModelForLocalId(localId);
+        }
+      } else {
+        model = await findModelForLocalId(localId);
+      }
+
       if (!model) {
         console.warn('No model found for localId', localId);
         return;
+      }
+
+      // 1. Resolve Parent ID FIRST
+      // We want to select the main parent object (e.g. Wall) even if a child (e.g. Screw) was clicked.
+      let targetId = localId;
+      const parentId = await findParentPanelId(model, localId);
+      if (parentId) {
+        targetId = parentId;
+        console.log(`ℹ️ Selection: Resolved child ${localId} to parent ${targetId}`);
       }
 
       // Reset highlights and ghost all models
@@ -1102,8 +1217,10 @@ export async function initializeViewer(containerId: string = "container") {
       }
       await Promise.all(tasks);
 
-      // Parent + children IDs
-      let idsToHighlight: number[] = [localId];
+      // Parent + children IDs (using the resolved targetId)
+      let idsToHighlight: number[] = [targetId];
+
+      // Use spatial structure to collect parent + children (most reliable method)
       try {
         const cacheKey = (model as any).modelId || (model as any).threads?.modelId || 'default';
         let spatialStructure = spatialStructureCache.get(cacheKey);
@@ -1112,16 +1229,20 @@ export async function initializeViewer(containerId: string = "container") {
           spatialStructureCache.set(cacheKey, spatialStructure);
         }
         if (spatialStructure) {
-          const related = collectParentAndChildIds(spatialStructure, localId);
-          if (related.length > 0) idsToHighlight = related;
+          // Collect children of the TARGET (Parent) ID
+          const related = collectParentAndChildIds(spatialStructure, targetId);
+          if (related.length > 0) {
+            idsToHighlight = related;
+            console.log(`📦 Found ${related.length} related elements (parent + children) from spatial structure`);
+          }
         }
       } catch (e) {
-        console.warn('Could not compute parent/children for localId', localId, e);
+        console.warn('Could not compute parent/children for localId', targetId, e);
       }
 
-      // Highlight selected ids in gold in owning model
+      // Highlight selected ids in cobalt blue in owning model
       await model.highlight(idsToHighlight, {
-        color: new THREE.Color('gold'),
+        color: new THREE.Color('#0047AB'),
         opacity: 1,
         transparent: false,
         renderedFaces: FRAGS.RenderedFaces.TWO,
@@ -1131,25 +1252,15 @@ export async function initializeViewer(containerId: string = "container") {
       await focusCameraOnLocalIds(idsToHighlight, { closer: 0.9 });
       await fragments.update(true);
 
-      // Info panel data resolution
-      let infoLocalId = localId;
-
-      // 1. Try to resolve hierarchy using our robust helper
-      const parentId = await findParentPanelId(model, localId);
-      if (parentId) {
-        infoLocalId = parentId;
-        console.log(`ℹ️ Info Panel: Resolved ${localId} to parent ${infoLocalId}`);
-      }
-
-      // 2. Trigger Tree Selection (which might load data!)
+      // 2. Trigger Tree Selection (using the resolved targetId)
       // We await this so that if it loads a page, we have the data for the info panel
       if (SYNC_TREE_ON_SELECT || openTreeNextSelection) {
-        await selectTreeNodeByLocalId(infoLocalId);
+        await selectTreeNodeByLocalId(targetId);
       }
       openTreeNextSelection = false;
 
       // 3. Now fetch data (it might be in cache now if tree loaded it)
-      let panelData = localIdPanelMap.get(infoLocalId);
+      let panelData = localIdPanelMap.get(targetId);
 
       // If still no panel data (maybe tree didn't load it, or it's not tracked), try fallback
       if (!panelData) {
@@ -1157,10 +1268,10 @@ export async function initializeViewer(containerId: string = "container") {
         panelData = localIdPanelMap.get(localId);
       }
 
-      let nodeData: any = { localId: infoLocalId, name: `Element ${infoLocalId}`, category: 'element', children: [] };
+      let nodeData: any = { localId: targetId, name: `Element ${targetId}`, category: 'element', children: [] };
       if (panelData) {
         nodeData = {
-          localId: infoLocalId,
+          localId: targetId,
           name: panelData.name || panelData.tag || 'Unnamed',
           type: panelData.type,
           tag: panelData.tag,
@@ -1174,8 +1285,8 @@ export async function initializeViewer(containerId: string = "container") {
       } else {
         try {
           // Fallback to IFC properties
-          const [itemData] = await model.getItemsData([infoLocalId], { attributesDefault: false, attributes: ["Name", "Tag", "ObjectType"] });
-          nodeData.name = (itemData?.Name as any)?.value || (itemData?.Tag as any)?.value || (itemData?.ObjectType as any)?.value || `Element ${infoLocalId}`;
+          const [itemData] = await model.getItemsData([targetId], { attributesDefault: false, attributes: ["Name", "Tag", "ObjectType"] });
+          nodeData.name = (itemData?.Name as any)?.value || (itemData?.Tag as any)?.value || (itemData?.ObjectType as any)?.value || `Element ${targetId}`;
           nodeData.type = (itemData?.ObjectType as any)?.value || 'Unknown';
         } catch { }
       }
@@ -1202,6 +1313,7 @@ export async function initializeViewer(containerId: string = "container") {
       if (nodeId === targetId) {
         // Found the target! Collect this ID
         collected.push(nodeId);
+        // console.log(`🎯 collectParentAndChildIds: Found target ${targetId}`);
 
         // Collect ALL children recursively
         if (node.children && Array.isArray(node.children)) {
@@ -1217,6 +1329,7 @@ export async function initializeViewer(containerId: string = "container") {
           node.children.forEach(collectAllChildren);
         }
 
+        // console.log(`📦 collectParentAndChildIds: Collected ${collected.length} IDs for target ${targetId}`);
         return true;
       }
 
@@ -1239,6 +1352,10 @@ export async function initializeViewer(containerId: string = "container") {
       }
     } else {
       traverse(spatialData);
+    }
+
+    if (collected.length === 0) {
+      // console.warn(`⚠️ collectParentAndChildIds: Target ${targetId} NOT FOUND in spatial structure`);
     }
 
     return collected;
@@ -1648,7 +1765,7 @@ export async function initializeViewer(containerId: string = "container") {
         if (targetIds.length > 0) {
           try {
             await model.highlight(targetIds, {
-              color: new THREE.Color('gold'),
+              color: new THREE.Color('#0047AB'),
               opacity: 1,
               transparent: false,
               renderedFaces: FRAGS.RenderedFaces.TWO,
@@ -2228,6 +2345,75 @@ export async function initializeViewer(containerId: string = "container") {
     container.appendChild(storeyContainer);
   };
 
+  // Helper to render "Load Previous" button for storeys
+  const renderStoreyLoadPreviousButton = (storey: any, container: HTMLElement, modelId: string) => {
+    const loadPrevBtn = document.createElement("div");
+    loadPrevBtn.className = "tree-node load-prev-btn";
+    loadPrevBtn.style.paddingLeft = "50px";
+    loadPrevBtn.style.cursor = "pointer";
+    loadPrevBtn.style.color = "var(--primary)";
+    loadPrevBtn.textContent = "Load previous...";
+
+    loadPrevBtn.onclick = async (e) => {
+      e.stopPropagation();
+      loadPrevBtn.textContent = "Loading...";
+
+      try {
+        const prevPage = (storey._startPage || 1) - 1;
+        if (prevPage < 1) return;
+
+        const result = await fetchPanelsForStorey(
+          projectIdFromUrl!,
+          modelId,
+          storey.name,
+          prevPage,
+          50
+        );
+
+        if (result && result.panels) {
+          loadPrevBtn.remove();
+
+          // Update cache
+          result.panels.forEach((panel: any) => {
+            panelDataCache.set(panel.id, panel);
+            if (panel.metadata?.ifcElementId) {
+              localIdPanelMap.set(parseInt(panel.metadata.ifcElementId), panel);
+            }
+          });
+
+          // Prepend to existing children
+          storey.children.unshift(...result.panels);
+          storey._startPage = prevPage;
+
+          // Render new children at the top (after where the button was)
+          // We need to insert them before the first panel node
+          const firstPanelNode = container.querySelector('.panel-node');
+
+          // Create a temporary container to render nodes
+          const tempContainer = document.createElement('div');
+          result.panels.forEach((panel: any) => {
+            renderDatabasePanelNode(panel, tempContainer);
+          });
+
+          // Move nodes from temp container to real container
+          while (tempContainer.firstChild) {
+            container.insertBefore(tempContainer.firstChild, firstPanelNode);
+          }
+
+          // Re-add button if there are more previous pages
+          if (prevPage > 1) {
+            renderStoreyLoadPreviousButton(storey, container, modelId);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load previous panels:", error);
+        loadPrevBtn.textContent = "Retry load previous";
+      }
+    };
+
+    container.prepend(loadPrevBtn);
+  };
+
   // Helper to render "Load More" button for storeys
   const renderStoreyLoadMoreButton = (storey: any, container: HTMLElement, modelId: string) => {
     const loadMoreBtn = document.createElement("div");
@@ -2368,23 +2554,32 @@ export async function initializeViewer(containerId: string = "container") {
         const targetModel = models.get(panel.modelId);
         if (targetModel) {
           console.log(`✅ Found target model for panel: ${panel.modelId}`);
+
+          // Resolve parent ID first (consistency with selection tool)
+          let targetId = panel.localId;
+          const parentId = await findParentPanelId(targetModel, panel.localId);
+          if (parentId) {
+            targetId = parentId;
+            console.log(`ℹ️ Tree Click: Resolved child ${panel.localId} to parent ${targetId}`);
+          }
           try {
             // Get all related IDs (parent + children) for highlighting
-            let idsToHighlight: number[] = [panel.localId];
+            let idsToHighlight: number[] = [targetId];
 
+            // Use spatial structure to collect parent + children (most reliable method)
             try {
               // Get the spatial structure from the correct model
               const spatialStructure = await targetModel.getSpatialStructure();
 
               if (spatialStructure) {
-                // Collect parent + all children IDs
-                const relatedIds = collectParentAndChildIds(spatialStructure, panel.localId);
+                // Collect parent + all children IDs using the RESOLVED targetId (parent)
+                const relatedIds = collectParentAndChildIds(spatialStructure, targetId);
 
                 if (relatedIds.length > 0) {
                   idsToHighlight = relatedIds;
-                  console.log(`📦 Found ${relatedIds.length} related elements (parent + children) for highlighting`);
+                  console.log(`📦 Found ${relatedIds.length} related elements (parent + children) from spatial structure`);
                 } else {
-                  console.log(`⚠️ No related elements found, using localId only`);
+                  console.log(`⚠️ No related elements found, using targetId only`);
                 }
               }
             } catch (structureError) {
@@ -2393,7 +2588,7 @@ export async function initializeViewer(containerId: string = "container") {
 
             // Highlight ALL collected IDs (parent + children)
             await targetModel.highlight(idsToHighlight, {
-              color: new THREE.Color('gold'),
+              color: new THREE.Color('#0047AB'),
               opacity: 1,
               transparent: false,
               renderedFaces: FRAGS.RenderedFaces.TWO,
@@ -3712,7 +3907,7 @@ export async function initializeViewer(containerId: string = "container") {
 
           if (allIdsToHighlight.length > 0) {
             await model.highlight(allIdsToHighlight, {
-              color: new THREE.Color('gold'),
+              color: new THREE.Color('#0047AB'),
               opacity: 1,
               transparent: false,
               renderedFaces: FRAGS.RenderedFaces.TWO,
@@ -4112,7 +4307,7 @@ export async function initializeViewer(containerId: string = "container") {
       for (const [_, model] of models.entries()) {
         try {
           await model.highlight(localIds, {
-            color: new THREE.Color('gold'),
+            color: new THREE.Color('#0047AB'),
             opacity: 1,
             transparent: false,
             renderedFaces: FRAGS.RenderedFaces.TWO,
@@ -5628,7 +5823,7 @@ export async function initializeViewer(containerId: string = "container") {
         const panelName = data.panel?.name || data.panel?.tag || 'Unknown Panel';
         qrInfo.innerHTML = `
           <div style="margin-bottom: 16px;">
-            <h4 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600; color: #f1f5f9;">
+            <h4 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600; color: #94a3b8;">
               ${panelName}
             </h4>
             <p style="margin: 0; font-size: 13px; color: #94a3b8;">
@@ -5638,38 +5833,67 @@ export async function initializeViewer(containerId: string = "container") {
           <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px;">
             <input type="checkbox" id="print-with-name" checked style="width: 16px; height: 16px; cursor: pointer; accent-color: #64748b;" />
             <label for="print-with-name" style="margin: 0; font-size: 13px; color: #94a3b8; cursor: pointer; user-select: none;">
-              Print panel name with QR code
+              Include panel name on QR code
             </label>
           </div>
-          <button id="print-qr-btn" style="
-            width: 100%;
-            padding: 12px 24px;
-            background: #475569;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-          " onmouseover="this.style.background='#64748b'" onmouseout="this.style.background='#475569'">
-            <i class="fas fa-print"></i>
-            Print QR Code
-          </button>
+          <div style="display: flex; gap: 8px;">
+            <button id="download-jpg-btn" style="
+              flex: 1;
+              padding: 12px 24px;
+              background: #475569;
+              color: white;
+              border: none;
+              border-radius: 8px;
+              font-size: 14px;
+              font-weight: 600;
+              cursor: pointer;
+              transition: all 0.2s;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              gap: 8px;
+            " onmouseover="this.style.background='#64748b'" onmouseout="this.style.background='#475569'">
+              <i class="fas fa-download"></i>
+              JPG
+            </button>
+            <button id="download-pdf-btn" style="
+              flex: 1;
+              padding: 12px 24px;
+              background: #475569;
+              color: white;
+              border: none;
+              border-radius: 8px;
+              font-size: 14px;
+              font-weight: 600;
+              cursor: pointer;
+              transition: all 0.2s;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              gap: 8px;
+            " onmouseover="this.style.background='#64748b'" onmouseout="this.style.background='#475569'">
+              <i class="fas fa-file-pdf"></i>
+              PDF
+            </button>
+          </div>
         `;
 
-        // Add print button event listener
-        const printBtn = qrInfo.querySelector('#print-qr-btn') as HTMLButtonElement;
+        // Add download button event listeners
+        const downloadJpgBtn = qrInfo.querySelector('#download-jpg-btn') as HTMLButtonElement;
+        const downloadPdfBtn = qrInfo.querySelector('#download-pdf-btn') as HTMLButtonElement;
         const printWithNameCheckbox = qrInfo.querySelector('#print-with-name') as HTMLInputElement;
 
-        if (printBtn) {
-          printBtn.addEventListener('click', () => {
+        if (downloadJpgBtn) {
+          downloadJpgBtn.addEventListener('click', () => {
             const includeName = printWithNameCheckbox?.checked ?? true;
-            printQRCode(qrUrl, panelName, includeName);
+            downloadStickerJPG(qrUrl, panelName, includeName);
+          });
+        }
+
+        if (downloadPdfBtn) {
+          downloadPdfBtn.addEventListener('click', () => {
+            const includeName = printWithNameCheckbox?.checked ?? true;
+            downloadStickerPDF(qrUrl, panelName, includeName);
           });
         }
       }
@@ -5690,86 +5914,495 @@ export async function initializeViewer(containerId: string = "container") {
     }
   };
 
-  // Print QR code function
-  const printQRCode = (qrUrl: string, panelName: string, includeName: boolean) => {
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      alert('Please allow popups to print QR code');
-      return;
-    }
+  // Download sticker as JPG function 
+  const downloadStickerJPG = async (qrUrl: string, panelName: string, includeName: boolean) => {
+    try {
+      // Sticker dimensions: 3" x 1.5" LANDSCAPE at 300 DPI for print quality
+      const DPI = 300;
+      const stickerWidth = 3 * DPI;
+      const stickerHeight = 1.5 * DPI;
+      const qrSize = 1.2 * DPI;
 
-    // Generate QR code as data URL
-    const canvas = document.createElement('canvas');
-    QRCode.toCanvas(canvas, qrUrl, {
-      width: 800,
-      margin: 2,
-      errorCorrectionLevel: 'H',
-      color: {
-        dark: '#000000',
-        light: '#FFFFFF'
+      // Create main canvas for the sticker
+      const stickerCanvas = document.createElement('canvas');
+      stickerCanvas.width = stickerWidth;
+      stickerCanvas.height = stickerHeight;
+      const ctx = stickerCanvas.getContext('2d');
+
+      if (!ctx) {
+        throw new Error('Could not get canvas context');
       }
-    }).then(() => {
-      const qrDataUrl = canvas.toDataURL('image/png');
 
+      // Fill background with white
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, stickerWidth, stickerHeight);
+
+      // Generate QR code first
+      const qrCanvas = document.createElement('canvas');
+      await QRCode.toCanvas(qrCanvas, qrUrl, {
+        width: qrSize,
+        margin: 0,
+        errorCorrectionLevel: 'H',
+        color: {
+          dark: '#000000',
+          light: '#FFFFFF'
+        }
+      });
+
+      // Draw QR code
+      const qrX = 60;
+      const qrY = (stickerHeight - qrSize) / 2;
+      ctx.drawImage(qrCanvas, qrX, qrY, qrSize, qrSize);
+
+      // Uniqube logo
+      const logo = new Image();
+      logo.crossOrigin = 'anonymous';
+
+      await new Promise<void>((resolve, reject) => {
+        logo.onload = () => resolve();
+        logo.onerror = () => reject(new Error('Failed to load logo'));
+
+        logo.src = '/Uniqube_QR_logo.jpg';
+      });
+
+
+
+      const rightAreaX = qrX + qrSize + 40;
+      const rightAreaWidth = stickerWidth - rightAreaX - 30;
+      const maxLogoHeight = 200;
+
+      let logoWidth = logo.width;
+      let logoHeight = logo.height;
+
+
+      const scaleWidth = rightAreaWidth / logoWidth;
+      const scaleHeight = maxLogoHeight / logoHeight;
+      const scale = Math.min(scaleWidth, scaleHeight, 1);
+
+      logoWidth = logoWidth * scale;
+      logoHeight = logoHeight * scale;
+
+
+      const logoX = stickerWidth - logoWidth - 30;
+      const logoY = 20;
+      ctx.drawImage(logo, logoX, logoY, logoWidth, logoHeight);
+
+
+      if (includeName && panelName) {
+
+        const minPaddingFromQR = 20;
+        const preferredPaddingFromEdge = 100;
+        const minPaddingFromEdge = 50;
+
+        const textAreaStartX = qrX + qrSize + minPaddingFromQR;
+
+
+        ctx.fillStyle = '#000000';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+
+
+        let fontSize = 72;
+        ctx.font = `700 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif`;
+
+
+        let textAreaEndX = stickerWidth - preferredPaddingFromEdge;
+        let textAreaWidth = textAreaEndX - textAreaStartX;
+
+
+        let textWidth = ctx.measureText(panelName).width;
+
+
+        if (textWidth > textAreaWidth) {
+          textAreaEndX = stickerWidth - minPaddingFromEdge;
+          textAreaWidth = textAreaEndX - textAreaStartX;
+        }
+
+
+
+        let lines = [panelName];
+        let isMultiLine = false;
+
+
+        let tempFontSize = fontSize;
+        while (ctx.measureText(panelName).width > textAreaWidth && tempFontSize > 40) {
+          tempFontSize -= 2;
+          ctx.font = `700 ${tempFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif`;
+        }
+
+
+        if (ctx.measureText(panelName).width > textAreaWidth) {
+          isMultiLine = true;
+
+          const mid = Math.floor(panelName.length / 2);
+          const separators = ['_', '-', ' '];
+          let splitIndex = -1;
+          let minDistance = panelName.length;
+
+
+          for (let i = 0; i < panelName.length; i++) {
+            if (separators.includes(panelName[i])) {
+              const distance = Math.abs(i - mid);
+              if (distance < minDistance) {
+                minDistance = distance;
+                splitIndex = i;
+              }
+            }
+          }
+
+
+          if (splitIndex === -1) {
+            splitIndex = mid;
+          } else {
+
+            splitIndex += 1;
+          }
+
+          lines = [
+            panelName.substring(0, splitIndex),
+            panelName.substring(splitIndex)
+          ];
+
+
+          fontSize = 72;
+          ctx.font = `700 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif`;
+        }
+
+        // Adjust font size for the lines
+        let maxLineWidth = 0;
+        lines.forEach(line => {
+          const width = ctx.measureText(line).width;
+          if (width > maxLineWidth) maxLineWidth = width;
+        });
+
+        while (maxLineWidth > textAreaWidth && fontSize > 24) {
+          fontSize -= 2;
+          ctx.font = `700 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif`;
+
+
+          maxLineWidth = 0;
+          lines.forEach(line => {
+            const width = ctx.measureText(line).width;
+            if (width > maxLineWidth) maxLineWidth = width;
+          });
+        }
+
+
+        const logoBottom = logoY + logoHeight + 10;
+        const stickerBottom = stickerHeight - 10;
+        const availableVerticalSpace = stickerBottom - logoBottom;
+        const verticalCenter = logoBottom + (availableVerticalSpace / 2);
+
+        const lineHeight = fontSize * 1.1;
+
+        if (isMultiLine) {
+          const line1Y = verticalCenter - (lineHeight / 2) + (fontSize * 0.1);
+          const line2Y = verticalCenter + (lineHeight / 2) + (fontSize * 0.1);
+
+          const textX = textAreaEndX;
+
+          const width1 = ctx.measureText(lines[0]).width;
+          const width2 = ctx.measureText(lines[1]).width;
+
+          if (width1 < width2) {
+            const bottomLineStart = textX - width2;
+            const bottomLineCenter = bottomLineStart + (width2 / 2);
+
+            const topLineStart = bottomLineCenter - (width1 / 2);
+
+            ctx.textAlign = 'left';
+            ctx.fillText(lines[0], topLineStart, line1Y);
+
+            ctx.textAlign = 'right';
+            ctx.fillText(lines[1], textX, line2Y);
+          } else {
+            ctx.fillText(lines[0], textX, line1Y, textAreaWidth);
+            ctx.fillText(lines[1], textX, line2Y, textAreaWidth);
+          }
+        } else {
+          const textY = verticalCenter + (fontSize * 0.1);
+          const textX = textAreaEndX;
+          ctx.fillText(panelName, textX, textY, textAreaWidth);
+        }
+      }
+
+      // Convert canvas to JPG and download
+      stickerCanvas.toBlob((blob) => {
+        if (!blob) {
+          throw new Error('Failed to generate sticker image');
+        }
+
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${panelName.replace(/[^a-z0-9]/gi, '_')}_sticker.jpg`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+
+        // console.log('✅ Sticker downloaded successfully');
+      }, 'image/jpeg', 0.95);
+
+    } catch (error) {
+      console.error('Error generating sticker:', error);
+      alert('Failed to generate sticker. Please try again.');
+    }
+  };
+
+  // Download sticker as PDF function
+  const downloadStickerPDF = async (qrUrl: string, panelName: string, includeName: boolean) => {
+    try {
+      // Use same dimensions as JPG: 3" x 1.5" LANDSCAPE at 300 DPI
+      const DPI = 300;
+      const stickerWidth = 3 * DPI;
+      const stickerHeight = 1.5 * DPI;
+      const qrSize = 1.2 * DPI;
+
+      // Create main canvas for the sticker (same as JPG)
+      const stickerCanvas = document.createElement('canvas');
+      stickerCanvas.width = stickerWidth;
+      stickerCanvas.height = stickerHeight;
+      const ctx = stickerCanvas.getContext('2d');
+
+      if (!ctx) {
+        throw new Error('Failed to get canvas context');
+      }
+
+      // Fill white background
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, stickerWidth, stickerHeight);
+
+      // Generate QR code
+      const qrCanvas = document.createElement('canvas');
+      await QRCode.toCanvas(qrCanvas, qrUrl, {
+        width: qrSize,
+        margin: 0,
+        errorCorrectionLevel: 'H',
+        color: {
+          dark: '#000000',
+          light: '#FFFFFF'
+        }
+      });
+
+      const qrX = 60;
+      const qrY = (stickerHeight - qrSize) / 2;
+      ctx.drawImage(qrCanvas, qrX, qrY, qrSize, qrSize);
+
+      // Load and draw logo
+      const logo = new Image();
+      logo.crossOrigin = 'anonymous';
+
+      await new Promise<void>((resolve, reject) => {
+        logo.onload = () => resolve();
+        logo.onerror = () => reject(new Error('Failed to load logo'));
+        logo.src = '/Uniqube_QR_logo.jpg';
+      });
+
+      const rightAreaX = qrX + qrSize + 40;
+      const rightAreaWidth = stickerWidth - rightAreaX - 30;
+      const maxLogoHeight = 200;
+
+      let logoWidth = logo.width;
+      let logoHeight = logo.height;
+
+      const scaleWidth = rightAreaWidth / logoWidth;
+      const scaleHeight = maxLogoHeight / logoHeight;
+      const scale = Math.min(scaleWidth, scaleHeight, 1);
+
+      logoWidth = logoWidth * scale;
+      logoHeight = logoHeight * scale;
+
+      const logoX = stickerWidth - logoWidth - 30;
+      const logoY = 20;
+      ctx.drawImage(logo, logoX, logoY, logoWidth, logoHeight);
+
+      // Draw panel name (same logic as JPG)
+      if (includeName && panelName) {
+        const minPaddingFromQR = 20;
+        const preferredPaddingFromEdge = 100;
+        const minPaddingFromEdge = 50;
+
+        const textAreaStartX = qrX + qrSize + minPaddingFromQR;
+
+        ctx.fillStyle = '#000000';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+
+        let fontSize = 72;
+        ctx.font = `700 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif`;
+
+        let textAreaEndX = stickerWidth - preferredPaddingFromEdge;
+        let textAreaWidth = textAreaEndX - textAreaStartX;
+
+        let textWidth = ctx.measureText(panelName).width;
+
+        if (textWidth > textAreaWidth) {
+          textAreaEndX = stickerWidth - minPaddingFromEdge;
+          textAreaWidth = textAreaEndX - textAreaStartX;
+        }
+
+        let lines = [panelName];
+        let isMultiLine = false;
+
+        let tempFontSize = fontSize;
+        while (ctx.measureText(panelName).width > textAreaWidth && tempFontSize > 40) {
+          tempFontSize -= 2;
+          ctx.font = `700 ${tempFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif`;
+        }
+
+        if (ctx.measureText(panelName).width > textAreaWidth) {
+          isMultiLine = true;
+          const mid = Math.floor(panelName.length / 2);
+          const separators = ['_', '-', ' '];
+          let splitIndex = -1;
+          let minDistance = panelName.length;
+
+          for (let i = 0; i < panelName.length; i++) {
+            if (separators.includes(panelName[i])) {
+              const distance = Math.abs(i - mid);
+              if (distance < minDistance) {
+                minDistance = distance;
+                splitIndex = i;
+              }
+            }
+          }
+
+          if (splitIndex === -1) {
+            splitIndex = mid;
+          } else {
+            splitIndex += 1;
+          }
+
+          lines = [
+            panelName.substring(0, splitIndex),
+            panelName.substring(splitIndex)
+          ];
+
+          fontSize = 72;
+          ctx.font = `700 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif`;
+        }
+
+        let maxLineWidth = 0;
+        lines.forEach(line => {
+          const width = ctx.measureText(line).width;
+          if (width > maxLineWidth) maxLineWidth = width;
+        });
+
+        while (maxLineWidth > textAreaWidth && fontSize > 24) {
+          fontSize -= 2;
+          ctx.font = `700 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif`;
+
+          maxLineWidth = 0;
+          lines.forEach(line => {
+            const width = ctx.measureText(line).width;
+            if (width > maxLineWidth) maxLineWidth = width;
+          });
+        }
+
+        const logoBottom = logoY + logoHeight + 10;
+        const stickerBottom = stickerHeight - 10;
+        const availableVerticalSpace = stickerBottom - logoBottom;
+        const verticalCenter = logoBottom + (availableVerticalSpace / 2);
+
+        const lineHeight = fontSize * 1.1;
+
+        if (isMultiLine) {
+          const line1Y = verticalCenter - (lineHeight / 2) + (fontSize * 0.1);
+          const line2Y = verticalCenter + (lineHeight / 2) + (fontSize * 0.1);
+
+          const textX = textAreaEndX;
+
+          const width1 = ctx.measureText(lines[0]).width;
+          const width2 = ctx.measureText(lines[1]).width;
+
+          if (width1 < width2) {
+            const bottomLineStart = textX - width2;
+            const bottomLineCenter = bottomLineStart + (width2 / 2);
+            const topLineStart = bottomLineCenter - (width1 / 2);
+
+            ctx.textAlign = 'left';
+            ctx.fillText(lines[0], topLineStart, line1Y);
+
+            ctx.textAlign = 'right';
+            ctx.fillText(lines[1], textX, line2Y);
+          } else {
+            ctx.fillText(lines[0], textX, line1Y, textAreaWidth);
+            ctx.fillText(lines[1], textX, line2Y, textAreaWidth);
+          }
+        } else {
+          const textY = verticalCenter + (fontSize * 0.1);
+          const textX = textAreaEndX;
+          ctx.fillText(panelName, textX, textY, textAreaWidth);
+        }
+      }
+
+      // Convert canvas to image data URL
+      const imageDataUrl = stickerCanvas.toDataURL('image/jpeg', 0.95);
+
+      // Create a new window for PDF printing
+      const printWindow = window.open('', '_blank');
+      if (!printWindow) {
+        throw new Error('Failed to open print window. Please allow popups.');
+      }
+
+      // Write HTML with the sticker image and print styles
       printWindow.document.write(`
         <!DOCTYPE html>
         <html>
           <head>
-            <title>Print QR Code - ${panelName}</title>
+            <title>QR Code Sticker - ${panelName}</title>
             <style>
+              @page {
+                size: landscape;
+                margin: 0;
+              }
+              * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+              }
+              html, body {
+                width: 100%;
+                height: 100%;
+                margin: 0;
+                padding: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                background: white;
+              }
+              img {
+                max-width: 90%;
+                max-height: 90%;
+                width: auto;
+                height: auto;
+                display: block;
+                object-fit: contain;
+              }
               @media print {
-                @page {
-                  size: auto;
-                  margin: 0;
+                html, body {
+                  width: 100%;
+                  height: 100%;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
                 }
-                body {
-                  margin: 20mm !important;
+                img {
+                  max-width: 90%;
+                  max-height: 90%;
                 }
               }
-              body {
-              font-family: Arial, sans-serif;
-              display: flex;
-              flex-direction: column;
-              align-items: center;
-              justify-content: center;
-              margin: 0;
-              padding: 0;
-            }
-            .qr-print-container {
-              text-align: center;
-              max-width: 500px;
-              width: 100%;
-              padding: 20px;
-            }
-            ${includeName ? `
-            .panel-name {
-              font-size: 24px;
-              font-weight: bold;
-              margin-bottom: 20px;
-              color: #333;
-              word-wrap: break-word;
-            }
-            ` : ''}
-            .qr-image {
-              max-width: 100%;
-              height: auto;
-              border: 2px solid #333;
-              padding: 10px;
-              background: white;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="qr-print-container">
-            ${includeName ? `<div class="panel-name">${panelName}</div>` : ''}
-            <img src="${qrDataUrl}" alt="QR Code" class="qr-image" />
-          </div>
-          <script>
+            </style>
+          </head>
+          <body>
+            <img src="${imageDataUrl}" alt="QR Code Sticker" />
+            <script>
               window.onload = function() {
                 setTimeout(function() {
                   window.print();
-                  setTimeout(function() {
-                    window.close();
+                  setTimeout(function() { 
+                    window.close(); 
                   }, 100);
                 }, 500);
               };
@@ -5778,12 +6411,13 @@ export async function initializeViewer(containerId: string = "container") {
         </html>
       `);
       printWindow.document.close();
-    }).catch(error => {
-      console.error('Error generating QR code for print:', error);
-      printWindow.close();
-      alert('Failed to generate QR code for printing');
-    });
+
+    } catch (error) {
+      console.error('Error generating PDF sticker:', error);
+      alert('Failed to generate PDF sticker. Please try again.');
+    }
   };
+
 
   const closeQRModal = () => {
     if (qrModal) {
@@ -6292,6 +6926,33 @@ export async function initializeViewer(containerId: string = "container") {
     return false;
   };
 
+  // Get the category for a specific IFC type (returns the first matching category)
+  const getCategoryForType = (ifcType: string): string | null => {
+    if (!ifcType) return null;
+
+    const typeUpper = ifcType.toUpperCase();
+
+    for (const [category, types] of Object.entries(IFC_ELEMENT_CATEGORIES)) {
+      if (types.some(t => typeUpper.includes(t))) {
+        return category;
+      }
+    }
+
+    return null;
+  };
+
+  // Get color for a specific category
+  const getCategoryColor = (category: string): THREE.Color => {
+    const colorMap: Record<string, string> = {
+      'MEP': '#ec3b3b',              // Red
+      'DOORS_WINDOWS': '#00cc66',    // Green(Teal)
+      'FRAMES': '#ffb300',           // yellow/orange
+      'STRUCTURAL': '#808080'        // gray
+    };
+
+    return new THREE.Color(colorMap[category] || '#0047AB'); // Default to cobalt blue if unknown
+  };
+
   // Render filtered tree view (replaces tree content with filtered panels)
   const renderFilteredTree = async (filterTypes: Set<string>, page: number = 1) => {
     const treeContainer = document.getElementById('tree-container');
@@ -6462,6 +7123,25 @@ export async function initializeViewer(containerId: string = "container") {
       }
     }
 
+    // Get category and color for this element
+    const ifcType = panel.element?.ifcType || panel.type || panel.objectType || '';
+    const category = getCategoryForType(ifcType);
+    const categoryColor = category ? getCategoryColor(category) : null;
+
+    // Color indicator dot
+    if (categoryColor) {
+      const colorDot = document.createElement('div');
+      colorDot.style.cssText = `
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: ${categoryColor.getStyle()};
+        margin-right: 8px;
+        flex-shrink: 0;
+      `;
+      node.appendChild(colorDot);
+    }
+
     // Icon
     const icon = document.createElement('i');
     icon.setAttribute('data-lucide', 'box');
@@ -6479,7 +7159,6 @@ export async function initializeViewer(containerId: string = "container") {
     // Type badge
     const badge = document.createElement('span');
     badge.className = 'tree-type-badge';
-    const ifcType = panel.element?.ifcType || 'Unknown';
     badge.textContent = ifcType.replace('IFC', '').replace('Ifc', '');
     badge.style.cssText = `
       font-size: 10px;
@@ -6542,11 +7221,43 @@ export async function initializeViewer(containerId: string = "container") {
           }
           await Promise.all(ghostPromises);
 
-          // Highlight selected element
+          // Collect parent and children for highlighting
+          let idsToHighlight: number[] = [numericId];
+
           for (const [_, model] of models.entries()) {
             try {
-              await model.highlight([numericId], {
-                color: new THREE.Color('gold'),
+              // Find parent panel
+              const parentId = await findParentPanelId(model, numericId);
+              const targetId = parentId || numericId;
+
+              // Get spatial structure
+              const cacheKey = (model as any).modelId || (model as any).threads?.modelId || 'default';
+              let spatialStructure = spatialStructureCache.get(cacheKey);
+              if (!spatialStructure) {
+                spatialStructure = await model.getSpatialStructure();
+                spatialStructureCache.set(cacheKey, spatialStructure);
+              }
+
+              if (spatialStructure) {
+                // Collect parent and all children
+                const relatedIds = collectParentAndChildIds(spatialStructure, targetId);
+                if (relatedIds.length > 0) {
+                  idsToHighlight = relatedIds;
+                  console.log(`📦 Highlighting ${relatedIds.length} related elements for ${panel.name || panel.tag}`);
+                  break; // Found in this model
+                }
+              }
+            } catch (err) {
+              console.warn('Could not resolve parent/children:', err);
+            }
+          }
+
+          // Highlight all related elements with category color
+          const highlightColor = categoryColor || new THREE.Color('#0047AB');
+          for (const [_, model] of models.entries()) {
+            try {
+              await model.highlight(idsToHighlight, {
+                color: highlightColor,
                 opacity: 1,
                 transparent: false,
                 renderedFaces: FRAGS.RenderedFaces.TWO,
@@ -6556,13 +7267,13 @@ export async function initializeViewer(containerId: string = "container") {
             }
           }
 
-          // Focus camera on element
-          await focusCameraOnLocalIds([numericId], { closer: 0.9 });
+          // Focus camera on all related elements
+          await focusCameraOnLocalIds(idsToHighlight, { closer: 0.9 });
 
           // Update fragments
           await fragments.update(true);
 
-          console.log(`✅ Focused on element: ${panel.name || panel.tag} (localId: ${numericId})`);
+          console.log(`✅ Focused on element: ${panel.name || panel.tag} (localId: ${numericId}, total highlighted: ${idsToHighlight.length})`);
 
           // Show element information panel
           const nodeData = {
@@ -6871,7 +7582,15 @@ export async function initializeViewer(containerId: string = "container") {
 
       for (const [_, model] of models.entries()) {
         try {
+          // Use all localIds for each model (robust against model ID mismatches)
+          // We'll just skip IDs that aren't found in the spatial structure
+          const targetLocalIds = localIds;
+
+          if (targetLocalIds.length === 0) continue;
+
           let allIdsToHighlight: number[] = [];
+          // Map each ID to its category (so children inherit parent's category)
+          const idToCategoryMap = new Map<number, string>();
 
           try {
             const cacheKey = (model as any).modelId || (model as any).threads?.modelId || 'default';
@@ -6883,22 +7602,47 @@ export async function initializeViewer(containerId: string = "container") {
 
             if (spatialStructure) {
               // For each panel ID, collect parent + children (in batches)
-              for (let i = 0; i < localIds.length; i += BATCH_SIZE) {
-                const batch = localIds.slice(i, i + BATCH_SIZE);
+              for (let i = 0; i < targetLocalIds.length; i += BATCH_SIZE) {
+                const batch = targetLocalIds.slice(i, i + BATCH_SIZE);
 
                 for (const localId of batch) {
-                  const relatedIds = collectParentAndChildIds(spatialStructure, localId);
+                  // Find the panel in matchingPanels to get its category
+                  const panel = matchingPanels.find((p: any) => {
+                    const panelLocalId = p.metadata?.ifcElementId;
+                    const id = typeof panelLocalId === 'number' ? panelLocalId : parseInt(panelLocalId);
+                    return id === localId;
+                  });
+
+                  let category = 'OTHER';
+                  if (panel) {
+                    const ifcType = panel.element?.ifcType || panel.type || panel.objectType || '';
+                    category = getCategoryForType(ifcType) || 'OTHER';
+                  }
+
+                  // 1. First find the topmost parent panel (to handle assemblies)
+                  const parentId = await findParentPanelId(model, localId);
+                  const targetId = parentId || localId;
+
+                  // 2. Then collect all children of that parent
+                  const relatedIds = collectParentAndChildIds(spatialStructure, targetId);
+
                   if (relatedIds.length > 0) {
                     allIdsToHighlight.push(...relatedIds);
+                    // Assign the parent's category to all collected IDs
+                    relatedIds.forEach(id => idToCategoryMap.set(id, category));
                   } else {
-                    allIdsToHighlight.push(localId);
+                    // Only add if we actually found something or if it's a direct match in this model
+                    // We can check if the ID exists in the model using findPathToLocalId or similar
+                    // But for now, let's just add it. If it's not in the model, highlight() will ignore it.
+                    allIdsToHighlight.push(targetId);
+                    idToCategoryMap.set(targetId, category);
                   }
                 }
 
                 // Log progress for large datasets
-                if (localIds.length > BATCH_SIZE) {
-                  const progress = Math.min(100, Math.round(((i + batch.length) / localIds.length) * 100));
-                  console.log(`📦 Processing elements: ${progress}% (${i + batch.length}/${localIds.length})`);
+                if (targetLocalIds.length > BATCH_SIZE) {
+                  const progress = Math.min(100, Math.round(((i + batch.length) / targetLocalIds.length) * 100));
+                  console.log(`📦 Processing elements: ${progress}% (${i + batch.length}/${targetLocalIds.length})`);
 
                   // Update loading progress
                   window.dispatchEvent(new CustomEvent('viewer-loading', {
@@ -6913,42 +7657,63 @@ export async function initializeViewer(containerId: string = "container") {
 
               // Remove duplicates
               allIdsToHighlight = [...new Set(allIdsToHighlight)];
-              console.log(`📦 Expanded ${localIds.length} panels to ${allIdsToHighlight.length} elements (with parent-child relationships)`);
+              console.log(`📦 Expanded ${targetLocalIds.length} panels to ${allIdsToHighlight.length} elements (with parent-child relationships)`);
             } else {
-              allIdsToHighlight = localIds;
+              allIdsToHighlight = targetLocalIds;
             }
           } catch (structureError) {
-            console.log(`⚠️ Could not get spatial structure, using original IDs`);
-            allIdsToHighlight = localIds;
+            console.error(`⚠️ Could not get spatial structure for model, using original IDs:`, structureError);
+            allIdsToHighlight = targetLocalIds;
           }
 
-          // Highlight in batches for better performance
-          if (allIdsToHighlight.length > BATCH_SIZE) {
-            console.log(`🎨 Highlighting ${allIdsToHighlight.length} elements in batches...`);
-            for (let i = 0; i < allIdsToHighlight.length; i += BATCH_SIZE) {
-              const batch = allIdsToHighlight.slice(i, i + BATCH_SIZE);
-              await model.highlight(batch, {
-                color: new THREE.Color('gold'),
+          // Group elements by category for color-coded highlighting
+          const elementsByCategory: Record<string, number[]> = {};
+
+          // Group all IDs by their category using our tracked map
+          for (const localId of allIdsToHighlight) {
+            const category = idToCategoryMap.get(localId) || 'OTHER';
+
+            if (!elementsByCategory[category]) {
+              elementsByCategory[category] = [];
+            }
+            elementsByCategory[category].push(localId);
+          }
+
+          console.log('📊 Elements grouped by category:', Object.keys(elementsByCategory).map(cat => `${cat}: ${elementsByCategory[cat].length}`));
+
+          // Highlight each category with its specific color
+          for (const [category, categoryIds] of Object.entries(elementsByCategory)) {
+            const color = getCategoryColor(category);
+            console.log(`🎨 Highlighting ${categoryIds.length} ${category} elements with color:`, color);
+
+            // Highlight in batches for better performance
+            if (categoryIds.length > BATCH_SIZE) {
+              console.log(`🎨 Highlighting ${categoryIds.length} ${category} elements in batches...`);
+              for (let i = 0; i < categoryIds.length; i += BATCH_SIZE) {
+                const batch = categoryIds.slice(i, i + BATCH_SIZE);
+                await model.highlight(batch, {
+                  color: color,
+                  opacity: 1,
+                  transparent: false,
+                  renderedFaces: FRAGS.RenderedFaces.TWO,
+                });
+
+                // Update fragments periodically for visual feedback
+                if (i % (BATCH_SIZE * 5) === 0) {
+                  await fragments.update(true);
+                }
+              }
+            } else {
+              await model.highlight(categoryIds, {
+                color: color,
                 opacity: 1,
                 transparent: false,
                 renderedFaces: FRAGS.RenderedFaces.TWO,
               });
-
-              // Update fragments periodically for visual feedback
-              if (i % (BATCH_SIZE * 5) === 0) {
-                await fragments.update(true);
-              }
             }
-          } else {
-            await model.highlight(allIdsToHighlight, {
-              color: new THREE.Color('gold'),
-              opacity: 1,
-              transparent: false,
-              renderedFaces: FRAGS.RenderedFaces.TWO,
-            });
           }
 
-          console.log(`✅ Highlighted ${allIdsToHighlight.length} elements in model`);
+          console.log(`✅ Highlighted ${allIdsToHighlight.length} elements in model with category-specific colors`);
         } catch (error) {
           console.warn('⚠️ Could not highlight elements in this model:', error);
         }
