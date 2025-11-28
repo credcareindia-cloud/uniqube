@@ -61,7 +61,8 @@ export default function ElementReportPage() {
     const { canViewProject, isLoading: rbacLoading } = useRBAC()
 
     // Get UUID from hash fragment (e.g., #cmi8s5dv1000bugu1exk91jxl)
-    const [uuid, setUuid] = useState<string | null>(null)
+    // Derived directly from location to avoid race conditions during initial render
+    const uuid = location.hash ? location.hash.substring(1) : null
 
     const [panel, setPanel] = useState<Panel | null>(null)
     const [project, setProject] = useState<Project | null>(null)
@@ -78,11 +79,7 @@ export default function ElementReportPage() {
     const [note, setNote] = useState('')
     const [reporterName, setReporterName] = useState('')
 
-    // Extract UUID from hash on mount and when hash changes
-    useEffect(() => {
-        const hash = window.location.hash.substring(1) // Remove the # symbol
-        setUuid(hash || null)
-    }, [])
+
 
     // Authentication and authorization check
     useEffect(() => {
