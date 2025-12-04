@@ -55,29 +55,23 @@ export default function ProjectsPage() {
 
   // Listen for notifications to trigger refresh
   useEffect(() => {
-    const relevantTypes = ['success', 'info', 'warning']
-    const relevantTitles = [
-      'Project Created',
-      'Project Updated',
-      'Project Deleted',
-      'Status Updated',
-      'Panel Updated',
-      'Panels Updated'
-    ]
+    // Check if there's a recent notification about projects
+    const hasRecentProjectNotification = notifications.some(n => {
+      const age = Date.now() - new Date(n.createdAt).getTime();
+      const isRecent = age < 5000; // Within last 5 seconds
+      const isProjectRelated =
+        n.title.toLowerCase().includes('project') ||
+        n.title.toLowerCase().includes('model') ||
+        n.message.toLowerCase().includes('project');
 
-    const shouldRefresh = notifications.some(n =>
-      relevantTypes.includes(n.type) &&
-      relevantTitles.some(t => n.title.includes(t)) &&
-      // Only refresh if the notification is recent (within last 2 seconds)
-      // This prevents infinite loops from old notifications
-      (Date.now() - new Date(n.createdAt).getTime()) < 2000
-    )
+      return isRecent && isProjectRelated;
+    });
 
-    if (shouldRefresh) {
-      console.log('🔄 Refreshing projects due to notification update...')
-      refreshUserProjects()
+    if (hasRecentProjectNotification) {
+      console.log('🔄 Refreshing projects due to notification update...');
+      refreshUserProjects();
     }
-  }, [notifications, refreshUserProjects])
+  }, [notifications, refreshUserProjects]);
 
   // useEffect(() => {
   //   setLoading(rbacLoading)

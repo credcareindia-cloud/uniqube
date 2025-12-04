@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '@/services/api'
 import type { Notification } from '@/services/api'
+import { useWebSocket } from './useWebSocket'
 
 export function useNotifications() {
   const [notifications, setNotifications] = useState<Notification[]>([])
@@ -10,6 +11,26 @@ export function useNotifications() {
 
   // Use a ref to track if we're currently fetching to prevent overlapping requests
   const isFetchingRef = useRef(false)
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
+
+  // WebSocket connection
+  const { isConnected, on, off } = useWebSocket({
+    enabled: true,
+    onConnect: () => {
+      console.log('WebSocket connected - stopping polling');
+      // Stop polling when WebSocket connects
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+      // Fetch latest notifications on connect
+      fetchNotifications();
+    },
+    onDisconnect: () => {
+      console.log('WebSocket disconnected - polling will start via useEffect');
+      // Polling will be started automatically by the useEffect when isConnected changes
+    },
+  });
 
   const fetchNotifications = useCallback(async () => {
     if (isFetchingRef.current) return
@@ -35,17 +56,52 @@ export function useNotifications() {
     }
   }, [notifications.length])
 
+  // Stabilize fetchNotifications with a ref to avoid dependency issues
+  const fetchNotificationsRef = useRef(fetchNotifications);
+  useEffect(() => {
+    fetchNotificationsRef.current = fetchNotifications;
+  }, [fetchNotifications]);
+
+  // Use refs to store the latest callback functions to avoid dependency issues
+  const onRef = useRef(on);
+  const offRef = useRef(off);
+
+  useEffect(() => {
+    onRef.current = on;
+    offRef.current = off;
+  }, [on, off]);
+
   useEffect(() => {
     // Initial fetch
-    fetchNotifications()
+    fetchNotificationsRef.current()
 
-    // Set up polling interval
-    const interval = setInterval(() => {
-      fetchNotifications()
-    }, 5000)
+    // Listen for WebSocket notifications
+    const handleNotification = (notification: Notification) => {
+      console.log('Received WebSocket notification:', notification);
+      setNotifications(prev => [notification, ...prev]);
+      if (!notification.read) {
+        setUnreadCount(prev => prev + 1);
+      }
+    };
 
-    return () => clearInterval(interval)
-  }, []) // Empty dependency array to ensure effect runs only once on mount
+    onRef.current('notification', handleNotification);
+
+    // Start polling if WebSocket is not connected
+    if (!isConnected && !pollingIntervalRef.current) {
+      console.log('WebSocket not connected, starting polling fallback (30s interval)');
+      pollingIntervalRef.current = setInterval(() => {
+        fetchNotificationsRef.current();
+      }, 30000);
+    }
+
+    return () => {
+      offRef.current('notification', handleNotification);
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    };
+  }, [isConnected]) // ONLY depend on isConnected - nothing else!
 
   const markAsRead = useCallback(async (id: string) => {
     try {
