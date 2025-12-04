@@ -32,8 +32,20 @@ export function useNotifications() {
     },
   });
 
+  // Track last fetch time to throttle requests (min 2s interval)
+  const lastFetchTimeRef = useRef(0);
+
   const fetchNotifications = useCallback(async () => {
-    if (isFetchingRef.current) return
+    // Prevent overlapping requests
+    if (isFetchingRef.current) return;
+
+    // Throttle requests to prevent flooding (e.g. on rapid connect/disconnect)
+    const now = Date.now();
+    if (now - lastFetchTimeRef.current < 2000) {
+      console.log('Skipping notification fetch - throttled');
+      return;
+    }
+    lastFetchTimeRef.current = now;
 
     try {
       isFetchingRef.current = true
