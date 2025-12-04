@@ -53,11 +53,11 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>({ status: 'idle' })
   const [dragActive, setDragActive] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
-  
+
   const [processingStatus, setProcessingStatus] = useState<ProcessingStatus | null>(null)
   const [showProcessingModal, setShowProcessingModal] = useState(false)
   const [processingInBackground, setProcessingInBackground] = useState(false)
-  
+
   const isProcessing = uploadStatus.status === 'uploading'
 
   useEffect(() => {
@@ -67,7 +67,7 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
         e.returnValue = 'Upload in progress. Are you sure you want to leave?'
         return e.returnValue
       }
-      
+
       window.addEventListener('beforeunload', handleBeforeUnload)
       return () => window.removeEventListener('beforeunload', handleBeforeUnload)
     }
@@ -85,30 +85,30 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
               'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
             }
           })
-          
+
           console.log('🔍 Polling status for jobId:', processingStatus.jobId, 'Response status:', response.status)
-          
+
           if (response.ok) {
             const status = await response.json()
             console.log('📊 Processing status update:', status)
             console.log('🔍 Job status:', status.status, 'Progress:', status.progress, 'Message:', status.message)
-            
+
             console.log('🔄 Updating processing status:', status)
             setProcessingStatus(status)
-            
+
             if (status.status === 'completed') {
               console.log('✅ Processing completed! Project created successfully')
-              
+
               setUploadStatus({
                 status: 'success',
-                message: 'Multi-component project created successfully!',
+                message: 'Project created successfully!',
                 project: status.projectData
               })
-              
+
               // Backend automatically creates success notification
               // Refetch notifications immediately to show the new notification
               refetch().catch(err => console.error('Failed to refetch notifications:', err))
-              
+
               if (!processingInBackground) {
                 console.log('🔄 Redirecting to project page (user stayed on modal)...')
                 if (onProjectCreated && status.projectData) {
@@ -118,9 +118,9 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
                 console.log('📱 No redirect (user chose to continue in background)')
                 console.log('🔔 Notification will appear in navbar/sidebar from backend')
               }
-              
+
               setProcessingInBackground(false)
-              
+
               clearInterval(interval)
             } else if (status.status === 'failed') {
               setUploadStatus({
@@ -129,18 +129,18 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
               })
               setShowProcessingModal(false)
               setProcessingInBackground(false)
-              
+
               // Backend automatically creates failure notification
               // Refetch notifications immediately to show the failure notification
               refetch().catch(err => console.error('Failed to refetch notifications:', err))
-              
+
               clearInterval(interval)
             }
           } else {
             console.error('❌ Failed to fetch processing status:', response.status, response.statusText)
             const errorText = await response.text()
             console.error('❌ Error response:', errorText)
-            
+
             if (response.status === 404) {
               console.warn('⚠️ Job not found - it may have been completed and cleaned up')
               clearInterval(interval)
@@ -151,7 +151,7 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
         }
       }, 1000)
     }
-    
+
     return () => {
       if (interval) {
         console.log('🛑 Stopping polling interval')
@@ -180,9 +180,9 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
       file,
       category: detectFileCategory(file.name)
     }))
-    
+
     setSelectedFiles(prev => [...prev, ...newFiles])
-    
+
     if (!formData.projectName && newFiles.length > 0) {
       const baseName = newFiles[0].file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ')
       const capitalizedName = baseName.charAt(0).toUpperCase() + baseName.slice(1)
@@ -215,14 +215,14 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
   }
 
   const updateFileCategory = (fileId: string, category: SelectedFile['category']) => {
-    setSelectedFiles(prev => prev.map(f => 
+    setSelectedFiles(prev => prev.map(f =>
       f.id === fileId ? { ...f, category } : f
     ))
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    
+
     if (!formData.projectName.trim() || selectedFiles.length === 0) {
       alert('Please provide a project name and select at least one IFC file')
       return
@@ -230,12 +230,12 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
 
     try {
       setUploadStatus({ status: 'uploading', progress: 0 })
-      
+
       const formDataToSend = new FormData()
       formDataToSend.append('projectName', formData.projectName.trim())
       formDataToSend.append('projectDescription', formData.projectDescription.trim())
       formDataToSend.append('projectStatus', formData.projectStatus)
-      
+
       selectedFiles.forEach((selectedFile, index) => {
         formDataToSend.append(`file_${index}`, selectedFile.file)
         formDataToSend.append(`category_${index}`, selectedFile.category)
@@ -243,26 +243,26 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
 
       const result = await new Promise<any>((resolve, reject) => {
         const xhr = new XMLHttpRequest()
-        
+
         let lastProgressUpdate = 0
         xhr.upload.addEventListener('progress', (e) => {
           const totalSize = selectedFiles.reduce((sum, f) => sum + f.file.size, 0)
           const total = (e.total && e.total > 0) ? e.total : totalSize
           const loaded = e.loaded || 0
           const percentComplete = Math.max(0, Math.min(100, Math.round((loaded / total) * 100)))
-          
+
           const now = Date.now()
           if (percentComplete !== lastProgressUpdate && (percentComplete % 1 === 0 || now - lastProgressUpdate > 100)) {
             console.log(`📤 Upload progress: ${percentComplete}% (${loaded}/${total} bytes)`)
             lastProgressUpdate = percentComplete
-            
+
             setUploadProgress(percentComplete)
-            setUploadStatus({ 
-              status: 'uploading', 
-              message: `Uploading files... ${percentComplete}%`, 
-              progress: percentComplete 
+            setUploadStatus({
+              status: 'uploading',
+              message: `Uploading files... ${percentComplete}%`,
+              progress: percentComplete
             })
-            
+
             setTimeout(() => {
               const progressBars = document.querySelectorAll('[style*="width:"]')
               progressBars.forEach(bar => {
@@ -273,7 +273,7 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
             }, 0)
           }
         })
-        
+
         xhr.addEventListener('load', () => {
           console.log('📥 Upload complete! Status:', xhr.status)
           if (xhr.status >= 200 && xhr.status < 300) {
@@ -286,7 +286,7 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
             reject(new Error(`Upload failed with status ${xhr.status}`))
           }
         })
-        
+
         xhr.addEventListener('error', () => {
           console.error('❌ Network error during upload')
           reject(new Error('Upload failed'))
@@ -295,34 +295,34 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
           console.warn('⏹️ Upload aborted by user')
           reject(new Error('Upload aborted'))
         })
-        
+
         xhr.open('POST', getApiUrl('multi-file-upload'))
         xhr.responseType = 'json'
-        
+
         const token = localStorage.getItem('auth_token')
         if (token) {
           xhr.setRequestHeader('Authorization', `Bearer ${token}`)
         }
-        
+
         xhr.send(formDataToSend)
       })
       console.log('✅ Multi-file upload started:', result)
-      
+
       if (result.jobId) {
         console.log('🔄 Starting processing with jobId:', result.jobId)
         console.log('📊 Initial job status:', result.status, 'progress:', result.progress)
         console.log('📊 Full result object:', result)
-        
+
         setProcessingStatus({
           jobId: result.jobId,
           status: 'processing',
           progress: result.progress || 10,
           message: result.message || 'Processing files...'
         })
-        
+
         setShowProcessingModal(true)
-        setUploadStatus({ 
-          status: 'processing', 
+        setUploadStatus({
+          status: 'processing',
           message: 'Processing files...',
           progress: result.progress || 0
         })
@@ -420,13 +420,12 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
                   IFC Model Files *
                 </label>
                 <div
-                  className={`relative border-2 border-dashed rounded-lg p-8 transition-all ${
-                    dragActive
+                  className={`relative border-2 border-dashed rounded-lg p-8 transition-all ${dragActive
                       ? 'border-slate-500 bg-slate-100'
                       : selectedFiles.length > 0
-                      ? 'border-green-500 bg-green-50'
-                      : 'border-slate-300 bg-slate-50'
-                  }`}
+                        ? 'border-green-500 bg-green-50'
+                        : 'border-slate-300 bg-slate-50'
+                    }`}
                   onDragEnter={handleDrag}
                   onDragLeave={handleDrag}
                   onDragOver={handleDrag}
@@ -439,7 +438,7 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
                     onChange={(e) => e.target.files && handleFileChange(e.target.files)}
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   />
-                  
+
                   <div className="text-center">
                     {selectedFiles.length > 0 ? (
                       <div className="space-y-3">
@@ -448,7 +447,7 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
                           {selectedFiles.length} file{selectedFiles.length !== 1 ? 's' : ''} selected
                         </div>
                         <div className="text-slate-600">
-                          {selectedFiles.reduce((total, f) => total + f.file.size, 0) > 0 && 
+                          {selectedFiles.reduce((total, f) => total + f.file.size, 0) > 0 &&
                             formatFileSize(selectedFiles.reduce((total, f) => total + f.file.size, 0))
                           }
                         </div>
@@ -518,7 +517,7 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
                   <FileText className="h-4 w-4" />
                   Create Project with Model
                 </Button>
-                
+
                 {onClose && (
                   <Button
                     variant="outline"
@@ -544,7 +543,7 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
                   <span className="text-slate-900 font-medium">{uploadStatus.progress || 0}%</span>
                 </div>
                 <div className="w-full bg-slate-100 rounded-full h-2">
-                  <div 
+                  <div
                     className="h-full bg-slate-600 rounded-full transition-all duration-300"
                     style={{ width: `${uploadStatus.progress || 0}%` }}
                   />
@@ -565,7 +564,7 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
                 <CheckCircle className="h-6 w-6 text-slate-600" />
                 <span className="text-slate-900 font-medium">{uploadStatus.message}</span>
               </div>
-              
+
               {uploadStatus.project && (
                 <div className="p-4 bg-slate-50 rounded-lg">
                   <h3 className="text-slate-900 font-medium mb-2">Project Created</h3>
@@ -583,7 +582,7 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
                 >
                   View Project
                 </Button>
-                
+
                 <Button
                   variant="outline"
                   onClick={resetForm}
@@ -593,14 +592,14 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
               </div>
             </div>
           )}
-          
+
           {uploadStatus.status === 'error' && (
             <div className="space-y-4">
               <div className="flex items-center space-x-3 p-4 bg-slate-50 rounded-lg">
                 <AlertCircle className="h-6 w-6 text-slate-600" />
                 <span className="text-slate-900 font-medium">{uploadStatus.message}</span>
               </div>
-              
+
               <Button
                 variant="outline"
                 onClick={resetForm}
@@ -637,36 +636,36 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
                 </div>
               )}
             </div>
-            
+
             <div className="space-y-2">
               <h3 className="text-lg font-semibold text-slate-900">
                 {processingStatus.status === 'processing' && (
-                  selectedFiles.length === 1 
-                    ? 'Processing Your Model' 
+                  selectedFiles.length === 1
+                    ? 'Processing Your Model'
                     : `Processing ${selectedFiles.length} Models`
                 )}
                 {processingStatus.status === 'completed' && 'Project Created'}
                 {processingStatus.status === 'failed' && 'Processing Failed'}
               </h3>
-              
+
               {processingStatus.status === 'processing' && (
                 <p className="text-slate-600 text-sm">
-                  {selectedFiles.length === 1 
+                  {selectedFiles.length === 1
                     ? 'Analyzing your IFC file and preparing your project. This usually takes a few minutes.'
                     : `Analyzing ${selectedFiles.length} IFC files and preparing your project. This may take a few minutes.`
                   }
                 </p>
               )}
-              
+
               {processingStatus.status === 'completed' && (
                 <p className="text-slate-600 text-sm">
-                  {selectedFiles.length === 1 
+                  {selectedFiles.length === 1
                     ? 'Your project is ready to explore.'
                     : `Your project with ${selectedFiles.length} models is ready to explore.`
                   }
                 </p>
               )}
-              
+
               {processingStatus.status === 'failed' && (
                 <p className="text-slate-600 text-sm">
                   {processingStatus.error || 'Something went wrong during processing.'}
@@ -681,7 +680,7 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
                   <span className="text-slate-900 font-medium">{processingStatus.progress}%</span>
                 </div>
                 <div className="w-full bg-slate-100 rounded-full h-3">
-                  <div 
+                  <div
                     className="h-full bg-slate-600 rounded-full transition-all duration-500 ease-out"
                     style={{ width: `${processingStatus.progress}%` }}
                     data-progress={processingStatus.progress}
