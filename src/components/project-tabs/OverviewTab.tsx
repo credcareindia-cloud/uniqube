@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Clock, User, Package, Layers, FileText, CheckCircle, AlertCircle, Info, Users, Tag, Plus, TrendingUp } from 'lucide-react'
+import { Clock, User, Package, Layers, FileText, CheckCircle, AlertCircle, Info, Users, Tag, Plus, TrendingUp, Grid3x3 } from 'lucide-react'
 import { authenticatedFetch } from '@/utils/authenticatedFetch'
 import { getApiUrl } from '@/config/api'
 
@@ -12,18 +12,18 @@ const authenticatedFetch_OLD = async (url: string, options: RequestInit = {}) =>
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   }
-  
+
   if (options.headers) {
     const existingHeaders = new Headers(options.headers)
     existingHeaders.forEach((value, key) => {
       headers[key] = value
     })
   }
-  
+
   if (token) {
     headers['Authorization'] = `Bearer ${token}`
   }
-  
+
   return fetch(url, {
     ...options,
     headers,
@@ -118,7 +118,7 @@ export function OverviewTab({ projectId, totalPanels, groups, panels, groupsCoun
   // Use health stats from API instead of calculating from limited panels array
   const panelsWithoutGroups = healthStats.panelsWithoutGroups
   const panelsWithoutStatus = healthStats.panelsWithoutStatus
-  
+
   // Get top 3 groups by panel count
   const topGroups = groups
     .map(g => ({
@@ -288,12 +288,17 @@ export function OverviewTab({ projectId, totalPanels, groups, panels, groupsCoun
           {topGroups.length > 0 ? (
             <div className="space-y-3">
               {topGroups.map((group) => (
-                <div key={group.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-slate-900 truncate">{group.name}</p>
-                    {group.description && (
-                      <p className="text-sm text-slate-500 truncate">{group.description}</p>
-                    )}
+                <div key={group.id} className="flex items-center justify-between p-3 rounded-lg" style={{ backgroundColor: `${(group as any).color || '#3B82F6'}10` }}>
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <div className="p-2 rounded-lg" style={{ backgroundColor: `${(group as any).color || '#3B82F6'}20` }}>
+                      <Grid3x3 className="w-5 h-5" style={{ color: (group as any).color || '#3B82F6' }} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-slate-900 truncate">{group.name}</p>
+                      {group.description && (
+                        <p className="text-sm text-slate-500 truncate">{group.description}</p>
+                      )}
+                    </div>
                   </div>
                   <div className="ml-4 flex items-center gap-2">
                     <Package className="w-4 h-4 text-slate-400" />
@@ -319,21 +324,18 @@ export function OverviewTab({ projectId, totalPanels, groups, panels, groupsCoun
             {/* Panels without groups */}
             <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
               <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                  panelsWithoutGroups > 0 ? 'bg-yellow-50' : 'bg-green-50'
-                }`}>
-                  <Layers className={`w-5 h-5 ${
-                    panelsWithoutGroups > 0 ? 'text-yellow-600' : 'text-green-600'
-                  }`} />
+                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${panelsWithoutGroups > 0 ? 'bg-yellow-50' : 'bg-green-50'
+                  }`}>
+                  <Layers className={`w-5 h-5 ${panelsWithoutGroups > 0 ? 'text-yellow-600' : 'text-green-600'
+                    }`} />
                 </div>
                 <div>
                   <p className="font-medium text-slate-900">Panels without Groups</p>
                   <p className="text-sm text-slate-500">Panels not assigned to any group</p>
                 </div>
               </div>
-              <span className={`text-2xl font-bold ${
-                panelsWithoutGroups > 0 ? 'text-yellow-600' : 'text-green-600'
-              }`}>
+              <span className={`text-2xl font-bold ${panelsWithoutGroups > 0 ? 'text-yellow-600' : 'text-green-600'
+                }`}>
                 {panelsWithoutGroups}
               </span>
             </div>
@@ -341,21 +343,18 @@ export function OverviewTab({ projectId, totalPanels, groups, panels, groupsCoun
             {/* Panels without status */}
             <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
               <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                  panelsWithoutStatus > 0 ? 'bg-yellow-50' : 'bg-green-50'
-                }`}>
-                  <Tag className={`w-5 h-5 ${
-                    panelsWithoutStatus > 0 ? 'text-yellow-600' : 'text-green-600'
-                  }`} />
+                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${panelsWithoutStatus > 0 ? 'bg-yellow-50' : 'bg-green-50'
+                  }`}>
+                  <Tag className={`w-5 h-5 ${panelsWithoutStatus > 0 ? 'text-yellow-600' : 'text-green-600'
+                    }`} />
                 </div>
                 <div>
                   <p className="font-medium text-slate-900">Panels without Status</p>
                   <p className="text-sm text-slate-500">Panels not assigned any status</p>
                 </div>
               </div>
-              <span className={`text-2xl font-bold ${
-                panelsWithoutStatus > 0 ? 'text-yellow-600' : 'text-green-600'
-              }`}>
+              <span className={`text-2xl font-bold ${panelsWithoutStatus > 0 ? 'text-yellow-600' : 'text-green-600'
+                }`}>
                 {panelsWithoutStatus}
               </span>
             </div>

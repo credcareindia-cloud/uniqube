@@ -7,12 +7,15 @@
   0% {
     transform: translate(0px, 0px) scale(1);
   }
+
   33% {
     transform: translate(30px, -50px) scale(1.1);
   }
+
   66% {
     transform: translate(-20px, 20px) scale(0.9);
   }
+
   100% {
     transform: translate(0px, 0px) scale(1);
   }
@@ -20,6 +23,12 @@
 
 .animate-blob {
   animation: blob 7s infinite;
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
 }
 
 .animation-delay-2000 {
@@ -33,77 +42,117 @@
 /* Light Slate Theme - Soft and Minimal */
 :root {
   /* Primary - Soft Dark Slate */
-  --primary: 215 16% 25%;              /* Slate 700 - #334155 - Softer dark */
-  --primary-foreground: 210 40% 98%;   /* Almost white */
-  
+  --primary: 215 16% 25%;
+  /* Slate 700 - #334155 - Softer dark */
+  --primary-foreground: 210 40% 98%;
+  /* Almost white */
+
   /* Backgrounds */
-  --background: 0 0% 100%;             /* Pure White - #FFFFFF */
-  --foreground: 215 20% 20%;           /* Slate 800 - #1E293B - Soft dark text */
-  
+  --background: 0 0% 100%;
+  /* Pure White - #FFFFFF */
+  --foreground: 215 20% 20%;
+  /* Slate 800 - #1E293B - Soft dark text */
+
   /* Card */
-  --card: 0 0% 100%;                   /* White - #FFFFFF */
-  --card-foreground: 215 20% 20%;      /* Slate 800 */
-  
+  --card: 0 0% 100%;
+  /* White - #FFFFFF */
+  --card-foreground: 215 20% 20%;
+  /* Slate 800 */
+
   /* Popover */
-  --popover: 0 0% 100%;                /* White */
-  --popover-foreground: 215 20% 20%;   /* Slate 800 */
-  
+  --popover: 0 0% 100%;
+  /* White */
+  --popover-foreground: 215 20% 20%;
+  /* Slate 800 */
+
   /* Secondary - Very Light Slate */
-  --secondary: 210 40% 98%;            /* Slate 50 - #F8FAFC - Very light */
-  --secondary-foreground: 215 16% 25%; /* Slate 700 */
-  
+  --secondary: 210 40% 98%;
+  /* Slate 50 - #F8FAFC - Very light */
+  --secondary-foreground: 215 16% 25%;
+  /* Slate 700 */
+
   /* Muted - Light Slate */
-  --muted: 214 32% 95%;                /* Slate 100 - #F1F5F9 - Light slate */
-  --muted-foreground: 215 16% 47%;     /* Slate 600 - #475569 - Medium slate */
-  
+  --muted: 214 32% 95%;
+  /* Slate 100 - #F1F5F9 - Light slate */
+  --muted-foreground: 215 16% 47%;
+  /* Slate 600 - #475569 - Medium slate */
+
   /* Accent - Light Slate (minimal color) */
-  --accent: 214 32% 95%;               /* Slate 100 - #F1F5F9 */
-  --accent-foreground: 215 16% 25%;    /* Slate 700 */
-  
+  --accent: 214 32% 95%;
+  /* Slate 100 - #F1F5F9 */
+  --accent-foreground: 215 16% 25%;
+  /* Slate 700 */
+
   /* Destructive - Red */
-  --destructive: 0 84.2% 60.2%;        /* Red 500 - #EF4444 */
-  --destructive-foreground: 0 0% 98%;  /* White */
-  
+  --destructive: 0 84.2% 60.2%;
+  /* Red 500 - #EF4444 */
+  --destructive-foreground: 0 0% 98%;
+  /* White */
+
   /* Border - Light Slate */
-  --border: 214 32% 91%;               /* Slate 200 - #E2E8F0 - Light slate border */
-  --input: 214 32% 91%;                /* Slate 200 */
-  --ring: 215 16% 47%;                 /* Slate 600 for focus */
-  
+  --border: 214 32% 91%;
+  /* Slate 200 - #E2E8F0 - Light slate border */
+  --input: 214 32% 91%;
+  /* Slate 200 */
+  --ring: 215 16% 47%;
+  /* Slate 600 for focus */
+
   /* Sidebar - Very Light Slate Background */
-  --sidebar-background: 210 40% 98%;   /* Slate 50 - #F8FAFC - Very light slate */
-  --sidebar-foreground: 215 16% 47%;   /* Slate 600 - Medium slate */
-  --sidebar-primary: 215 16% 25%;      /* Slate 700 - Soft dark */
-  --sidebar-primary-foreground: 210 40% 98%; /* Almost white */
-  --sidebar-accent: 214 32% 95%;       /* Slate 100 for hover */
-  --sidebar-accent-foreground: 215 16% 25%; /* Slate 700 */
-  --sidebar-border: 214 32% 91%;       /* Slate 200 - Light border */
-  
+  --sidebar-background: 210 40% 98%;
+  /* Slate 50 - #F8FAFC - Very light slate */
+  --sidebar-foreground: 215 16% 47%;
+  /* Slate 600 - Medium slate */
+  --sidebar-primary: 215 16% 25%;
+  /* Slate 700 - Soft dark */
+  --sidebar-primary-foreground: 210 40% 98%;
+  /* Almost white */
+  --sidebar-accent: 214 32% 95%;
+  /* Slate 100 for hover */
+  --sidebar-accent-foreground: 215 16% 25%;
+  /* Slate 700 */
+  --sidebar-border: 214 32% 91%;
+  /* Slate 200 - Light border */
+
   /* Chart Colors */
-  --chart-1: 217.2 91.2% 59.8%;        /* Blue 500 */
-  --chart-2: 142.1 76.2% 36.3%;        /* Green 600 */
-  --chart-3: 38.4 92.1% 50.2%;         /* Amber 500 */
-  --chart-4: 280.4 89.1% 65.5%;        /* Purple 500 */
-  --chart-5: 346.8 77.2% 49.8%;        /* Pink 500 */
-  
+  --chart-1: 217.2 91.2% 59.8%;
+  /* Blue 500 */
+  --chart-2: 142.1 76.2% 36.3%;
+  /* Green 600 */
+  --chart-3: 38.4 92.1% 50.2%;
+  /* Amber 500 */
+  --chart-4: 280.4 89.1% 65.5%;
+  /* Purple 500 */
+  --chart-5: 346.8 77.2% 49.8%;
+  /* Pink 500 */
+
   /* Border Radius */
-  --radius: 0.5rem;                    /* 8px */
-  
+  --radius: 0.5rem;
+  /* 8px */
+
   /* Sidebar */
-  --sidebar: 0 0% 100%;                /* White */
-  --sidebar-foreground: 222.2 47.4% 11.2%; /* Slate 900 */
-  --sidebar-primary: 222.2 47.4% 11.2%; /* Slate 900 */
-  --sidebar-primary-foreground: 210 40% 98%; /* White */
-  --sidebar-accent: 210 40% 96.1%;     /* Slate 50 */
-  --sidebar-accent-foreground: 222.2 47.4% 11.2%; /* Slate 900 */
-  --sidebar-border: 214.3 31.8% 91.4%; /* Slate 200 */
-  --sidebar-ring: 217.2 91.2% 59.8%;   /* Blue 500 */
+  --sidebar: 0 0% 100%;
+  /* White */
+  --sidebar-foreground: 222.2 47.4% 11.2%;
+  /* Slate 900 */
+  --sidebar-primary: 222.2 47.4% 11.2%;
+  /* Slate 900 */
+  --sidebar-primary-foreground: 210 40% 98%;
+  /* White */
+  --sidebar-accent: 210 40% 96.1%;
+  /* Slate 50 */
+  --sidebar-accent-foreground: 222.2 47.4% 11.2%;
+  /* Slate 900 */
+  --sidebar-border: 214.3 31.8% 91.4%;
+  /* Slate 200 */
+  --sidebar-ring: 217.2 91.2% 59.8%;
+  /* Blue 500 */
 }
 
 @layer base {
   * {
     @apply border-border;
   }
-  
+
   body {
     @apply bg-white text-slate-900;
     font-feature-settings: "rlig" 1, "calt" 1;
@@ -113,17 +162,23 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
-  
-  h1, h2, h3, h4, h5, h6 {
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
     @apply text-slate-900 font-semibold;
   }
-  
+
   p {
     @apply text-slate-600;
   }
 }
 
 @layer base {
+
   /* Custom Scrollbar - Slate Theme */
   ::-webkit-scrollbar {
     width: 12px;
@@ -153,29 +208,31 @@
   /* Firefox Scrollbar */
   * {
     scrollbar-width: thin;
-    scrollbar-color: rgb(148 163 184) rgb(241 245 249); /* slate-400 slate-100 */
+    scrollbar-color: rgb(148 163 184) rgb(241 245 249);
+    /* slate-400 slate-100 */
   }
 }
 
 @layer utilities {
+
   /* Custom text colors */
   .text-primary {
     @apply text-slate-900;
   }
-  
+
   .text-secondary {
     @apply text-slate-600;
   }
-  
+
   .text-muted {
     @apply text-slate-400;
   }
-  
+
   /* Custom background colors */
   .bg-surface {
     @apply bg-slate-50;
   }
-  
+
   .bg-surface-secondary {
     @apply bg-slate-100;
   }

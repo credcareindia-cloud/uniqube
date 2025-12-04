@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { authenticatedFetch } from '@/utils/authenticatedFetch'
-import { Plus, Building2, Eye, MoreVertical, Edit, Trash2 } from 'lucide-react'
+import { Plus, Grid3x3, Eye, MoreVertical, Edit, Trash2 } from 'lucide-react'
 import { GroupDetailModal } from '@/components/modals/GroupDetailModal'
 import { EditGroupModal } from '@/components/modals/EditGroupModal'
 import { ConfirmDeleteModal } from '@/components/modals/ConfirmDeleteModal'
@@ -15,6 +15,7 @@ interface Group {
   description?: string
   status: string
   type: string
+  color?: string
   metadata?: {
     type?: string
     panelCount?: number
@@ -161,7 +162,7 @@ export function GroupManagementTab({ projectId, onCreateGroup, onViewGroup, onDa
   }
 
   const getTypeIcon = (type: string) => {
-    return Building2
+    return Grid3x3
   }
 
   if (loading) {
@@ -210,13 +211,13 @@ export function GroupManagementTab({ projectId, onCreateGroup, onViewGroup, onDa
                 {/* Header */}
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center gap-3">
-                    <IconComponent className="w-8 h-8 text-slate-700" />
+                    <IconComponent className="w-8 h-8" style={{ color: group.color || '#3B82F6' }} />
                     <div>
                       <h3 className="text-sm font-semibold text-slate-900">{group.name}</h3>
                       <p className="text-xs text-slate-500">{panelCount} panels</p>
                     </div>
                   </div>
-                  
+
                   {/* Three-dot menu */}
                   <div className="relative" ref={openMenuId === group.id ? menuRef : null}>
                     <button
@@ -268,7 +269,7 @@ export function GroupManagementTab({ projectId, onCreateGroup, onViewGroup, onDa
       ) : (
         <div className="bg-white rounded-lg border border-slate-200 p-12">
           <div className="text-center">
-            <Building2 className="h-12 w-12 text-slate-400 mx-auto mb-4" />
+            <Grid3x3 className="h-12 w-12 text-slate-400 mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-slate-900 mb-2">No Groups Yet</h3>
             <p className="text-slate-500 mb-6">Create your first group to organize panels</p>
             <button

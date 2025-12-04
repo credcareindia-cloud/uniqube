@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
-import { X, Edit, Eye, ChevronDown, ChevronUp, Circle } from 'lucide-react'
+import { X, Edit, Eye, ChevronDown, ChevronUp, Circle, Grid3x3 } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
 import type { Panel } from '@/types/panel'
 
@@ -109,17 +109,17 @@ export function PanelDetailModal({
       'wrench': 'Wrench',
       'package': 'Package',
     }
-    
+
     // Map the icon name from database format to Lucide format
     const mappedName = iconNameMap[iconName] || iconName
-    
+
     // Try to get the icon
     const IconComponent = (LucideIcons as any)[mappedName]
-    
+
     if (IconComponent) {
       return IconComponent
     }
-    
+
     // Fallback to Circle
     return Circle
   }
@@ -144,7 +144,7 @@ export function PanelDetailModal({
               </h2>
             </div>
           </div>
-          
+
           <button
             onClick={onClose}
             className="p-2 text-slate-600 hover:text-slate-900 transition-colors"
@@ -161,29 +161,29 @@ export function PanelDetailModal({
               <p className="text-xs text-slate-600 mb-1">Element ID</p>
               <p className="text-slate-900 font-semibold font-mono text-sm">{(panel.metadata as any)?.ifcElementId || panel.elementId || 'N/A'}</p>
             </div>
-            
+
             <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
               <p className="text-xs text-slate-600 mb-1">Tag</p>
               <p className="text-slate-900 font-mono text-sm">{panel.tag || 'N/A'}</p>
             </div>
-            
+
             <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
               <p className="text-xs text-slate-600 mb-1 ">Location</p>
               <p className="text-slate-900">{panel.location || 'N/A'}</p>
             </div>
-            
+
             <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
               <p className="text-xs text-slate-600 mb-1 ">Material</p>
               <p className="text-slate-900">{panel.material || 'N/A'}</p>
             </div>
-            
+
             {panel.dimensions && (
               <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
                 <p className="text-xs text-slate-600 mb-1 ">Dimensions</p>
                 <p className="text-slate-900 font-mono text-sm">{panel.dimensions}</p>
               </div>
             )}
-            
+
             {panel.weight && (
               <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
                 <p className="text-xs text-slate-600 mb-1 ">Weight</p>
@@ -226,11 +226,14 @@ export function PanelDetailModal({
                 {(panel as any).groups.map((pg: any) => (
                   <div
                     key={pg.id}
-                    className="px-3 py-1.5 rounded-lg flex items-center gap-2 text-sm font-medium bg-slate-100 border border-slate-300 text-slate-700"
+                    className="px-3 py-1.5 rounded-lg flex items-center gap-2 text-sm font-medium"
+                    style={{
+                      backgroundColor: `${pg.group.color || '#3B82F6'}20`,
+                      border: `1px solid ${pg.group.color || '#3B82F6'}40`,
+                      color: pg.group.color || '#3B82F6'
+                    }}
                   >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                    </svg>
+                    <Grid3x3 className="w-4 h-4" style={{ color: pg.group.color || '#3B82F6' }} />
                     {pg.group.name}
                   </div>
                 ))}
@@ -282,7 +285,7 @@ export function PanelDetailModal({
                           <ChevronDown className="w-5 h-5 text-slate-600" />
                         )}
                       </button>
-                      
+
                       {isExpanded && (
                         <div className="px-4 pb-4 pt-2 border-t border-slate-200">
                           <p className="text-slate-600 whitespace-pre-wrap">

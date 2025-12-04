@@ -6,6 +6,8 @@ import { Eye, Download, Filter, Search, Circle } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
 import { RemoveStatusModal } from '@/components/modals/RemoveStatusModal'
 import { RemoveGroupModal } from '@/components/modals/RemoveGroupModal'
+import { AssignStatusModal } from '@/components/modals/AssignStatusModal'
+import { AddToGroupModal } from '@/components/modals/AddToGroupModal'
 import { PanelDetailModal } from '@/components/modals/PanelDetailModal'
 import { EditPanelModal } from '@/components/modals/EditPanelModal'
 import { toast } from '@/components/ui/use-toast'
@@ -190,12 +192,14 @@ interface Panel {
 interface Group {
   id: string
   name: string
+  color?: string
 }
 
 interface Status {
   id: string
   name: string
   color: string
+  icon: string
 }
 
 interface Model {
@@ -229,6 +233,8 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
   const [selectedModelId, setSelectedModelId] = useState<string>('all')
   const [showRemoveStatusModal, setShowRemoveStatusModal] = useState(false)
   const [showRemoveGroupModal, setShowRemoveGroupModal] = useState(false)
+  const [showAssignStatusModal, setShowAssignStatusModal] = useState(false)
+  const [showAddToGroupModal, setShowAddToGroupModal] = useState(false)
   const [selectedPanel, setSelectedPanel] = useState<Panel | null>(null)
   const [showPanelDetail, setShowPanelDetail] = useState(false)
   const [showEditPanel, setShowEditPanel] = useState(false)
@@ -383,12 +389,27 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
   }
 
   const selectAllPanels = () => {
-    const allPanelIds = filteredPanels.map(p => p.id)
-    setSelectedPanels(new Set(allPanelIds))
+    // Add current page panels to existing selection
+    const newSelection = new Set(selectedPanels)
+    filteredPanels.forEach(p => newSelection.add(p.id))
+    setSelectedPanels(newSelection)
+  }
+
+  const deselectCurrentPagePanels = () => {
+    // Remove only current page panels from selection
+    const newSelection = new Set(selectedPanels)
+    filteredPanels.forEach(p => newSelection.delete(p.id))
+    setSelectedPanels(newSelection)
   }
 
   const clearSelection = () => {
     setSelectedPanels(new Set())
+  }
+
+  // Check if all panels on current page are selected
+  const areAllCurrentPagePanelsSelected = () => {
+    if (filteredPanels.length === 0) return false
+    return filteredPanels.every(p => selectedPanels.has(p.id))
   }
 
   // Get unique statuses from selected panels
@@ -402,7 +423,8 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
             statusMap.set(ps.status.id, {
               id: ps.status.id,
               name: ps.status.name,
-              color: ps.status.color
+              color: ps.status.color,
+              icon: ps.status.icon
             })
           }
         })
@@ -422,7 +444,8 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
           if (pg.group && !groupMap.has(pg.group.id)) {
             groupMap.set(pg.group.id, {
               id: pg.group.id,
-              name: pg.group.name
+              name: pg.group.name,
+              color: pg.group.color
             })
           }
         })
@@ -432,35 +455,32 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
     return Array.from(groupMap.values())
   }
 
-  const handleBulkAssignStatus = async (statusId: string) => {
-    if (selectedPanels.size === 0) return
+  const handleBulkAssignStatus = async (statusIds: string[]) => {
+    if (selectedPanels.size === 0 || statusIds.length === 0) return
 
     try {
       const panelIds = Array.from(selectedPanels)
-      const response = await authenticatedFetch(getApiUrl('status-management/assign-to-panels'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          panelIds,
-          statusId,
-          projectId
-        })
-      })
 
-      if (response.ok) {
-        await loadPanels()
-        clearSelection()
-        toast({
-          title: "Success",
-          description: `Successfully assigned status to ${panelIds.length} panel(s)`,
-        })
-      } else {
-        toast({
-          title: "Error",
-          description: "Failed to assign status",
-          variant: "destructive",
+      // Assign each selected status to the panels
+      for (const statusId of statusIds) {
+        await authenticatedFetch(getApiUrl('status-management/assign-to-panels'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            panelIds,
+            statusId,
+            projectId
+          })
         })
       }
+
+      await loadPanels()
+      clearSelection()
+      setShowAssignStatusModal(false)
+      toast({
+        title: "Success",
+        description: `Successfully assigned ${statusIds.length} status(es) to ${panelIds.length} panel(s)`,
+      })
     } catch (error) {
       console.error('Error assigning status:', error)
       toast({
@@ -471,31 +491,28 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
     }
   }
 
-  const handleBulkAddToGroup = async (groupId: string) => {
-    if (selectedPanels.size === 0) return
+  const handleBulkAddToGroup = async (groupIds: string[]) => {
+    if (selectedPanels.size === 0 || groupIds.length === 0) return
 
     try {
       const panelIds = Array.from(selectedPanels)
-      const response = await authenticatedFetch(getApiUrl(`groups/${projectId}/${groupId}/panels`), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ panelIds })
-      })
 
-      if (response.ok) {
-        await loadPanels()
-        clearSelection()
-        toast({
-          title: "Success",
-          description: `Successfully added ${panelIds.length} panel(s) to group`,
-        })
-      } else {
-        toast({
-          title: "Error",
-          description: "Failed to add panels to group",
-          variant: "destructive",
+      // Add panels to each selected group
+      for (const groupId of groupIds) {
+        await authenticatedFetch(getApiUrl(`groups/${projectId}/${groupId}/panels`), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ panelIds })
         })
       }
+
+      await loadPanels()
+      clearSelection()
+      setShowAddToGroupModal(false)
+      toast({
+        title: "Success",
+        description: `Successfully added ${panelIds.length} panel(s) to ${groupIds.length} group(s)`,
+      })
     } catch (error) {
       console.error('Error adding to group:', error)
       toast({
@@ -677,45 +694,29 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
               </button>
             </div>
             <div className="flex items-center gap-2">
-              <select
-                onChange={(e) => {
-                  if (e.target.value) {
-                    handleBulkAssignStatus(e.target.value)
-                    e.target.value = ''
-                  }
-                }}
-                className="px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 text-sm focus:outline-none focus:border-slate-700"
+              <button
+                onClick={() => setShowAssignStatusModal(true)}
+                className="px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 text-sm hover:bg-slate-50 transition-colors"
               >
-                <option value="">Assign Status...</option>
-                {statuses.map((status) => (
-                  <option key={status.id} value={status.id}>{status.name}</option>
-                ))}
-              </select>
+                Assign Status
+              </button>
               <button
                 onClick={() => setShowRemoveStatusModal(true)}
                 className="px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 text-sm hover:bg-slate-50 transition-colors"
               >
-                Remove Status...
+                Remove Status
               </button>
-              <select
-                onChange={(e) => {
-                  if (e.target.value) {
-                    handleBulkAddToGroup(e.target.value)
-                    e.target.value = ''
-                  }
-                }}
-                className="px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 text-sm focus:outline-none focus:border-slate-700"
+              <button
+                onClick={() => setShowAddToGroupModal(true)}
+                className="px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 text-sm hover:bg-slate-50 transition-colors"
               >
-                <option value="">Add to Group...</option>
-                {groups.map((group) => (
-                  <option key={group.id} value={group.id}>{group.name}</option>
-                ))}
-              </select>
+                Add to Group
+              </button>
               <button
                 onClick={() => setShowRemoveGroupModal(true)}
                 className="px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 text-sm hover:bg-slate-50 transition-colors"
               >
-                Remove from Group...
+                Remove from Group
               </button>
             </div>
           </div>
@@ -731,12 +732,12 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
                 <th className="text-left py-3 px-4 text-xs font-medium text-slate-600 uppercase tracking-wider w-12">
                   <input
                     type="checkbox"
-                    checked={selectedPanels.size > 0 && selectedPanels.size === filteredPanels.length}
+                    checked={areAllCurrentPagePanelsSelected()}
                     onChange={(e) => {
                       if (e.target.checked) {
                         selectAllPanels()
                       } else {
-                        clearSelection()
+                        deselectCurrentPagePanels()
                       }
                     }}
                     className="w-4 h-4 rounded border-slate-300 bg-white checked:bg-blue-600 focus:ring-2 focus:ring-blue-500"
@@ -830,10 +831,22 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
                     <td className="py-3 px-4 text-sm text-slate-700">
                       {panel.objectType || 'Unknown'}
                     </td>
-                    <td className="py-3 px-4 text-sm text-slate-700">
-                      {panel.groups && panel.groups.length > 0
-                        ? panel.groups.map((pg: any) => pg.group?.name).join(', ')
-                        : 'No group'}
+                    <td className="py-3 px-4">
+                      {panel.groups && panel.groups.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {panel.groups.map((pg: any, index: number) => (
+                            <span
+                              key={pg.id || index}
+                              className="text-sm font-medium"
+                              style={{ color: pg.group?.color || '#3B82F6' }}
+                            >
+                              {pg.group?.name}{index < (panel.groups?.length ?? 0) - 1 ? ',' : ''}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-sm text-slate-400">No group</span>
+                      )}
                     </td>
                     <td className="py-3 px-4 text-sm text-slate-600">
                       {panel.location || 'Unknown'}
@@ -993,6 +1006,24 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
         onClose={() => setShowRemoveGroupModal(false)}
         onConfirm={handleBulkRemoveFromGroup}
         availableGroups={getGroupsFromSelectedPanels()}
+        selectedPanelCount={selectedPanels.size}
+      />
+
+      {/* Assign Status Modal */}
+      <AssignStatusModal
+        isOpen={showAssignStatusModal}
+        onClose={() => setShowAssignStatusModal(false)}
+        onConfirm={handleBulkAssignStatus}
+        availableStatuses={statuses}
+        selectedPanelCount={selectedPanels.size}
+      />
+
+      {/* Add to Group Modal */}
+      <AddToGroupModal
+        isOpen={showAddToGroupModal}
+        onClose={() => setShowAddToGroupModal(false)}
+        onConfirm={handleBulkAddToGroup}
+        availableGroups={groups}
         selectedPanelCount={selectedPanels.size}
       />
 

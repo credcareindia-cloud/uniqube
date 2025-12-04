@@ -214,19 +214,19 @@ const getIconComponent = (iconName: string) => {
     'wrench': 'Wrench',
     'package': 'Package',
   }
-  
+
   // Convert icon name to Lucide format
   const lucideIconName = iconNameMap[iconName.toLowerCase()] || iconName
-  
+
   // Try to get icon from Lucide
   const LucideIcon = (LucideIcons as any)[lucideIconName]
   if (LucideIcon) {
     return LucideIcon
   }
-  
+
   // Default fallback
   return (LucideIcons as any).Circle
-}           
+}
 // Helper function to get status config
 const getStatusConfig = (status: string) => {
   return statusConfig[status as keyof typeof statusConfig] || statusConfig.PLANNING
@@ -236,14 +236,14 @@ const getStatusConfig = (status: string) => {
 const calculatePanelStatuses = (panels: Panel[]): PanelStatusSummary[] => {
   const statusCounts: Record<string, number> = {}
   const totalPanels = panels.length
-  
+
   if (totalPanels === 0) return []
-  
+
   // Count panels by status
   panels.forEach(panel => {
     statusCounts[panel.status] = (statusCounts[panel.status] || 0) + 1
   })
-   
+
   // Convert to PanelStatusSummary array with icons and colors
   return Object.entries(statusCounts).map(([status, count]) => {
     const config = PANEL_STATUS_CONFIG[status as PanelStatus]
@@ -280,7 +280,7 @@ export default function ProjectDetailPage() {
   const [panelPage, setPanelPage] = useState(1)
   const [panelTotalPages, setPanelTotalPages] = useState(1)
   const [panelLimit] = useState(50) // Panels per page
-  
+
   // Group management state
   const [groupTypeFilter, setGroupTypeFilter] = useState<string>('all')
   const [groupStatusFilter, setGroupStatusFilter] = useState<string>('all')
@@ -289,7 +289,7 @@ export default function ProjectDetailPage() {
   const [groupTotalCount, setGroupTotalCount] = useState(0)
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null)
   const [showGroupDetail, setShowGroupDetail] = useState(false)
-  
+
   // Status management state
   const [selectedStatus, setSelectedStatus] = useState<PanelStatus | null>(null)
   const [showStatusDetail, setShowStatusDetail] = useState(false)
@@ -298,15 +298,15 @@ export default function ProjectDetailPage() {
   const [showCreateStatusModal, setShowCreateStatusModal] = useState(false)
   const [showCreateGroupModal, setShowCreateGroupModal] = useState(false)
   const [customStatuses, setCustomStatuses] = useState<CustomStatus[]>([])
-  const [statusRefreshKey, setStatusRefreshKey] = useState(0) 
-  const [groupRefreshKey, setGroupRefreshKey] = useState(0) 
-  const [overviewRefreshKey, setOverviewRefreshKey] = useState(0) 
+  const [statusRefreshKey, setStatusRefreshKey] = useState(0)
+  const [groupRefreshKey, setGroupRefreshKey] = useState(0)
+  const [overviewRefreshKey, setOverviewRefreshKey] = useState(0)
   const [selectedPanels, setSelectedPanels] = useState<Set<string>>(new Set())
   const [showBulkActions, setShowBulkActions] = useState(false)
   const [selectedPanel, setSelectedPanel] = useState<Panel | null>(null)
   const [showPanelDetail, setShowPanelDetail] = useState(false)
   const [showEditPanel, setShowEditPanel] = useState(false)
-  
+
   // Model metadata state (storeys and panels from IFC)
   const [modelMetadata, setModelMetadata] = useState<any>(null)
   const [metadataLoading, setMetadataLoading] = useState(false)
@@ -332,7 +332,7 @@ export default function ProjectDetailPage() {
       setActiveTab('overview')
     }
   }, [permissions.canManage])
-  
+
   // Load model metadata when current model changes
   useEffect(() => {
     if (models?.currentModel?.id) {
@@ -343,10 +343,10 @@ export default function ProjectDetailPage() {
   // Listen for project creation notifications and refresh project data
   useEffect(() => {
     const projectCreatedNotifications = notifications.filter(
-      n => n.type === 'success' && n.title.includes('Project Created') && 
-           (n.metadata?.projectId === id || n.message.includes(id || ''))
+      n => n.type === 'success' && n.title.includes('Project Created') &&
+        (n.metadata?.projectId === id || n.message.includes(id || ''))
     )
-    
+
     if (projectCreatedNotifications.length > 0) {
       // Refresh project data when we get a notification for this specific project
       console.log('🔄 Detected project creation notification for this project, refreshing data...')
@@ -358,22 +358,22 @@ export default function ProjectDetailPage() {
 
   const loadProjectData = async () => {
     if (!id) return
-    
+
     try {
       setLoading(true)
       setError(null)
-      
+
       const response = await authenticatedFetch(getApiUrl(`projects/${id}`))
       if (!response.ok) {
         throw new Error(`Failed to fetch project: ${response.statusText}`)
       }
-      
+
       const data = await response.json()
       console.log('Project data:', data)
-      
+
       // The simplified API returns the project directly, not wrapped in a project property
       setProject(data)
-      
+
       // Set models from project data (modelHistory)
       if (data.modelHistory && data.modelHistory.length > 0) {
         setModels({
@@ -382,7 +382,7 @@ export default function ProjectDetailPage() {
           totalVersions: data.modelHistory.length,
           hasModel: data.currentModel !== null
         })
-        
+
         // Use spatial structure to get total panel count only
         // Status overview will be calculated in real-time from actual panel data
         if (data.currentModel && data.currentModel.spatialStructure) {
@@ -392,7 +392,7 @@ export default function ProjectDetailPage() {
             console.log('📊 Spatial structure metadata:', spatialData)
             setTotalPanelCount(spatialData.totalPanels || 0)
             setDisplayedPanelCount(spatialData.displayedPanels || 0)
-            
+
             // Don't load status overview from cached metadata
             // It will be calculated in real-time by calculatePanelStatusCounts()
           } catch (error) {
@@ -407,13 +407,13 @@ export default function ProjectDetailPage() {
           hasModel: false
         })
       }
-      
+
       // Load panels and groups from API
       await Promise.all([
         loadAllPanels(),
         loadGroups()
       ])
-      
+
     } catch (err) {
       console.error('Error loading project data:', err)
       setError(err instanceof Error ? err.message : 'Failed to load project data')
@@ -421,21 +421,21 @@ export default function ProjectDetailPage() {
       setLoading(false)
     }
   }
-  
+
   const loadModelMetadata = async (modelId: string) => {
     try {
       setMetadataLoading(true)
       console.log('📊 Loading model metadata from database...')
-      
+
       const response = await authenticatedFetch(getApiUrl(`models/${modelId}/metadata`))
       if (!response.ok) {
         console.error('Failed to fetch model metadata:', response.status)
         return
       }
-      
+
       const data = await response.json()
       console.log('✅ Model metadata loaded from database:', data)
-      
+
       if (data.success && data.model) {
         setModelMetadata(data.model)
         console.log('📦 Storeys and panels:', data.model.spatialStructure)
@@ -449,36 +449,36 @@ export default function ProjectDetailPage() {
 
   const loadPanels = async (page = panelPage) => {
     if (!id) return
-    
+
     try {
       setPanelsLoading(true)
       // Request with pagination
       const response = await authenticatedFetch(getApiUrl(`panels/${id}?page=${page}&limit=${panelLimit}`))
-      
+
       if (!response.ok) {
         console.error('Failed to fetch panels:', response.status, response.statusText)
         return
       }
-      
+
       const data = await response.json()
-      
+
       // Handle paginated response
       const panelsData = data.panels || data
       console.log('✅ Panels loaded:', panelsData.length, `(Page ${page})`)
-      
+
       if (data.pagination) {
         console.log('📄 Pagination:', data.pagination)
         setPanelTotalPages(data.pagination.totalPages || 1)
-        
+
         // Set total panel count from metadata (actual FRAG file count)
         if (data.pagination.totalFromMetadata) {
           setTotalPanelCount(data.pagination.totalFromMetadata)
           setDisplayedPanelCount(data.pagination.total)
         }
       }
-      
+
       setPanels(panelsData)
-      
+
       // Calculate real-time panel status counts (only once, not per page)
       if (page === 1) {
         await calculatePanelStatusCounts()
@@ -497,23 +497,23 @@ export default function ProjectDetailPage() {
       console.log('⚠️ No project ID, skipping status calculation')
       return
     }
-    
+
     console.log('🔄 Fetching panel statistics for project:', id)
-    
+
     try {
       // Use the efficient statistics endpoint instead of fetching all panels
       const response = await authenticatedFetch(getApiUrl(`panels/${id}/statistics`))
-      
+
       if (!response.ok) {
         console.error('❌ Failed to fetch panel statistics:', response.status)
         return
       }
-      
+
       const data = await response.json()
       const { totalPanels, statusDistribution } = data
-      
+
       console.log('✅ Panel statistics:', { totalPanels, statusDistribution })
-      
+
       // Convert to status summary format
       const statusOverview = Object.entries(statusDistribution).map(([status, count]) => {
         const statusConfig = PANEL_STATUS_CONFIG[status as PanelStatus] || {
@@ -521,7 +521,7 @@ export default function ProjectDetailPage() {
           color: '#6B7280',
           icon: Package
         }
-        
+
         return {
           status: status as PanelStatus,
           count: count as number,
@@ -530,7 +530,7 @@ export default function ProjectDetailPage() {
           label: statusConfig.label
         }
       })
-      
+
       console.log('📊 Real-time status overview:', statusOverview)
       setPanelStatuses(statusOverview)
     } catch (error) {
@@ -540,24 +540,24 @@ export default function ProjectDetailPage() {
 
   const loadAllPanels = async () => {
     if (!id) return
-    
+
     try {
       setPanelsLoading(true)
       const response = await authenticatedFetch(getApiUrl(`panels/${id}/all`))
-      
+
       if (!response.ok) {
         console.error('Failed to fetch all panels:', response.status, response.statusText)
         return
       }
-      
+
       const data = await response.json()
       const panelsData = data.panels || []
       console.log('✅ All panels loaded:', panelsData.length)
-      
+
       setPanels(panelsData)
       setTotalPanelCount(panelsData.length)
       setDisplayedPanelCount(panelsData.length)
-      
+
       await calculatePanelStatusCounts()
     } catch (error) {
       console.error('Error loading all panels:', error)
@@ -569,7 +569,7 @@ export default function ProjectDetailPage() {
 
   const handleEditProject = async (data: { name: string; description: string; status: string }) => {
     if (!id || !project) return
-    
+
     try {
       setIsSavingProject(true)
       const response = await authenticatedFetch(getApiUrl(`projects/${id}`), {
@@ -577,11 +577,11 @@ export default function ProjectDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
       })
-      
+
       if (!response.ok) {
         throw new Error('Failed to update project')
       }
-      
+
       const responseData = await response.json()
       if (responseData?.project) {
         setProject(responseData.project)
@@ -601,17 +601,17 @@ export default function ProjectDetailPage() {
 
   const handleDeleteProject = async () => {
     if (!id) return
-    
+
     try {
       setIsDeletingProject(true)
       const response = await authenticatedFetch(getApiUrl(`projects/${id}`), {
         method: 'DELETE'
       })
-      
+
       if (!response.ok) {
         throw new Error('Failed to delete project')
       }
-      
+
       await refreshUserProjects()
       navigate('/projects')
     } catch (error) {
@@ -623,7 +623,7 @@ export default function ProjectDetailPage() {
 
   const loadGroups = async (page: number = 1) => {
     if (!id) return
-    
+
     try {
       setGroupsLoading(true)
       // Request with pagination: 50 items per page
@@ -631,17 +631,18 @@ export default function ProjectDetailPage() {
       if (response.ok) {
         const data = await response.json()
         console.log('✅ Groups data:', data)
-        
+
         // Handle paginated response
         const groupsData = data.groups || data
         console.log('✅ Groups loaded:', Array.isArray(groupsData) ? groupsData.length : 0)
-        
+        console.log('🎨 Group colors:', groupsData?.map((g: any) => ({ name: g.name, color: g.color })))
+
         if (data.pagination) {
           console.log('📄 Groups pagination:', data.pagination)
           setGroupTotalPages(data.pagination.totalPages || 1)
           setGroupTotalCount(data.pagination.total || 0)
         }
-        
+
         const groups = Array.isArray(groupsData) ? groupsData : []
         setGroups(groups)
       } else {
@@ -664,7 +665,7 @@ export default function ProjectDetailPage() {
         const data = await response.json()
         const panels = data.panels || []
         if (panels.length === 0) return 0
-        
+
         const completedStatuses = ['SHIPPED']
         const completedCount = panels.filter((p: Panel) => completedStatuses.includes(p.status)).length
         return Math.round((completedCount / panels.length) * 100)
@@ -697,7 +698,7 @@ export default function ProjectDetailPage() {
   // Load panels by status
   const loadPanelsByStatus = async (status: PanelStatus) => {
     if (!id) return
-    
+
     try {
       setLoadingStatusPanels(true)
       const response = await authenticatedFetch(getApiUrl(`panels/${id}?status=${status}&limit=100`))
@@ -723,17 +724,17 @@ export default function ProjectDetailPage() {
   // Handle custom status card click
   const handleCustomStatusClick = async (customStatusId: string) => {
     if (!id) return
-    
+
     try {
       setLoadingStatusPanels(true)
       setShowStatusDetail(true)
-      
+
       // Fetch panels with this custom status
       const response = await authenticatedFetch(getApiUrl(`panels/${id}?customStatusId=${customStatusId}&limit=100`))
       if (response.ok) {
         const data = await response.json()
         setStatusPanels(data.panels || [])
-        
+
         // Find the custom status name for display
         const customStatus = customStatuses.find(s => s.id === customStatusId)
         setSelectedStatus(customStatus?.name as any || 'Custom Status')
@@ -749,18 +750,19 @@ export default function ProjectDetailPage() {
   // Bulk update panel status
   const handleBulkStatusUpdate = async (panelIds: string[], newStatus: PanelStatus) => {
     if (!id) return
-    
+
     try {
       const response = await authenticatedFetch(getApiUrl('panels/bulk-update-status'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ panelIds, status: newStatus })
       })
-      
+
       if (response.ok) {
         // Reload panels and status overview
         await loadPanels()
         await loadProjectData()
+        await refreshUserProjects()
         setShowStatusDetail(false)
       }
     } catch (error) {
@@ -771,7 +773,7 @@ export default function ProjectDetailPage() {
   // Load custom statuses
   const loadCustomStatuses = async () => {
     if (!id) return
-    
+
     try {
       const response = await authenticatedFetch(getApiUrl(`status-management/${id}`))
       if (response.ok) {
@@ -791,7 +793,7 @@ export default function ProjectDetailPage() {
     description?: string
   }) => {
     if (!id) return
-    
+
     try {
       console.log('📤 Sending status data:', statusData);
       console.log('📤 Stringified:', JSON.stringify(statusData));
@@ -800,16 +802,17 @@ export default function ProjectDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(statusData)
       })
-      
+
       if (!response.ok) {
         throw new Error('Failed to create status')
       }
-      
+
       // Reload custom statuses
       await loadCustomStatuses()
-      
+
       // Trigger refresh in StatusManagementTab
       setStatusRefreshKey(prev => prev + 1)
+      await refreshUserProjects() // Refresh global project list
     } catch (error) {
       console.error('Error creating status:', error)
       throw error
@@ -821,24 +824,28 @@ export default function ProjectDetailPage() {
     name: string
     description: string
     type: string
+    color: string
   }) => {
     if (!id) return
-    
+
+    console.log('🚀 Creating group with data:', groupData)
+
     try {
       const response = await authenticatedFetch(getApiUrl(`group-management/${id}`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(groupData)
       })
-      
+
       if (!response.ok) {
         throw new Error('Failed to create group')
       }
-      
+
       // Reload groups and trigger refresh in other tabs
       await loadGroups(groupPage)
       setGroupRefreshKey(prev => prev + 1)
       setOverviewRefreshKey(prev => prev + 1)
+      await refreshUserProjects() // Refresh global project list to update group count
     } catch (error) {
       console.error('Error creating group:', error)
       throw error
@@ -862,8 +869,8 @@ export default function ProjectDetailPage() {
     const filteredPanelIds = panels
       .filter(panel => {
         const matchesSearch = panel.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                            (panel.tag && panel.tag.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                            (panel.location && panel.location.toLowerCase().includes(searchTerm.toLowerCase()))
+          (panel.tag && panel.tag.toLowerCase().includes(searchTerm.toLowerCase())) ||
+          (panel.location && panel.location.toLowerCase().includes(searchTerm.toLowerCase()))
         const matchesStatus = statusFilter === 'all' || panel.status === statusFilter
         return matchesSearch && matchesStatus
       })
@@ -878,7 +885,7 @@ export default function ProjectDetailPage() {
   // Bulk operations
   const handleBulkAssignStatus = async (statusId: string) => {
     if (!id || selectedPanels.size === 0) return
-    
+
     try {
       const response = await authenticatedFetch(getApiUrl('status-management/assign-to-panels'), {
         method: 'POST',
@@ -889,13 +896,14 @@ export default function ProjectDetailPage() {
           panelIds: Array.from(selectedPanels)
         })
       })
-      
+
       if (!response.ok) {
         throw new Error('Failed to assign status')
       }
-      
+
       // Reload panels
       await loadPanels()
+      await refreshUserProjects() // Refresh global project list
       clearPanelSelection()
     } catch (error) {
       console.error('Error assigning status:', error)
@@ -905,10 +913,10 @@ export default function ProjectDetailPage() {
 
   const handleBulkAddToGroup = async (groupId: string) => {
     if (!id || selectedPanels.size === 0) return
-    
+
     try {
       console.log(`🔄 Assigning ${selectedPanels.size} panels to group ${groupId}`)
-      
+
       // Update each panel individually with the new groupId
       const updatePromises = Array.from(selectedPanels).map(async (panelId) => {
         const response = await authenticatedFetch(getApiUrl(`panels/${id}/${panelId}`), {
@@ -916,21 +924,22 @@ export default function ProjectDetailPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ groupId })
         })
-        
+
         if (!response.ok) {
           throw new Error(`Failed to update panel ${panelId}`)
         }
-        
+
         return response.json()
       })
-      
+
       await Promise.all(updatePromises)
-      
+
       console.log(`✅ Successfully assigned ${selectedPanels.size} panels to group`)
-      
+
       // Reload panels and groups
       await loadPanels()
       await loadGroups(groupPage)
+      await refreshUserProjects() // Refresh global project list
       clearPanelSelection()
     } catch (error) {
       console.error('❌ Error adding panels to group:', error)
@@ -998,6 +1007,7 @@ export default function ProjectDetailPage() {
 
       // Reload panels
       await loadPanels()
+      await refreshUserProjects() // Refresh global project list
 
       // Close modal
       setShowEditPanel(false)
@@ -1080,7 +1090,7 @@ export default function ProjectDetailPage() {
 
   const handleCreatePanel = async (panelData: any) => {
     if (!id) return
-    
+
     try {
       const response = await authenticatedFetch(getApiUrl(`panels/${id}`), {
         method: 'POST',
@@ -1099,7 +1109,7 @@ export default function ProjectDetailPage() {
 
   const handleUpdatePanelStatus = async (panelId: string, status: PanelStatus, notes?: string) => {
     if (!id) return
-    
+
     try {
       const response = await authenticatedFetch(getApiUrl(`panels/${id}/${panelId}/status`), {
         method: 'PUT',
@@ -1170,21 +1180,21 @@ export default function ProjectDetailPage() {
       <div className="w-full h-full">
         <Card className="border-slate-200">
           <CardContent className="p-8 text-center">
-          <div className="flex flex-col items-center gap-4">
-            <Building2 className="h-12 w-12 text-red-400" />
-            <div>
-              <h2 className="text-xl font-bold text-slate-900 mb-2">PROJECT NOT FOUND</h2>
-              <p className="text-slate-600 mb-4">{error || 'Project could not be loaded'}</p>
-              <Button 
-                onClick={() => navigate('/projects')} 
-                variant="primary"
-                className="flex items-center gap-2"
-              >
-                <ArrowLeft className="h-4 w-4" />
-                BACK TO PROJECTS
-              </Button>
+            <div className="flex flex-col items-center gap-4">
+              <Building2 className="h-12 w-12 text-red-400" />
+              <div>
+                <h2 className="text-xl font-bold text-slate-900 mb-2">PROJECT NOT FOUND</h2>
+                <p className="text-slate-600 mb-4">{error || 'Project could not be loaded'}</p>
+                <Button
+                  onClick={() => navigate('/projects')}
+                  variant="primary"
+                  className="flex items-center gap-2"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  BACK TO PROJECTS
+                </Button>
+              </div>
             </div>
-          </div>
           </CardContent>
         </Card>
       </div>
@@ -1198,8 +1208,8 @@ export default function ProjectDetailPage() {
         <div className="px-8 py-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <button 
-                onClick={() => navigate('/projects')} 
+              <button
+                onClick={() => navigate('/projects')}
                 className="text-slate-600 hover:text-slate-900 transition-colors"
               >
                 <ArrowLeft className="h-5 w-5" />
@@ -1226,11 +1236,10 @@ export default function ProjectDetailPage() {
           <div className="flex gap-8 border-b border-slate-200">
             <button
               onClick={() => setActiveTab('overview')}
-              className={`pb-3 text-sm font-medium transition-colors relative ${
-                activeTab === 'overview'
-                  ? 'text-slate-900'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
+              className={`pb-3 text-sm font-medium transition-colors relative ${activeTab === 'overview'
+                ? 'text-slate-900'
+                : 'text-slate-500 hover:text-slate-700'
+                }`}
             >
               Overview
               {activeTab === 'overview' && (
@@ -1241,11 +1250,10 @@ export default function ProjectDetailPage() {
               <>
                 <button
                   onClick={() => setActiveTab('status')}
-                  className={`pb-3 text-sm font-medium transition-colors relative ${
-                    activeTab === 'status'
-                      ? 'text-slate-900'
-                      : 'text-slate-500 hover:text-slate-700'
-                  }`}
+                  className={`pb-3 text-sm font-medium transition-colors relative ${activeTab === 'status'
+                    ? 'text-slate-900'
+                    : 'text-slate-500 hover:text-slate-700'
+                    }`}
                 >
                   Status Management
                   {activeTab === 'status' && (
@@ -1254,11 +1262,10 @@ export default function ProjectDetailPage() {
                 </button>
                 <button
                   onClick={() => setActiveTab('groups')}
-                  className={`pb-3 text-sm font-medium transition-colors relative ${
-                    activeTab === 'groups'
-                      ? 'text-slate-900'
-                      : 'text-slate-500 hover:text-slate-700'
-                  }`}
+                  className={`pb-3 text-sm font-medium transition-colors relative ${activeTab === 'groups'
+                    ? 'text-slate-900'
+                    : 'text-slate-500 hover:text-slate-700'
+                    }`}
                 >
                   Group Management
                   {activeTab === 'groups' && (
@@ -1267,11 +1274,10 @@ export default function ProjectDetailPage() {
                 </button>
                 <button
                   onClick={() => setActiveTab('panels')}
-                  className={`pb-3 text-sm font-medium transition-colors relative ${
-                    activeTab === 'panels'
-                      ? 'text-slate-900'
-                      : 'text-slate-500 hover:text-slate-700'
-                  }`}
+                  className={`pb-3 text-sm font-medium transition-colors relative ${activeTab === 'panels'
+                    ? 'text-slate-900'
+                    : 'text-slate-500 hover:text-slate-700'
+                    }`}
                 >
                   Panel Management
                   {activeTab === 'panels' && (
@@ -1282,11 +1288,10 @@ export default function ProjectDetailPage() {
             )}
             <button
               onClick={() => setActiveTab('details')}
-              className={`pb-3 text-sm font-medium transition-colors relative ml-auto ${
-                activeTab === 'details'
-                  ? 'text-slate-900'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
+              className={`pb-3 text-sm font-medium transition-colors relative ml-auto ${activeTab === 'details'
+                ? 'text-slate-900'
+                : 'text-slate-500 hover:text-slate-700'
+                }`}
             >
               Project Details
               {activeTab === 'details' && (
@@ -1312,7 +1317,7 @@ export default function ProjectDetailPage() {
               const panelCount = status.panelCount || 0;
               const percentage = totalPanelCount > 0 ? Math.round((panelCount / totalPanelCount) * 100) : 0;
               const IconComponent = getIconComponent(status.icon);
-              
+
               return (
                 <div key={status.id} className="flex-shrink-0 min-w-[160px] pt-1">
                   <div className="flex items-center gap-2 mb-2">
@@ -1324,9 +1329,9 @@ export default function ProjectDetailPage() {
                     <div className="text-xs text-slate-500">{percentage}%</div>
                   </div>
                   <div className="w-full bg-slate-100 rounded-full h-1.5">
-                    <div 
+                    <div
                       className="h-1.5 rounded-full transition-all duration-500"
-                      style={{ 
+                      style={{
                         backgroundColor: status.color,
                         width: `${percentage}%`
                       }}
@@ -1347,9 +1352,9 @@ export default function ProjectDetailPage() {
       <div className="bg-slate-50">
         <div className="px-8 py-6">
           {activeTab === 'overview' && (
-            <OverviewTab 
+            <OverviewTab
               key={overviewRefreshKey}
-              projectId={parseInt(id!)} 
+              projectId={parseInt(id!)}
               totalPanels={totalPanelCount > 0 ? totalPanelCount : panels.length}
               groups={groups}
               panels={panels}
@@ -1362,8 +1367,8 @@ export default function ProjectDetailPage() {
           )}
 
           {activeTab === 'status' && (
-            <StatusManagementTab 
-              projectId={parseInt(id!)} 
+            <StatusManagementTab
+              projectId={parseInt(id!)}
               onCreateStatus={() => setShowCreateStatusModal(true)}
               onStatusClick={handleCustomStatusClick}
               refreshKey={statusRefreshKey}
@@ -1371,7 +1376,7 @@ export default function ProjectDetailPage() {
           )}
 
           {activeTab === 'groups' && (
-            <GroupManagementTab 
+            <GroupManagementTab
               key={groupRefreshKey}
               projectId={parseInt(id)}
               onCreateGroup={() => setShowCreateGroupModal(true)}
@@ -1484,7 +1489,7 @@ export default function ProjectDetailPage() {
             </CardContent>
         </Card>
           )} */}
-          
+
           {/* Create Status Modal */}
           <CreateStatusModal
             isOpen={showCreateStatusModal}
@@ -1492,14 +1497,14 @@ export default function ProjectDetailPage() {
             onSubmit={handleCreateStatus}
             projectId={parseInt(id!)}
           />
-          
+
           {/* Create Group Modal */}
           <CreateGroupModal
             isOpen={showCreateGroupModal}
             onClose={() => setShowCreateGroupModal(false)}
             onSubmit={handleCreateGroup}
           />
-          
+
           {/* Panel Detail Modal */}
           {showPanelDetail && selectedPanel && (
             <PanelDetailModal
@@ -1514,7 +1519,7 @@ export default function ProjectDetailPage() {
               onDuplicate={handleDuplicatePanel}
             />
           )}
-          
+
           {/* Edit Panel Modal */}
           {showEditPanel && selectedPanel && (
             <EditPanelModal
@@ -1530,7 +1535,7 @@ export default function ProjectDetailPage() {
               onUpdate={handleUpdatePanel}
             />
           )}
-          
+
           {/* Status Detail Modal */}
           {showStatusDetail && selectedStatus && (
             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setShowStatusDetail(false)}>
@@ -1552,7 +1557,7 @@ export default function ProjectDetailPage() {
                     <X className="h-6 w-6" />
                   </button>
                 </div>
-                
+
                 {loadingStatusPanels ? (
                   <div className="text-center py-12">
                     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-slate-700 mx-auto"></div>
@@ -1579,7 +1584,7 @@ export default function ProjectDetailPage() {
                         </div>
                       ))}
                     </div>
-                    
+
                     {/* Bulk Actions */}
                     <div className="flex items-center justify-between pt-4 border-t border-slate-200">
                       <div className="text-sm text-slate-600">
@@ -1601,7 +1606,7 @@ export default function ProjectDetailPage() {
           )}
 
 
-          
+
           {/* IFC Model Structure - Building Storeys and Panels */}
           {activeTab === 'groups' && modelMetadata && modelMetadata.spatialStructure && modelMetadata.spatialStructure.length > 0 && (
             <Card className="border-slate-200 mt-6">
@@ -1615,16 +1620,16 @@ export default function ProjectDetailPage() {
                     {modelMetadata.totalElements} Total Elements
                   </Badge>
                 </div>
-                
+
                 <div className="space-y-3">
                   {modelMetadata.spatialStructure.map((storey: any, index: number) => {
                     const storeyId = storey.id || `storey-${index}`;
                     const isExpanded = expandedStoreys.has(storeyId);
-                    
+
                     return (
                       <div key={storeyId} className="border border-slate-200 rounded-lg overflow-hidden">
                         {/* Storey Header - Clickable to expand/collapse */}
-                        <div 
+                        <div
                           className="bg-slate-50 px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-slate-100 transition-colors"
                           onClick={() => {
                             const newExpanded = new Set(expandedStoreys);
@@ -1645,17 +1650,17 @@ export default function ProjectDetailPage() {
                           </div>
                           <div className="flex items-center gap-2">
                             <span className="text-xs text-slate-500">{storey.type}</span>
-                            <svg 
+                            <svg
                               className={`h-5 w-5 text-slate-600 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                              fill="none" 
-                              stroke="currentColor" 
+                              fill="none"
+                              stroke="currentColor"
                               viewBox="0 0 24 24"
                             >
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                             </svg>
                           </div>
                         </div>
-                        
+
                         {/* Panels Grid - Collapsible */}
                         {isExpanded && storey.children && storey.children.length > 0 && (
                           <div className="p-4 bg-white border-t border-slate-200">
@@ -1684,7 +1689,7 @@ export default function ProjectDetailPage() {
                     );
                   })}
                 </div>
-                
+
                 {/* <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
                   <div className="flex items-start gap-2">
                     <AlertCircle className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
@@ -1697,7 +1702,7 @@ export default function ProjectDetailPage() {
               </CardContent>
             </Card>
           )}
-          
+
           {/* Group Detail Modal */}
           {showGroupDetail && selectedGroup && (
             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setShowGroupDetail(false)}>
@@ -1711,7 +1716,7 @@ export default function ProjectDetailPage() {
                     <X className="h-6 w-6" />
                   </button>
                 </div>
-                
+
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div className="p-4 bg-white rounded-lg border border-slate-200">
@@ -1733,12 +1738,12 @@ export default function ProjectDetailPage() {
                       <p className="text-slate-900 font-semibold">{selectedGroup.elementIds?.length || 0}</p>
                     </div>
                   </div>
-                  
+
                   <div className="p-4 bg-white rounded-lg border border-slate-200">
                     <p className="text-slate-600 text-sm mb-2">Description</p>
                     <p className="text-slate-900">{selectedGroup.description || 'No description available'}</p>
                   </div>
-                  
+
                   <div className="flex justify-end gap-2 mt-6">
                     <Button
                       variant="secondary"

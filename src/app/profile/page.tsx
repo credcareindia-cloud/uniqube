@@ -1,17 +1,17 @@
 import { useState, useEffect } from 'react'
-import { 
-  Camera, 
-  Save, 
-  Mail, 
-  Phone, 
-  MapPin, 
-  Building, 
-  Calendar, 
-  User, 
-  Settings, 
-  Activity, 
-  Users, 
-  Package, 
+import {
+  Camera,
+  Save,
+  Mail,
+  Phone,
+  MapPin,
+  Building,
+  Calendar,
+  User,
+  Settings,
+  Activity,
+  Users,
+  Package,
   TrendingUp,
   Loader
 } from 'lucide-react'
@@ -55,7 +55,7 @@ export default function ProfilePage() {
     try {
       setLoading(true)
       const response = await authenticatedFetch(getApiUrl('user/profile'))
-      
+
       if (response.ok) {
         const data = await response.json()
         console.log('Profile data received:', data)
@@ -81,13 +81,14 @@ export default function ProfilePage() {
       // Fetch user's projects - corrected endpoint under /api/projects
       const projectsResponse = await authenticatedFetch(getApiUrl('projects'))
       if (projectsResponse.ok) {
-        const projects = await projectsResponse.json()
-        
+        const data = await projectsResponse.json()
+        const projects = data.projects || []
+
         // Calculate stats from projects
         let totalGroups = 0
         let totalPanels = 0
         let completedPanels = 0
-        
+
         for (const project of projects) {
           // Fetch groups for each project
           try {
@@ -99,7 +100,7 @@ export default function ProfilePage() {
           } catch (error) {
             console.error(`Failed to fetch groups for project ${project.id}:`, error)
           }
-          
+
           // Fetch panels statistics
           try {
             const panelsResponse = await authenticatedFetch(getApiUrl(`panels/${project.id}/statistics`))
@@ -112,9 +113,9 @@ export default function ProfilePage() {
             console.error(`Failed to fetch panel stats for project ${project.id}:`, error)
           }
         }
-        
+
         const completionRate = totalPanels > 0 ? Math.round((completedPanels / totalPanels) * 100) : 0
-        
+
         setStats({
           activeProjects: projects.length,
           totalGroups,
@@ -140,7 +141,7 @@ export default function ProfilePage() {
           company: formData.company
         })
       })
-      
+
       if (response.ok) {
         setIsEditing(false)
         console.log('✅ Profile updated successfully')
@@ -203,7 +204,7 @@ export default function ProfilePage() {
                   </Button>
                 </div>
               </div>
-              
+
               <div className="space-y-2">
                 <h2 className="text-lg font-bold text-slate-900">{formData.name}</h2>
                 <p className="text-slate-600 text-xs">{formData.role}</p>

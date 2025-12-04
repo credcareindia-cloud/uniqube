@@ -39,7 +39,7 @@ export const RBACProvider: React.FC<RBACProviderProps> = ({ children }) => {
   const isAdmin = user?.role === 'ADMIN';
   const isGlobalManager = user?.role === 'MANAGER' || user?.role === 'ADMIN';
 
-  const refreshUserProjects = async () => {
+  const refreshUserProjects = React.useCallback(async () => {
     if (!isAuthenticated || !user) {
       setUserProjects([]);
       return;
@@ -55,7 +55,7 @@ export const RBACProvider: React.FC<RBACProviderProps> = ({ children }) => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [isAuthenticated, user]);
 
   useEffect(() => {
     refreshUserProjects();

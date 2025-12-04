@@ -131,7 +131,7 @@ export function StatusDetailModal({
       'wrench': 'Wrench',
       'package': 'Package',
     }
-    
+
     const lucideIconName = iconNameMap[iconName?.toLowerCase()] || iconName
     const LucideIcon = (LucideIcons as any)[lucideIconName]
     return LucideIcon || (LucideIcons as any)['Package']
@@ -158,11 +158,11 @@ export function StatusDetailModal({
   }
 
   const modalContent = (
-    <div 
+    <div
       className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[9999]"
       onClick={onClose}
     >
-      <div 
+      <div
         className="bg-white rounded-lg border border-slate-200 max-w-4xl w-full mx-4 max-h-[85vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
@@ -170,9 +170,9 @@ export function StatusDetailModal({
         <div className="p-6 border-b border-slate-200">
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-4">
-              <IconComponent 
-                className="w-10 h-10" 
-                style={{ color: status.color }} 
+              <IconComponent
+                className="w-10 h-10"
+                style={{ color: status.color }}
               />
               <div>
                 <h2 className="text-2xl font-semibold text-slate-900">{status.name}</h2>
@@ -249,7 +249,12 @@ export function StatusDetailModal({
                           panel.groups.map((groupRel: any) => (
                             <span
                               key={groupRel.group.id}
-                              className="px-2 py-1 bg-slate-100 text-slate-700 text-xs rounded-md font-medium"
+                              className="px-2 py-1 text-xs rounded-md font-medium"
+                              style={{
+                                backgroundColor: `${groupRel.group.color || '#3B82F6'}20`,
+                                border: `1px solid ${groupRel.group.color || '#3B82F6'}40`,
+                                color: groupRel.group.color || '#3B82F6'
+                              }}
                             >
                               {groupRel.group.name}
                             </span>

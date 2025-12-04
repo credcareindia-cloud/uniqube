@@ -2,11 +2,14 @@
 
 import { useState } from 'react'
 import { X, Check } from 'lucide-react'
+import * as LucideIcons from 'lucide-react'
+import { getLucideIconName } from '@/utils/iconMapping'
 
 interface Status {
   id: string
   name: string
   color: string
+  icon: string
 }
 
 interface RemoveStatusModalProps {
@@ -86,10 +89,16 @@ export function RemoveStatusModal({
                     className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-2 focus:ring-blue-500"
                   />
                   <div className="flex items-center gap-2 flex-1">
-                    <div
-                      className="w-3 h-3 rounded-full"
-                      style={{ backgroundColor: status.color }}
-                    />
+                    {(() => {
+                      const iconName = getLucideIconName(status.icon)
+                      const IconComponent = (LucideIcons as any)[iconName] || LucideIcons.Circle
+                      return (
+                        <IconComponent
+                          className="w-4 h-4"
+                          style={{ color: status.color }}
+                        />
+                      )
+                    })()}
                     <span className="text-sm font-medium text-slate-900">{status.name}</span>
                   </div>
                 </label>

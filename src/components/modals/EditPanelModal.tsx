@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { X, Circle } from 'lucide-react'
+import { X, Circle, Grid3x3 } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
 import type { Panel } from '@/types/panel'
 import type { Group } from '@/types/group'
@@ -179,14 +179,14 @@ export function EditPanelModal({
       'wrench': 'Wrench',
       'package': 'Package',
     }
-    
+
     const mappedName = iconNameMap[iconName] || iconName
     const IconComponent = (LucideIcons as any)[mappedName]
-    
+
     if (IconComponent) {
       return IconComponent
     }
-    
+
     return Circle
   }
 
@@ -272,11 +272,10 @@ export function EditPanelModal({
                         type="button"
                         onClick={() => toggleCustomStatus(status.id)}
                         disabled={isSubmitting}
-                        className={`px-4 py-2 rounded-lg border transition-all text-sm font-medium ${
-                          selectedCustomStatuses.includes(status.id)
-                            ? 'border-[#3A7BD5] bg-[rgba(58,123,213,0.2)] text-slate-900'
-                            : 'border-slate-300 bg-white text-slate-600 hover:border-[rgba(58,123,213,0.4)]'
-                        }`}
+                        className={`px-4 py-2 rounded-lg border transition-all text-sm font-medium ${selectedCustomStatuses.includes(status.id)
+                          ? 'border-[#3A7BD5] bg-[rgba(58,123,213,0.2)] text-slate-900'
+                          : 'border-slate-300 bg-white text-slate-600 hover:border-[rgba(58,123,213,0.4)]'
+                          }`}
                       >
                         <div className="flex items-center gap-2">
                           <StatusIcon
@@ -309,6 +308,10 @@ export function EditPanelModal({
                       onChange={() => toggleGroup(group.id)}
                       disabled={isSubmitting}
                       className="w-4 h-4 rounded border-slate-200 bg-white text-slate-700 focus:ring-[#3A7BD5]"
+                    />
+                    <Grid3x3
+                      className="w-4 h-4"
+                      style={{ color: (group as any).color || '#3B82F6' }}
                     />
                     <span className="text-slate-900 text-sm">{group.name}</span>
                     {/* <span className="text-slate-600 text-xs ml-auto">

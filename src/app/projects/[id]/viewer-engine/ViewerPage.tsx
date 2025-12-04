@@ -2,6 +2,7 @@ import React, { useLayoutEffect, useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import './ViewerPage.css';
 import { FloorSelector } from './FloorSelector';
+import { Cube } from '@/components/ui/Cube';
 
 // Import custom error types
 import type { ProjectNotFoundError, NetworkError, ModelLoadError, WebGLError } from './main';
@@ -645,8 +646,8 @@ export default function ViewerPage() {
             <div className="loader-card">
               <div className="loader-icon-container">
                 <div className="loader-spinner"></div>
-                <div className="loader-logo">
-                  <i data-lucide="box"></i>
+                <div className="loader-logo" style={{ animation: 'none' }}>
+                  <Cube size={40} color="slate" />
                 </div>
               </div>
 

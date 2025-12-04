@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { 
-  Building2, 
-  Plus, 
-  Search, 
-  Grid3X3, 
+import {
+  Building2,
+  Plus,
+  Search,
+  Grid3X3,
   List,
   Calendar,
   Activity,
@@ -12,6 +12,7 @@ import {
   Package,
   Upload
 } from 'lucide-react'
+import { ProjectSkeleton } from '@/components/skeletons/ProjectSkeleton'
 import { ProjectCard } from '@/components/dashboard/ProjectCard'
 import { ModelCreation } from '@/components/projects/ModelCreation'
 import { MultiFileModelCreation } from '@/components/projects/MultiFileModelCreation'
@@ -26,7 +27,7 @@ type FilterStatus = 'all' | 'active' | 'completed' | 'planning'
 export default function ProjectsPage() {
   const navigate = useNavigate()
   const { userProjects, canCreateProjects, isLoading: rbacLoading, refreshUserProjects } = useRBAC()
-  const [loading, setLoading] = useState(true)
+  // const [loading, setLoading] = useState(true) // Removed to prevent flicker
   const [error, setError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>('grid')
   const [searchQuery, setSearchQuery] = useState('')
@@ -47,9 +48,40 @@ export default function ProjectsPage() {
     navigate(`/projects/${newProject.id}`)
   }
 
+  // Fetch on mount to ensure data is fresh when navigating back
   useEffect(() => {
-    setLoading(rbacLoading)
-  }, [rbacLoading])
+    refreshUserProjects()
+  }, [refreshUserProjects])
+
+  // Listen for notifications to trigger refresh
+  useEffect(() => {
+    const relevantTypes = ['success', 'info', 'warning']
+    const relevantTitles = [
+      'Project Created',
+      'Project Updated',
+      'Project Deleted',
+      'Status Updated',
+      'Panel Updated',
+      'Panels Updated'
+    ]
+
+    const shouldRefresh = notifications.some(n =>
+      relevantTypes.includes(n.type) &&
+      relevantTitles.some(t => n.title.includes(t)) &&
+      // Only refresh if the notification is recent (within last 2 seconds)
+      // This prevents infinite loops from old notifications
+      (Date.now() - new Date(n.createdAt).getTime()) < 2000
+    )
+
+    if (shouldRefresh) {
+      console.log('🔄 Refreshing projects due to notification update...')
+      refreshUserProjects()
+    }
+  }, [notifications, refreshUserProjects])
+
+  // useEffect(() => {
+  //   setLoading(rbacLoading)
+  // }, [rbacLoading])
 
   useEffect(() => {
     setCurrentPage(1)
@@ -84,10 +116,10 @@ export default function ProjectsPage() {
   // Filter projects based on search and status
   const filteredProjects = userProjects.filter(project => {
     const matchesSearch = project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         (project.description?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false)
-    
+      (project.description?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false)
+
     const matchesStatus = filterStatus === 'all' || normalizeStatus(project.status) === filterStatus
-    
+
     return matchesSearch && matchesStatus
   })
 
@@ -106,17 +138,39 @@ export default function ProjectsPage() {
     totalPanels: userProjects.reduce((sum, p) => sum + (p.stats?.totalPanels || 0), 0)
   }
 
-  if (loading) {
+  // Only show skeleton on initial load (when no projects and loading)
+  // This prevents flickering during background refreshes
+  if (rbacLoading && userProjects.length === 0) {
     return (
       <div className="w-full h-full space-y-6">
-        <div className="animate-pulse">
-          <div className="h-8 bg-[rgba(26,31,46,0.8)] rounded mb-4"></div>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            {[...Array(4)].map((_, i) => (
-              <div key={i} className="h-24 bg-[rgba(26,31,46,0.8)] rounded"></div>
-            ))}
+        {/* Header Skeleton */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 bg-slate-100 rounded-xl animate-pulse"></div>
+            <div>
+              <div className="h-8 w-48 bg-slate-100 rounded mb-2 animate-pulse"></div>
+              <div className="h-4 w-32 bg-slate-50 rounded animate-pulse"></div>
+            </div>
           </div>
-          <div className="h-96 bg-[rgba(26,31,46,0.8)] rounded"></div>
+          <div className="h-10 w-40 bg-slate-100 rounded-lg animate-pulse"></div>
+        </div>
+
+        {/* Stats Grid Skeleton */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="bg-white border border-slate-200 rounded-lg p-6 h-32 animate-pulse">
+              <div className="w-10 h-10 bg-slate-100 rounded-lg mb-3"></div>
+              <div className="h-8 w-16 bg-slate-100 rounded mb-1"></div>
+              <div className="h-4 w-24 bg-slate-50 rounded"></div>
+            </div>
+          ))}
+        </div>
+
+        {/* Projects Grid Skeleton */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {[...Array(6)].map((_, i) => (
+            <ProjectSkeleton key={i} />
+          ))}
         </div>
       </div>
     )
@@ -259,9 +313,9 @@ export default function ProjectsPage() {
           <Building2 className="h-12 w-12 text-slate-300 mx-auto mb-4" />
           <h3 className="text-lg font-semibold text-slate-900 mb-2">No projects found</h3>
           <p className="text-slate-600 mb-4">
-            {searchQuery || filterStatus !== 'all' 
-              ? 'Try adjusting your search or filter criteria.' 
-              : canCreateProjects() 
+            {searchQuery || filterStatus !== 'all'
+              ? 'Try adjusting your search or filter criteria.'
+              : canCreateProjects()
                 ? 'Get started by creating your first project.'
                 : 'No projects have been assigned to you yet.'
             }
@@ -281,9 +335,9 @@ export default function ProjectsPage() {
           {viewMode === 'grid' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {paginatedProjects.map((project) => (
-                <ProjectCard 
-                  key={project.id} 
-                  project={project} 
+                <ProjectCard
+                  key={project.id}
+                  project={project}
                   onView={() => navigate(`/projects/${project.id}`)}
                 />
               ))}
@@ -303,12 +357,11 @@ export default function ProjectsPage() {
                           <h3 className="text-[#E8EAF0] font-semibold mb-1">{project.name}</h3>
                           <p className="text-[#B8BCC8] text-sm mb-2">{project.description}</p>
                           <div className="flex items-center gap-4 text-xs text-[#B8BCC8]">
-                            <span className={`px-2 py-1 rounded uppercase tracking-wider ${
-                              s === 'active' ? 'bg-[rgba(16,185,129,0.2)] text-[#10B981]' :
+                            <span className={`px-2 py-1 rounded uppercase tracking-wider ${s === 'active' ? 'bg-[rgba(16,185,129,0.2)] text-[#10B981]' :
                               s === 'completed' ? 'bg-[rgba(139,92,246,0.2)] text-[#8B5CF6]' :
-                              s === 'planning' ? 'bg-[rgba(245,158,11,0.2)] text-[#F59E0B]' :
-                              'bg-[rgba(239,68,68,0.2)] text-[#EF4444]'
-                            }`}>
+                                s === 'planning' ? 'bg-[rgba(245,158,11,0.2)] text-[#F59E0B]' :
+                                  'bg-[rgba(239,68,68,0.2)] text-[#EF4444]'
+                              }`}>
                               {s === 'on-hold' ? 'On Hold' : s.charAt(0).toUpperCase() + s.slice(1)}
                             </span>
                             <span>{progress}% Complete</span>
@@ -348,11 +401,11 @@ export default function ProjectsPage() {
                     const isCurrentPage = pageNum === currentPage
                     const isNearCurrent = Math.abs(pageNum - currentPage) <= 1
                     const isFirstOrLast = pageNum === 1 || pageNum === totalPages
-                    
+
                     if (!isNearCurrent && !isFirstOrLast) {
                       return null
                     }
-                    
+
                     if (!isNearCurrent && isFirstOrLast) {
                       if (pageNum === 1 && currentPage > 3) {
                         return <span key="start-ellipsis" className="px-2 text-slate-600">...</span>
@@ -361,16 +414,15 @@ export default function ProjectsPage() {
                         return <span key="end-ellipsis" className="px-2 text-slate-600">...</span>
                       }
                     }
-                    
+
                     return (
                       <button
                         key={pageNum}
                         onClick={() => setCurrentPage(pageNum)}
-                        className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                          isCurrentPage
-                            ? 'bg-slate-700 text-white'
-                            : 'border border-slate-300 text-slate-700 hover:bg-slate-50'
-                        }`}
+                        className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${isCurrentPage
+                          ? 'bg-slate-700 text-white'
+                          : 'border border-slate-300 text-slate-700 hover:bg-slate-50'
+                          }`}
                       >
                         {pageNum}
                       </button>
@@ -389,14 +441,14 @@ export default function ProjectsPage() {
           )}
         </>
       )}
-      
+
       {/* Creation Choice Modal */}
       {showCreationChoice && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-6 max-w-md w-full">
             <h2 className="text-xl font-bold text-slate-900 mb-4">Create New Project</h2>
             <p className="text-slate-600 mb-6">Upload IFC files to create your project:</p>
-            
+
             <div className="space-y-3">
               {/* Primary Option: Multi-Component Project */}
               <button
@@ -412,7 +464,7 @@ export default function ProjectsPage() {
                   <p className="text-sm text-slate-600">Upload IFC files to create a project with building components</p>
                 </div>
               </button>
-              
+
               {/* Commented out for now - Single file option */}
               {/* 
               <button
@@ -430,7 +482,7 @@ export default function ProjectsPage() {
               </button>
               */}
             </div>
-            
+
             <div className="flex justify-end mt-6">
               <button
                 onClick={() => setShowCreationChoice(false)}

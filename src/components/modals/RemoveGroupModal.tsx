@@ -1,11 +1,12 @@
 'use client'
 
 import { useState } from 'react'
-import { X, Check } from 'lucide-react'
+import { X, Check, Grid3x3 } from 'lucide-react'
 
 interface Group {
   id: string
   name: string
+  color?: string
 }
 
 interface RemoveGroupModalProps {
@@ -84,7 +85,13 @@ export function RemoveGroupModal({
                     onChange={() => toggleGroup(group.id)}
                     className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-2 focus:ring-blue-500"
                   />
-                  <span className="text-sm font-medium text-slate-900">{group.name}</span>
+                  <div className="flex items-center gap-2 flex-1">
+                    <Grid3x3
+                      className="w-4 h-4"
+                      style={{ color: group.color || '#3B82F6' }}
+                    />
+                    <span className="text-sm font-medium text-slate-900">{group.name}</span>
+                  </div>
                 </label>
               ))
             ) : (

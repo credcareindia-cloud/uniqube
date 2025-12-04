@@ -3490,6 +3490,7 @@ export async function initializeViewer(containerId: string = "container") {
     description?: string;
     status: string;
     type: string;
+    color?: string;
     elementIds?: string[];
     metadata?: {
       type?: string;
@@ -3632,10 +3633,10 @@ export async function initializeViewer(containerId: string = "container") {
     groups.forEach((group, index) => {
       const groupItem = document.createElement("div");
       groupItem.className = "group-item";
+      groupItem.style.borderLeftColor = group.color || '#0047AB';
       groupItem.dataset.groupId = group.id;
 
       const panelCount = group._count?.panelGroups || group._count?.panels || group.metadata?.panelCount || 0;
-      const statusConfig = getGroupStatusDisplay(group.status);
 
       // Get panels from the group
       const panels = group.panelGroups?.map(pg => pg.panel) || group.panels || [];
@@ -3644,27 +3645,21 @@ export async function initializeViewer(containerId: string = "container") {
       <div class="group-item-header">
         <div style="display: flex; align-items: center; gap: 8px; flex: 1; cursor: pointer;" class="group-header-main">
           <i class="fas fa-chevron-right group-chevron" style="font-size: 12px; transition: transform 0.2s; color: var(--slate-400);"></i>
+          <i data-lucide="grid-3x3" class="group-item-icon" style="color: ${group.color || '#0047AB'}; width: 20px; height: 20px;"></i>
           <span class="group-item-name">${group.name}</span>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
           <button class="group-highlight-btn" title="Highlight all panels in group" style="background: none; border: none; cursor: pointer; padding: 6px 8px; border-radius: 4px; display: flex; align-items: center; justify-content: center; transition: all 0.2s;">
-            <i class="fas fa-eye" style="font-size: 14px; color: var(--primary);"></i>
+            <i class="fas fa-eye" style="font-size: 14px; color: ${group.color || '#0047AB'};"></i>
           </button>
-          <span class="status-badge" style="background: ${statusConfig.bgColor}; color: ${statusConfig.color}; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">
-            ${statusConfig.label}
-          </span>
+          <span class="group-item-count" style="font-size: 11px; color: var(--slate-500);">${panelCount} panel${panelCount !== 1 ? 's' : ''}</span>
         </div>
-      </div>
-      <div class="group-item-description">${group.description || "No description"}</div>
-      <div class="group-item-members">
-        <i class="fas fa-cube"></i>
-        <span>${panelCount} panel${panelCount !== 1 ? "s" : ""}</span>
       </div>
       <div class="group-panels-container" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--slate-200);">
         <div class="group-panels-grid">
           ${panels.length > 0 ? panels.map(panel => `
             <div class="group-panel-item" data-panel-id="${panel.id}">
-              <i class="fas fa-cube" style="font-size: 14px; color: var(--primary);"></i>
+              <i class="fas fa-cube" style="font-size: 14px; color: ${group.color || '#0047AB'};"></i>
               <div class="panel-item-info">
                 <div class="panel-item-name">${panel.name}</div>
                 ${panel.tag ? `<div class="panel-item-tag">${panel.tag}</div>` : ''}
@@ -3715,6 +3710,9 @@ export async function initializeViewer(containerId: string = "container") {
 
       groupsListContent.appendChild(groupItem);
     });
+
+    // Initialize Lucide icons after rendering
+    setTimeout(() => initializeLucideIcons(), 100);
   };
 
   // Highlight panels in a group and make others transparent
@@ -3906,8 +3904,10 @@ export async function initializeViewer(containerId: string = "container") {
           }
 
           if (allIdsToHighlight.length > 0) {
+            // Use group's color if available, otherwise default to blue
+            const groupColor = new THREE.Color(group.color || '#0047AB');
             await model.highlight(allIdsToHighlight, {
-              color: new THREE.Color('#0047AB'),
+              color: groupColor,
               opacity: 1,
               transparent: false,
               renderedFaces: FRAGS.RenderedFaces.TWO,
@@ -4303,11 +4303,12 @@ export async function initializeViewer(containerId: string = "container") {
       }
       await Promise.all(highlightPromises);
 
-      // Highlight the group's panels
+      // Highlight the group's panels with group color
+      const groupColor = new THREE.Color(group.color || '#0047AB');
       for (const [_, model] of models.entries()) {
         try {
           await model.highlight(localIds, {
-            color: new THREE.Color('#0047AB'),
+            color: groupColor,
             opacity: 1,
             transparent: false,
             renderedFaces: FRAGS.RenderedFaces.TWO,
