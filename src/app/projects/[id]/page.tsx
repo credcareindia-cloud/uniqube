@@ -36,6 +36,8 @@ import { PanelManagementTab } from '@/components/project-tabs/PanelManagementTab
 import { ProjectDetailsTab } from '@/components/project-tabs/ProjectDetailsTab'
 import { EditProjectModal } from '@/components/modals/EditProjectModal'
 import { ConfirmDeleteModal } from '@/components/modals/ConfirmDeleteModal'
+import { DeletingProjectModal } from '@/components/modals/DeletingProjectModal'
+
 import type { Panel } from '@/types/panel'
 import type { Group } from '@/types/group'
 import { PanelStatus, PANEL_STATUS_CONFIG } from '@/types/panel'
@@ -315,7 +317,9 @@ export default function ProjectDetailPage() {
   // Edit/Delete Project state
   const [showEditProjectModal, setShowEditProjectModal] = useState(false)
   const [showDeleteProjectModal, setShowDeleteProjectModal] = useState(false)
+  const [showDeletingProjectModal, setShowDeletingProjectModal] = useState(false)
   const [isSavingProject, setIsSavingProject] = useState(false)
+
   const [isDeletingProject, setIsDeletingProject] = useState(false)
 
 
@@ -603,8 +607,13 @@ export default function ProjectDetailPage() {
     if (!id) return
 
     try {
+      // Close confirmation modal and show deleting modal
+      setShowDeleteProjectModal(false)
+      setShowDeletingProjectModal(true)
       setIsDeletingProject(true)
-      const response = await authenticatedFetch(getApiUrl(`projects/${id}`), {
+
+      // Use the safe-delete endpoint for batched deletion
+      const response = await authenticatedFetch(getApiUrl(`projects/${id}/safe-delete`), {
         method: 'DELETE'
       })
 
@@ -612,14 +621,23 @@ export default function ProjectDetailPage() {
         throw new Error('Failed to delete project')
       }
 
+      const result = await response.json()
+      console.log('✅ Project deleted successfully:', result.summary)
+
       await refreshUserProjects()
-      navigate('/projects')
+
+      // Keep the modal visible briefly before navigating
+      setTimeout(() => {
+        navigate('/projects')
+      }, 500)
     } catch (error) {
       console.error('Error deleting project:', error)
-      alert('Failed to delete project')
+      setShowDeletingProjectModal(false)
       setIsDeletingProject(false)
+      alert('Failed to delete project. Please try again.')
     }
   }
+
 
   const loadGroups = async (page: number = 1) => {
     if (!id) return
@@ -1795,6 +1813,14 @@ export default function ProjectDetailPage() {
           onConfirm={handleDeleteProject}
           onCancel={() => setShowDeleteProjectModal(false)}
           isLoading={isDeletingProject}
+        />
+      )}
+
+      {/* Deleting Project Modal */}
+      {showDeletingProjectModal && project && (
+        <DeletingProjectModal
+          isOpen={showDeletingProjectModal}
+          projectName={project.name}
         />
       )}
     </div>
