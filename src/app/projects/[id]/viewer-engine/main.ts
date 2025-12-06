@@ -4485,6 +4485,9 @@ export async function initializeViewer(containerId: string = "container") {
           // Attach to node for immediate use
           (nodeData as any).panelData = panelData;
 
+          // Update nodeData.type for display
+          nodeData.type = panelData.element?.ifcType || panelData.objectType || 'Unknown';
+
           // Render groups and statuses
           renderElementGroupsFromPanel(panelData, groupsList);
           renderElementStatusFromPanel(panelData, statusList);
