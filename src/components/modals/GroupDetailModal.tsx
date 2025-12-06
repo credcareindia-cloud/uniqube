@@ -7,6 +7,8 @@ import * as LucideIcons from 'lucide-react'
 import { PanelDetailModal } from '@/components/modals/PanelDetailModal'
 import { EditPanelModal } from '@/components/modals/EditPanelModal'
 import { authenticatedFetch } from '@/utils/authenticatedFetch'
+import { toast } from '@/components/ui/use-toast'
+import { getApiUrl } from '@/config/api'
 
 interface Panel {
   id: string
@@ -462,10 +464,41 @@ export function GroupDetailModal({ isOpen, onClose, group, projectId }: GroupDet
           projectId={projectId.toString()}
           availableStatuses={statuses}
           availableGroups={groups as any}
-          onUpdate={async () => {
-            await loadPanels()
-            setShowEditPanel(false)
-            setSelectedPanel(null)
+          onUpdate={async (panelId, updates) => {
+            try {
+              // Use getApiUrl if available, or fallback to relative path if that's what the project uses
+              // Since I'm importing getApiUrl, I'll use it to be consistent with StatusManagementTab
+              const response = await authenticatedFetch(getApiUrl(`panels/${panelId}`), {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  statusIds: updates.customStatusIds,
+                  groupIds: updates.groupIds
+                })
+              })
+
+              if (!response.ok) {
+                const data = await response.json()
+                throw new Error(data.error || 'Failed to update panel')
+              }
+
+              toast({
+                title: "Success",
+                description: "Panel updated successfully",
+              })
+
+              await loadPanels()
+              setShowEditPanel(false)
+              setSelectedPanel(null)
+            } catch (error) {
+              console.error('Error updating panel:', error)
+              toast({
+                title: "Error",
+                description: `Failed to update panel: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                variant: "destructive",
+              })
+              throw error
+            }
           }}
         />
       )}

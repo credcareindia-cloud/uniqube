@@ -32,7 +32,7 @@ export function useNotifications() {
     },
   });
 
-  // Track last fetch time to throttle requests (min 2s interval)
+  // Track last fetch time to throttle requests (min 5s interval)
   const lastFetchTimeRef = useRef(0);
 
   const fetchNotifications = useCallback(async () => {
@@ -41,7 +41,7 @@ export function useNotifications() {
 
     // Throttle requests to prevent flooding (e.g. on rapid connect/disconnect)
     const now = Date.now();
-    if (now - lastFetchTimeRef.current < 2000) {
+    if (now - lastFetchTimeRef.current < 5000) {
       console.log('Skipping notification fetch - throttled');
       return;
     }
@@ -99,11 +99,17 @@ export function useNotifications() {
     onRef.current('notification', handleNotification);
 
     // Start polling if WebSocket is not connected
-    if (!isConnected && !pollingIntervalRef.current) {
+    if (!isConnected) {
       console.log('WebSocket not connected, starting polling fallback (30s interval)');
       pollingIntervalRef.current = setInterval(() => {
         fetchNotificationsRef.current();
       }, 30000);
+    } else {
+      // Clear polling if connected
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
     }
 
     return () => {

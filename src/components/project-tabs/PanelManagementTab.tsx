@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { authenticatedFetch } from '@/utils/authenticatedFetch'
-import { Eye, Download, Filter, Search, Circle } from 'lucide-react'
+import { Eye, Download, Filter, Search, Circle, ChevronDown } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
 import { RemoveStatusModal } from '@/components/modals/RemoveStatusModal'
 import { RemoveGroupModal } from '@/components/modals/RemoveGroupModal'
@@ -231,6 +231,8 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
   const [statuses, setStatuses] = useState<Status[]>([])
   const [availableModels, setAvailableModels] = useState<Model[]>([])
   const [selectedModelId, setSelectedModelId] = useState<string>('all')
+  const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([])
+  const [selectedStatusIds, setSelectedStatusIds] = useState<string[]>([])
   const [showRemoveStatusModal, setShowRemoveStatusModal] = useState(false)
   const [showRemoveGroupModal, setShowRemoveGroupModal] = useState(false)
   const [showAssignStatusModal, setShowAssignStatusModal] = useState(false)
@@ -238,6 +240,12 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
   const [selectedPanel, setSelectedPanel] = useState<Panel | null>(null)
   const [showPanelDetail, setShowPanelDetail] = useState(false)
   const [showEditPanel, setShowEditPanel] = useState(false)
+  const [showGroupDropdown, setShowGroupDropdown] = useState(false)
+  const [showStatusDropdown, setShowStatusDropdown] = useState(false)
+  const [groupCounts, setGroupCounts] = useState<Record<string, number>>({})
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({})
+  const groupDropdownRef = useRef<HTMLDivElement>(null)
+  const statusDropdownRef = useRef<HTMLDivElement>(null)
   const limit = 50
 
   // Debounce search input
@@ -250,12 +258,28 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
     return () => clearTimeout(timer)
   }, [searchInput])
 
+  // Click outside handler for dropdowns
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (groupDropdownRef.current && !groupDropdownRef.current.contains(event.target as Node)) {
+        setShowGroupDropdown(false)
+      }
+      if (statusDropdownRef.current && !statusDropdownRef.current.contains(event.target as Node)) {
+        setShowStatusDropdown(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
   useEffect(() => {
     loadPanels()
     loadGroups()
     loadStatuses()
     loadModels()
-  }, [projectId, page, searchTerm, selectedModelId])
+    loadStatistics()
+  }, [projectId, page, searchTerm, selectedModelId, selectedGroupIds, selectedStatusIds])
 
 
   const loadPanels = async () => {
@@ -273,6 +297,20 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
         params.append('modelId', selectedModelId)
       }
 
+      // Add group filters if selected
+      if (selectedGroupIds.length > 0) {
+        selectedGroupIds.forEach(groupId => {
+          params.append('groupIds', groupId)
+        })
+      }
+
+      // Add status filters if selected
+      if (selectedStatusIds.length > 0) {
+        selectedStatusIds.forEach(statusId => {
+          params.append('statusIds', statusId)
+        })
+      }
+
       // Add search term if present
       if (searchTerm.trim()) {
         params.append('search', searchTerm.trim())
@@ -281,7 +319,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
       // Use /api/panels/:projectId endpoint which supports pagination
       const url = getApiUrl(`panels/${projectId}?${params.toString()}`)
       console.log('🔍 Loading panels with URL:', url)
-      console.log('📊 Params:', { page, limit, selectedModelId, searchTerm })
+      console.log('📊 Params:', { page, limit, selectedModelId, selectedGroupIds, selectedStatusIds, searchTerm })
 
       const response = await authenticatedFetch(url)
       if (response.ok) {
@@ -298,6 +336,19 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
       console.error('Error loading panels:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadStatistics = async () => {
+    try {
+      const response = await authenticatedFetch(getApiUrl(`panels/${projectId}/statistics`))
+      if (response.ok) {
+        const data = await response.json()
+        setGroupCounts(data.groupCountsById || {})
+        setStatusCounts(data.statusCountsById || {})
+      }
+    } catch (error) {
+      console.error('Error loading statistics:', error)
     }
   }
 
@@ -625,8 +676,9 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
           </div> */}
         </div>
 
-        {/* Search and Model Filter */}
-        <div className="flex gap-4">
+        {/* Search and Filters */}
+        <div className="space-y-3">
+          {/* Search Bar */}
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
@@ -638,42 +690,306 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
             />
           </div>
 
-          {/* Model Selection Dropdown */}
-          <div className="min-w-[250px]">
-            <select
-              value={selectedModelId}
-              onChange={(e) => handleModelChange(e.target.value)}
-              className="w-full px-4 py-2 border border-slate-300 rounded-lg text-slate-900 focus:border-slate-500 focus:outline-none bg-white"
-            >
-              <option value="all">All Models ({availableModels.length})</option>
-              {availableModels.map((model) => {
-                // Get category prefix (only for specific categories)
-                const getCategoryPrefix = (category: string) => {
-                  switch (category) {
-                    case 'STRUCTURE': return '[STR] ';
-                    case 'MEP': return '[MEP] ';
-                    case 'ELECTRICAL': return '[ELE] ';
-                    default: return ''; // No prefix for OTHER
-                  }
-                };
+          {/* Filter Row */}
+          <div className="grid grid-cols-3 gap-3">
+            {/* Model Selection Dropdown */}
+            <div>
+              <select
+                value={selectedModelId}
+                onChange={(e) => handleModelChange(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-900 focus:border-slate-500 focus:outline-none bg-white min-h-[42px] hover:border-slate-400 transition-colors cursor-pointer"
+              >
+                <option value="all">All Models ({availableModels.length})</option>
+                {availableModels.map((model) => {
+                  // Get category prefix (only for specific categories)
+                  const getCategoryPrefix = (category: string) => {
+                    switch (category) {
+                      case 'STRUCTURE': return '[STR] ';
+                      case 'MEP': return '[MEP] ';
+                      case 'ELECTRICAL': return '[ELE] ';
+                      default: return ''; // No prefix for OTHER
+                    }
+                  };
 
-                // Truncate long model names
-                const truncateName = (name: string, maxLength: number = 30) => {
-                  if (name.length <= maxLength) return name;
-                  return name.substring(0, maxLength - 3) + '...';
-                };
+                  // Truncate long model names
+                  const truncateName = (name: string, maxLength: number = 20) => {
+                    if (name.length <= maxLength) return name;
+                    return name.substring(0, maxLength - 3) + '...';
+                  };
 
-                // Use original filename instead of display name
-                const modelName = model.filename?.replace(/\.(ifc|frag)$/i, '') || model.name;
-                const displayName = `${getCategoryPrefix(model.category)}${truncateName(modelName)} (${model.elementCount || 0})`;
+                  // Use original filename instead of display name
+                  const modelName = model.filename?.replace(/\.(ifc|frag)$/i, '') || model.name;
+                  const displayName = `${getCategoryPrefix(model.category)}${truncateName(modelName)} (${model.elementCount || 0})`;
 
-                return (
-                  <option key={model.id} value={model.id} title={`${modelName} (${model.elementCount || 0} elements)`}>
-                    {displayName}
-                  </option>
-                );
-              })}
-            </select>
+                  return (
+                    <option key={model.id} value={model.id} title={`${modelName} (${model.elementCount || 0} elements)`}>
+                      {displayName}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+
+            {/* Group Filter - Custom Multi-Select */}
+            <div className="relative" ref={groupDropdownRef}>
+              <div
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white cursor-pointer hover:border-slate-400 transition-colors flex items-center gap-2 min-h-[42px] max-h-[80px]"
+                onClick={() => setShowGroupDropdown(!showGroupDropdown)}
+              >
+                {selectedGroupIds.length === 0 ? (
+                  <span className="text-slate-500 text-sm flex-1">Filter by Group</span>
+                ) : (
+                  <>
+                    <div className="flex-1 overflow-y-auto max-h-[60px] pr-2 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
+                      <div className="flex flex-wrap gap-1">
+                        {selectedGroupIds.slice(0, 10).map(groupId => {
+                          const group = groups.find(g => g.id === groupId);
+                          if (!group) return null;
+                          return (
+                            <span
+                              key={groupId}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium text-white whitespace-nowrap"
+                              style={{ backgroundColor: group.color || '#3B82F6' }}
+                            >
+                              {group.name}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedGroupIds(prev => prev.filter(id => id !== groupId));
+                                  setPage(1);
+                                }}
+                                className="hover:bg-black/20 rounded-full p-0.5"
+                              >
+                                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                                </svg>
+                              </button>
+                            </span>
+                          );
+                        })}
+                        {selectedGroupIds.length > 10 && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-200 text-slate-700">
+                            +{selectedGroupIds.length - 10} more
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {selectedGroupIds.length > 0 && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedGroupIds([]);
+                          setPage(1);
+                        }}
+                        className="text-xs text-slate-500 hover:text-slate-700 px-2 py-1 hover:bg-slate-100 rounded whitespace-nowrap"
+                        title="Clear all groups"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </>
+                )}
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  {selectedGroupIds.length > 0 && (
+                    <span className="text-xs font-medium text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded">
+                      {selectedGroupIds.length}
+                    </span>
+                  )}
+                  <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showGroupDropdown ? 'rotate-180' : ''}`} />
+                </div>
+              </div>
+              {/* Dropdown Menu */}
+              {showGroupDropdown && (
+                <div className="absolute z-10 mt-1 w-full bg-white border border-slate-300 rounded-lg shadow-lg max-h-60 overflow-hidden flex flex-col">
+                  {selectedGroupIds.length > 0 && (
+                    <div className="px-3 py-2 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+                      <span className="text-xs font-medium text-slate-600">
+                        {selectedGroupIds.length} selected
+                      </span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedGroupIds([]);
+                          setPage(1);
+                        }}
+                        className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                      >
+                        Clear all
+                      </button>
+                    </div>
+                  )}
+                  <div className="overflow-y-auto max-h-52">
+                    {groups.length === 0 ? (
+                      <div className="px-4 py-3 text-sm text-slate-500">No groups available</div>
+                    ) : (
+                      groups.map(group => (
+                        <label
+                          key={group.id}
+                          className="flex items-center gap-2 px-4 py-2 hover:bg-slate-50 cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedGroupIds.includes(group.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedGroupIds(prev => [...prev, group.id]);
+                              } else {
+                                setSelectedGroupIds(prev => prev.filter(id => id !== group.id));
+                              }
+                              setPage(1);
+                            }}
+                            className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-2 focus:ring-blue-500"
+                          />
+                          <LucideIcons.Grid3x3
+                            className="w-4 h-4 flex-shrink-0"
+                            style={{ color: group.color || '#3B82F6' }}
+                          />
+                          <span className="text-sm text-slate-900 truncate flex-1">{group.name}</span>
+                          <span className="text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">
+                            {groupCounts[group.id] || 0}
+                          </span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Status Filter - Custom Multi-Select */}
+            <div className="relative" ref={statusDropdownRef}>
+              <div
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white cursor-pointer hover:border-slate-400 transition-colors flex items-center gap-2 min-h-[42px] max-h-[80px]"
+                onClick={() => setShowStatusDropdown(!showStatusDropdown)}
+              >
+                {selectedStatusIds.length === 0 ? (
+                  <span className="text-slate-500 text-sm flex-1">Filter by Status</span>
+                ) : (
+                  <>
+                    <div className="flex-1 overflow-y-auto max-h-[60px] pr-2 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
+                      <div className="flex flex-wrap gap-1">
+                        {selectedStatusIds.slice(0, 10).map(statusId => {
+                          const status = statuses.find(s => s.id === statusId);
+                          if (!status) return null;
+                          const IconComponent = getIconComponent(status.icon);
+                          return (
+                            <span
+                              key={statusId}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap"
+                              style={{
+                                backgroundColor: `${status.color}20`,
+                                color: status.color,
+                                border: `1px solid ${status.color}40`
+                              }}
+                            >
+                              <IconComponent className="w-3 h-3" />
+                              {status.name}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedStatusIds(prev => prev.filter(id => id !== statusId));
+                                  setPage(1);
+                                }}
+                                className="hover:bg-black/10 rounded-full p-0.5"
+                              >
+                                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                                </svg>
+                              </button>
+                            </span>
+                          );
+                        })}
+                        {selectedStatusIds.length > 10 && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-200 text-slate-700">
+                            +{selectedStatusIds.length - 10} more
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {selectedStatusIds.length > 0 && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedStatusIds([]);
+                          setPage(1);
+                        }}
+                        className="text-xs text-slate-500 hover:text-slate-700 px-2 py-1 hover:bg-slate-100 rounded whitespace-nowrap"
+                        title="Clear all statuses"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </>
+                )}
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  {selectedStatusIds.length > 0 && (
+                    <span className="text-xs font-medium text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded">
+                      {selectedStatusIds.length}
+                    </span>
+                  )}
+                  <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showStatusDropdown ? 'rotate-180' : ''}`} />
+                </div>
+              </div>
+              {/* Dropdown Menu */}
+              {showStatusDropdown && (
+                <div className="absolute z-10 mt-1 w-full bg-white border border-slate-300 rounded-lg shadow-lg max-h-60 overflow-hidden flex flex-col">
+                  {selectedStatusIds.length > 0 && (
+                    <div className="px-3 py-2 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+                      <span className="text-xs font-medium text-slate-600">
+                        {selectedStatusIds.length} selected
+                      </span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedStatusIds([]);
+                          setPage(1);
+                        }}
+                        className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                      >
+                        Clear all
+                      </button>
+                    </div>
+                  )}
+                  <div className="overflow-y-auto max-h-52">
+                    {statuses.length === 0 ? (
+                      <div className="px-4 py-3 text-sm text-slate-500">No statuses available</div>
+                    ) : (
+                      statuses.map(status => {
+                        const IconComponent = getIconComponent(status.icon);
+                        return (
+                          <label
+                            key={status.id}
+                            className="flex items-center gap-2 px-4 py-2 hover:bg-slate-50 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedStatusIds.includes(status.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedStatusIds(prev => [...prev, status.id]);
+                                } else {
+                                  setSelectedStatusIds(prev => prev.filter(id => id !== status.id));
+                                }
+                                setPage(1);
+                              }}
+                              className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-2 focus:ring-blue-500"
+                            />
+                            <IconComponent
+                              className="w-4 h-4 flex-shrink-0"
+                              style={{ color: status.color }}
+                            />
+                            <span className="text-sm text-slate-900 truncate flex-1">{status.name}</span>
+                            <span className="text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">
+                              {statusCounts[status.id] || 0}
+                            </span>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -834,15 +1150,21 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
                     <td className="py-3 px-4">
                       {panel.groups && panel.groups.length > 0 ? (
                         <div className="flex flex-wrap gap-1">
-                          {panel.groups.map((pg: any, index: number) => (
-                            <span
-                              key={pg.id || index}
-                              className="text-sm font-medium"
-                              style={{ color: pg.group?.color || '#3B82F6' }}
-                            >
-                              {pg.group?.name}{index < (panel.groups?.length ?? 0) - 1 ? ',' : ''}
-                            </span>
-                          ))}
+                          {panel.groups.map((pg: any, index: number) => {
+                            // Check if this group matches the active filter
+                            const isFilterMatch = selectedGroupIds.length === 0 || selectedGroupIds.includes(pg.group?.id);
+
+                            return (
+                              <span
+                                key={pg.id || index}
+                                className={`text-sm font-medium ${isFilterMatch ? 'font-semibold' : 'opacity-40'}`}
+                                style={{ color: pg.group?.color || '#3B82F6' }}
+                                title={isFilterMatch ? pg.group?.name : `${pg.group?.name} (not in filter)`}
+                              >
+                                {pg.group?.name}{index < (panel.groups?.length ?? 0) - 1 ? ',' : ''}
+                              </span>
+                            );
+                          })}
                         </div>
                       ) : (
                         <span className="text-sm text-slate-400">No group</span>
@@ -855,15 +1177,18 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
                       {panel.statuses && panel.statuses.length > 0 ? (
                         <div className="flex flex-wrap gap-2">
                           {panel.statuses.map((ps: any) => {
-                            const IconComponent = getIconComponent(ps.status.icon)
+                            const IconComponent = getIconComponent(ps.status.icon);
+                            // Check if this status matches the active filter
+                            const isFilterMatch = selectedStatusIds.length === 0 || selectedStatusIds.includes(ps.status.id);
+
                             return (
                               <IconComponent
                                 key={ps.id}
-                                className="w-5 h-5"
+                                className={`w-5 h-5 ${isFilterMatch ? '' : 'opacity-40'}`}
                                 style={{ color: ps.status.color }}
-                                title={ps.status.name}
+                                title={isFilterMatch ? ps.status.name : `${ps.status.name} (not in filter)`}
                               />
-                            )
+                            );
                           })}
                         </div>
                       ) : (
@@ -890,13 +1215,13 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
                         </svg>
                       </div>
                       <p className="text-lg font-semibold text-slate-900 mb-1">
-                        {searchTerm || selectedModelId !== 'all' ? 'No panels match your filters' : 'No panels found'}
+                        {searchTerm || selectedModelId !== 'all' || selectedGroupIds.length > 0 || selectedStatusIds.length > 0 ? 'No panels match your filters' : 'No panels found'}
                       </p>
                       <p className="text-sm text-slate-500">
                         {searchTerm
                           ? `No results for "${searchTerm}". Try different keywords or clear filters.`
-                          : selectedModelId !== 'all'
-                            ? 'Try selecting a different model or clearing filters.'
+                          : selectedModelId !== 'all' || selectedGroupIds.length > 0 || selectedStatusIds.length > 0
+                            ? 'Try selecting different filters or clearing them.'
                             : 'Upload a 3D model to get started with panel management.'}
                       </p>
                     </div>
@@ -913,7 +1238,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
             <div className="text-sm text-slate-600">
               Showing {((page - 1) * limit) + 1} to {Math.min(page * limit, totalPanels)} of{' '}
               {totalPanels.toLocaleString()} panels
-              {searchTerm && <span className="text-slate-500"> (filtered)</span>}
+              {(searchTerm || selectedModelId !== 'all' || selectedGroupIds.length > 0 || selectedStatusIds.length > 0) && <span className="text-slate-500"> (filtered)</span>}
             </div>
             <div className="flex items-center gap-2">
               <button

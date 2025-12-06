@@ -45,11 +45,11 @@ interface StatusManagementTabProps {
   refreshKey?: number // Add refresh trigger
 }
 
-export function StatusManagementTab({ 
-  projectId, 
+export function StatusManagementTab({
+  projectId,
   onCreateStatus,
   onStatusClick,
-  refreshKey 
+  refreshKey
 }: StatusManagementTabProps) {
   const [customStatuses, setCustomStatuses] = useState<CustomStatus[]>([])
   const [loading, setLoading] = useState(true)
@@ -290,13 +290,13 @@ export function StatusManagementTab({
   const getIconComponent = (iconName: string) => {
     // Use shared icon mapping utility
     const lucideIconName = getLucideIconName(iconName)
-    
+
     // Try to get icon from Lucide
     const LucideIcon = (LucideIcons as any)[lucideIconName]
     if (LucideIcon) {
       return LucideIcon
     }
-    
+
     // Default fallback
     return Package
   }
@@ -336,7 +336,7 @@ export function StatusManagementTab({
           {customStatuses.map((status) => {
             const IconComponent = getIconComponent(status.icon)
             const panelCount = status.panelCount || 0
-            
+
             // Auto-generate description if not present
             const displayDescription = status.description || `Status for tracking ${status.name.toLowerCase()} panels`
 
@@ -355,7 +355,7 @@ export function StatusManagementTab({
                       <p className="text-xs text-slate-500">{panelCount} panels</p>
                     </div>
                   </div>
-                  
+
                   {/* Three-dot menu */}
                   <div className="relative" ref={openMenuId === status.id ? menuRef : null}>
                     <button
@@ -476,12 +476,45 @@ export function StatusManagementTab({
           projectId={projectId.toString()}
           availableStatuses={statuses}
           availableGroups={groups as any}
-          onUpdate={async () => {
-            setShowEditPanelModal(false)
-            setEditingPanel(null)
-            setSelectedPanel(null)
-            if (selectedStatus) {
-              await loadPanelsByStatus(selectedStatus.id)
+          onUpdate={async (panelId, updates) => {
+            try {
+              const response = await authenticatedFetch(getApiUrl(`panels/${panelId}`), {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  statusIds: updates.customStatusIds,
+                  groupIds: updates.groupIds
+                })
+              })
+
+              if (!response.ok) {
+                const data = await response.json()
+                throw new Error(data.error || 'Failed to update panel')
+              }
+
+              toast({
+                title: "Success",
+                description: "Panel updated successfully",
+              })
+
+              setShowEditPanelModal(false)
+              setEditingPanel(null)
+              setSelectedPanel(null)
+              if (selectedStatus) {
+                await loadPanelsByStatus(selectedStatus.id)
+              }
+              // Also reload stats as counts might have changed
+              loadPanelCount()
+              loadCustomStatuses()
+            } catch (error) {
+              console.error('Error updating panel:', error)
+              toast({
+                title: "Error",
+                description: `Failed to update panel: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                variant: "destructive",
+              })
+              // Re-throw to let the modal handle the error state if needed
+              throw error
             }
           }}
         />

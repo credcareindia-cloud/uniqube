@@ -988,37 +988,18 @@ export default function ProjectDetailPage() {
     try {
       console.log('🔄 Updating panel:', panelId, updates)
 
-      // Update panel via API
-      const response = await authenticatedFetch(getApiUrl(`panels/${id}/${panelId}`), {
-        method: 'PUT',
+      // Use PATCH endpoint to update statuses and groups correctly
+      const response = await authenticatedFetch(getApiUrl(`panels/${panelId}`), {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          notes: updates.description,
-          status: updates.status,
-          groupId: updates.groupIds?.[0], // Currently single group
-          metadata: {
-            assemblyInstructions: updates.assemblyInstructions
-          }
+          statusIds: updates.customStatusIds,
+          groupIds: updates.groupIds
         })
       })
 
       if (!response.ok) {
         throw new Error('Failed to update panel')
-      }
-
-      // Update custom statuses if provided
-      if (updates.customStatusIds && updates.customStatusIds.length > 0) {
-        for (const statusId of updates.customStatusIds) {
-          await authenticatedFetch(getApiUrl('status-management/assign-to-panels'), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              projectId: parseInt(id),
-              statusId,
-              panelIds: [panelId]
-            })
-          })
-        }
       }
 
       console.log('✅ Panel updated successfully')
