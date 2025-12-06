@@ -960,6 +960,8 @@ export async function initializeViewer(containerId: string = "container") {
       // Scroll into view with centering and a small delay to ensure layout is stable
       setTimeout(() => {
         (target as HTMLElement).scrollIntoView({ block: 'center', behavior: 'smooth' });
+        // Trigger the node's click handler to show element info panel
+        target.click();
       }, 100);
 
       // Ensure tree panel is open
@@ -1124,13 +1126,20 @@ export async function initializeViewer(containerId: string = "container") {
               }
 
               try {
+                // Fetch with timeout for deep pages
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
                 const result = await fetchPanelsForStorey(
-                  projectId,
+                  projectId, // Keep projectId as first argument
                   modelRoot.dataset.modelId || location.modelId,
                   location.storey,
                   location.page,
-                  50
+                  50, // Keep limit as 50
+                  controller.signal
                 );
+
+                clearTimeout(timeoutId);
 
                 if (result && result.panels) {
                   // Update cache
@@ -1143,13 +1152,12 @@ export async function initializeViewer(containerId: string = "container") {
                     }
                   });
 
-                  // Update storey data
-                  if (!storeyData.children) storeyData.children = [];
+                  // Merge new panels with existing
                   const existingIds = new Set(storeyData.children.map((p: any) => p.id));
                   const newPanels = result.panels.filter((p: any) => !existingIds.has(p.id));
-
                   storeyData.children.push(...newPanels);
-                  storeyData._loaded = true;
+
+                  // Update pagination state
                   if (!storeyData._page || location.page > storeyData._page) {
                     storeyData._page = location.page;
                   }
@@ -1200,9 +1208,37 @@ export async function initializeViewer(containerId: string = "container") {
                   } else {
                     console.warn("Node still not found after loading page");
                   }
+                } else {
+                  throw new Error("No data returned from server");
                 }
-              } catch (e) {
+              } catch (e: any) {
                 console.error("Failed to deep load page", e);
+
+                // Show error message to user
+                const loadingOverlay = document.getElementById('tree-loading-overlay');
+                if (loadingOverlay) {
+                  loadingOverlay.innerHTML = `
+                    <div style="text-align: center;">
+                      <div style="font-size: 32px; margin-bottom: 12px; color: var(--red-500);">⚠️</div>
+                      <div style="font-size: 14px; font-weight: 600; color: var(--slate-700); margin-bottom: 8px;">
+                        ${e.name === 'AbortError' ? 'Request timed out' : 'Failed to load page'}
+                      </div>
+                      <div style="font-size: 12px; color: var(--slate-500); margin-bottom: 16px;">
+                        Page ${location.page} is too deep to load quickly
+                      </div>
+                      <button onclick="this.closest('#tree-loading-overlay').remove()" 
+                        style="padding: 8px 16px; background: var(--slate-600); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px;">
+                        Close
+                      </button>
+                    </div>
+                  `;
+
+                  // Auto-remove after 5 seconds
+                  setTimeout(() => {
+                    const overlay = document.getElementById('tree-loading-overlay');
+                    if (overlay) overlay.remove();
+                  }, 5000);
+                }
               } finally {
                 // Remove loading overlay
                 const loadingOverlay = document.getElementById('tree-loading-overlay');
@@ -1333,47 +1369,11 @@ export async function initializeViewer(containerId: string = "container") {
       await focusCameraOnLocalIds(idsToHighlight, { closer: 0.9 });
       await fragments.update(true);
 
-      // 2. Trigger Tree Selection (using the resolved targetId)
-      // We await this so that if it loads a page, we have the data for the info panel
+      // 2. Tree navigation (which will trigger the tree node click handler to show element info)
       if (SYNC_TREE_ON_SELECT || openTreeNextSelection) {
         await selectTreeNodeByLocalId(targetId);
       }
       openTreeNextSelection = false;
-
-      // 3. Now fetch data (it might be in cache now if tree loaded it)
-      let panelData = localIdPanelMap.get(targetId);
-
-      // If still no panel data (maybe tree didn't load it, or it's not tracked), try fallback
-      if (!panelData) {
-        // Try to get from map again in case it was the original localId
-        panelData = localIdPanelMap.get(localId);
-      }
-
-      let nodeData: any = { localId: targetId, name: `Element ${targetId}`, category: 'element', children: [] };
-      if (panelData) {
-        nodeData = {
-          localId: targetId,
-          name: panelData.name || panelData.tag || 'Unnamed',
-          type: panelData.type,
-          tag: panelData.tag,
-          id: panelData.id,
-          elementId: panelData.elementId,
-          metadata: panelData.metadata,
-          category: 'element',
-          children: [],
-          panelData,
-        };
-      } else {
-        try {
-          // Fallback to IFC properties
-          const [itemData] = await model.getItemsData([targetId], { attributesDefault: false, attributes: ["Name", "Tag", "ObjectType"] });
-          nodeData.name = (itemData?.Name as any)?.value || (itemData?.Tag as any)?.value || (itemData?.ObjectType as any)?.value || `Element ${targetId}`;
-          nodeData.type = (itemData?.ObjectType as any)?.value || 'Unknown';
-        } catch { }
-      }
-
-      // Open Info Panel
-      updateInfoPanel(nodeData);
 
     } catch (e) {
       console.error('Error selecting element by localId:', e);
@@ -1990,7 +1990,7 @@ export async function initializeViewer(containerId: string = "container") {
 
   // NEW: Fetch tree structure from database (optimized)
   // Fetch panels for a specific storey (Lazy Loading)
-  const fetchPanelsForStorey = async (projectId: string, modelId: string, storeyName: string, page: number = 1, limit: number = 50) => {
+  const fetchPanelsForStorey = async (projectId: string, modelId: string, storeyName: string, page: number = 1, limit: number = 50, signal?: AbortSignal) => {
     try {
       const token = localStorage.getItem('auth_token');
       const headers: Record<string, string> = {
@@ -2011,6 +2011,7 @@ export async function initializeViewer(containerId: string = "container") {
       const response = await fetch(`${API_BASE_URL}/panels/${projectId}?${queryParams.toString()}`, {
         method: 'GET',
         headers: headers,
+        signal: signal,
       });
 
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -4522,6 +4523,11 @@ export async function initializeViewer(containerId: string = "container") {
 
     if (!groupsList || !statusList) return;
 
+    // Open the info panel
+    if (infoPanel) {
+      infoPanel.classList.add('open');
+    }
+
     // Check if we have panel data from database (new tree structure)
     if ((nodeData as any).panelData) {
       const panelData = (nodeData as any).panelData;
@@ -4536,61 +4542,6 @@ export async function initializeViewer(containerId: string = "container") {
       renderElementStatusFromPanel(panelData, statusList);
 
       // Active Status dropdown disabled per requirements
-    } else if (nodeData.localId) {
-      // Try to fetch panel directly by expressId (bypasses lazy loading)
-      console.log(`🔍 Fetching panel directly by expressId: ${nodeData.localId}`);
-
-      try {
-        const token = localStorage.getItem('auth_token');
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-        };
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
-        }
-
-        const response = await fetch(`/api/panels/${projectIdFromUrl}/by-express-id/${nodeData.localId}`, {
-          headers
-        });
-
-        if (response.ok) {
-          const panelData = await response.json();
-          console.log('✅ Fetched panel directly:', panelData);
-
-          // Cache it for future use
-          panelDataCache.set(panelData.id, panelData);
-          localIdPanelMap.set(nodeData.localId, panelData);
-
-          // Attach to node for immediate use
-          (nodeData as any).panelData = panelData;
-
-          // Update nodeData.type for display
-          nodeData.type = panelData.element?.ifcType || panelData.objectType || 'Unknown';
-
-          // Update the displayed type in the info panel
-          const infoSection = document.querySelector('#infoPanel .info-section');
-          if (infoSection) {
-            const typeValueElement = infoSection.querySelector('.info-row:nth-child(3) .info-value');
-            if (typeValueElement) {
-              typeValueElement.textContent = nodeData.type;
-            }
-          }
-
-          // Render groups and statuses
-          renderElementGroupsFromPanel(panelData, groupsList);
-          renderElementStatusFromPanel(panelData, statusList);
-        } else {
-          console.log('⚠️ Panel not found in database, using fallback method');
-          // Fallback to old method for IFC tree structure
-          renderElementGroups(connections);
-          renderElementStatus(connections);
-        }
-      } catch (error) {
-        console.error('❌ Error fetching panel:', error);
-        // Fallback to old method
-        renderElementGroups(connections);
-        renderElementStatus(connections);
-      }
     } else {
       console.log('⚠️ No panel data from database, using fallback method');
       // Fallback to old method for IFC tree structure
