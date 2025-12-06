@@ -1942,8 +1942,8 @@ export async function initializeViewer(containerId: string = "container") {
       if (data.panels) {
         data.panels = data.panels.map((p: any) => ({
           ...p,
-          type: p.objectType || p.element?.ifcType || p.type || 'Unknown',
-          localId: p.metadata?.ifcElementId ? parseInt(p.metadata.ifcElementId) : (p.element?.id || null)
+          type: p.element?.ifcType || p.objectType || p.type || 'Unknown',
+          localId: p.element?.expressId || (p.metadata?.ifcElementId ? parseInt(p.metadata.ifcElementId) : (p.element?.id || null))
         }));
       }
 
@@ -7067,8 +7067,8 @@ export async function initializeViewer(containerId: string = "container") {
       if (data.panels) {
         data.panels = data.panels.map((p: any) => ({
           ...p,
-          type: p.objectType || p.element?.ifcType || p.type || 'Unknown',
-          localId: p.metadata?.ifcElementId ? parseInt(p.metadata.ifcElementId) : (p.element?.id || null)
+          type: p.element?.ifcType || p.objectType || p.type || 'Unknown',
+          localId: p.element?.expressId || (p.metadata?.ifcElementId ? parseInt(p.metadata.ifcElementId) : (p.element?.id || null))
         }));
       }
 
