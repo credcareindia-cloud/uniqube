@@ -1040,7 +1040,11 @@ export async function initializeViewer(containerId: string = "container") {
 
           if (storeyData) {
             // Check if we need to load the page
-            if (!storeyData._loaded || (location.page > 1 && (!storeyData._page || storeyData._page < location.page))) {
+            // Load if: not loaded at all, OR requested page is beyond what we have
+            const currentMaxPage = storeyData._page || 1;
+            const needsLoading = !storeyData._loaded || location.page > currentMaxPage;
+
+            if (needsLoading) {
               console.log(`Loading page ${location.page} for storey ${location.storey}...`);
 
               // Show loading overlay on tree
