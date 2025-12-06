@@ -24,10 +24,18 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
             return;
         }
 
-        const serverUrl = import.meta.env.VITE_API_BASE_URL?.replace('/api', '') || 'http://localhost:4000';
+        // Robust URL construction
+        let serverUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
 
-        // Flag to prevent reconnection after cleanup
-        let isCleanedUp = false;
+        // Remove /api suffix if present
+        serverUrl = serverUrl.replace(/\/api\/?$/, '');
+
+        // Ensure protocol is present
+        if (!serverUrl.startsWith('http')) {
+            serverUrl = `https://${serverUrl}`;
+        }
+
+        logger.info(`🔌 Connecting to WebSocket server at: ${serverUrl}`);
 
         // Create socket connection
         const socket = io(serverUrl, {
@@ -37,6 +45,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
             reconnectionDelay: 1000,
             reconnectionDelayMax: 5000,
             reconnectionAttempts: 5,
+            path: '/socket.io/', // Explicitly set path
         });
 
         socketRef.current = socket;
