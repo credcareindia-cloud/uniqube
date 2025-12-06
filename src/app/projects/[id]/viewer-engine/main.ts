@@ -1043,6 +1043,75 @@ export async function initializeViewer(containerId: string = "container") {
             if (!storeyData._loaded || (location.page > 1 && (!storeyData._page || storeyData._page < location.page))) {
               console.log(`Loading page ${location.page} for storey ${location.storey}...`);
 
+              // Show loading overlay on tree
+              const treeContainer = document.getElementById('tree-container');
+              if (treeContainer && location.page > 10) {
+                const loadingOverlay = document.createElement('div');
+                loadingOverlay.id = 'tree-loading-overlay';
+                loadingOverlay.style.cssText = `
+                  position: absolute;
+                  top: 0;
+                  left: 0;
+                  right: 0;
+                  bottom: 0;
+                  background: rgba(255, 255, 255, 0.95);
+                  display: flex;
+                  flex-direction: column;
+                  align-items: center;
+                  justify-content: center;
+                  z-index: 1000;
+                  backdrop-filter: blur(4px);
+                `;
+
+                // Create 3D cube loader (matching CubeLoader component)
+                loadingOverlay.innerHTML = `
+                  <div style="position: relative; width: 40px; height: 40px; perspective: 1000px;">
+                    <div class="cube-3d" style="position: absolute; width: 100%; height: 100%; transform-style: preserve-3d; animation: spin-3d 3s infinite linear;">
+                      <!-- Front -->
+                      <div class="cube-face" style="position: absolute; width: 40px; height: 40px; background: rgba(148,163,184,0.2); border: 2px solid rgba(148,163,184,0.8); backdrop-filter: blur(2px); transform: translateZ(20px); box-shadow: 0 0 10px rgba(148,163,184,0.5);"></div>
+                      <!-- Back -->
+                      <div class="cube-face" style="position: absolute; width: 40px; height: 40px; background: rgba(148,163,184,0.2); border: 2px solid rgba(148,163,184,0.8); backdrop-filter: blur(2px); transform: rotateY(180deg) translateZ(20px); box-shadow: 0 0 10px rgba(148,163,184,0.5);"></div>
+                      <!-- Right -->
+                      <div class="cube-face" style="position: absolute; width: 40px; height: 40px; background: rgba(148,163,184,0.2); border: 2px solid rgba(148,163,184,0.8); backdrop-filter: blur(2px); transform: rotateY(90deg) translateZ(20px); box-shadow: 0 0 10px rgba(148,163,184,0.5);"></div>
+                      <!-- Left -->
+                      <div class="cube-face" style="position: absolute; width: 40px; height: 40px; background: rgba(148,163,184,0.2); border: 2px solid rgba(148,163,184,0.8); backdrop-filter: blur(2px); transform: rotateY(-90deg) translateZ(20px); box-shadow: 0 0 10px rgba(148,163,184,0.5);"></div>
+                      <!-- Top -->
+                      <div class="cube-face" style="position: absolute; width: 40px; height: 40px; background: rgba(148,163,184,0.2); border: 2px solid rgba(148,163,184,0.8); backdrop-filter: blur(2px); transform: rotateX(90deg) translateZ(20px); box-shadow: 0 0 10px rgba(148,163,184,0.5);"></div>
+                      <!-- Bottom -->
+                      <div class="cube-face" style="position: absolute; width: 40px; height: 40px; background: rgba(148,163,184,0.2); border: 2px solid rgba(148,163,184,0.8); backdrop-filter: blur(2px); transform: rotateX(-90deg) translateZ(20px); box-shadow: 0 0 10px rgba(148,163,184,0.5);"></div>
+                      <!-- Core -->
+                      <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 20px; height: 20px; background: rgba(148,163,184,0.8); box-shadow: 0 0 15px rgba(148,163,184,0.5); animation: pulse 2s infinite;"></div>
+                    </div>
+                  </div>
+                  
+                  <div style="margin-top: 24px; text-align: center;">
+                    <h3 style="font-size: 13px; font-weight: 600; color: var(--slate-700); letter-spacing: 0.05em;">Loading page ${location.page}</h3>
+                    <div style="display: flex; gap: 3px; justify-content: center; margin-top: 8px;">
+                      <div style="width: 6px; height: 6px; background: var(--slate-500); border-radius: 50%; animation: bounce 1s infinite; animation-delay: 0ms;"></div>
+                      <div style="width: 6px; height: 6px; background: var(--slate-500); border-radius: 50%; animation: bounce 1s infinite; animation-delay: 100ms;"></div>
+                      <div style="width: 6px; height: 6px; background: var(--slate-500); border-radius: 50%; animation: bounce 1s infinite; animation-delay: 200ms;"></div>
+                    </div>
+                  </div>
+                  
+                  <style>
+                    @keyframes spin-3d {
+                      0% { transform: rotateX(0deg) rotateY(0deg); }
+                      100% { transform: rotateX(360deg) rotateY(360deg); }
+                    }
+                    @keyframes pulse {
+                      0%, 100% { opacity: 1; }
+                      50% { opacity: 0.5; }
+                    }
+                    @keyframes bounce {
+                      0%, 100% { transform: translateY(0); }
+                      50% { transform: translateY(-6px); }
+                    }
+                  </style>
+                `;
+                treeContainer.style.position = 'relative';
+                treeContainer.appendChild(loadingOverlay);
+              }
+
               // Show loading state
               const toggle = sNode.querySelector('.tree-toggle-icon');
               if (toggle) {
@@ -1131,6 +1200,12 @@ export async function initializeViewer(containerId: string = "container") {
               } catch (e) {
                 console.error("Failed to deep load page", e);
               } finally {
+                // Remove loading overlay
+                const loadingOverlay = document.getElementById('tree-loading-overlay');
+                if (loadingOverlay) {
+                  loadingOverlay.remove();
+                }
+
                 if (toggle) {
                   toggle.classList.remove("loading");
                   toggle.textContent = "▶";
