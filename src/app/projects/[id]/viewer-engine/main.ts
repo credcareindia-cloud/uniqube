@@ -4488,6 +4488,15 @@ export async function initializeViewer(containerId: string = "container") {
           // Update nodeData.type for display
           nodeData.type = panelData.element?.ifcType || panelData.objectType || 'Unknown';
 
+          // Update the displayed type in the info panel
+          const infoSection = document.querySelector('#infoPanel .info-section');
+          if (infoSection) {
+            const typeValueElement = infoSection.querySelector('.info-row:nth-child(3) .info-value');
+            if (typeValueElement) {
+              typeValueElement.textContent = nodeData.type;
+            }
+          }
+
           // Render groups and statuses
           renderElementGroupsFromPanel(panelData, groupsList);
           renderElementStatusFromPanel(panelData, statusList);
