@@ -1063,8 +1063,10 @@ export async function initializeViewer(containerId: string = "container") {
                   // Update cache
                   result.panels.forEach((panel: any) => {
                     panelDataCache.set(panel.id, panel);
-                    if (panel.metadata?.ifcElementId) {
-                      localIdPanelMap.set(parseInt(panel.metadata.ifcElementId), panel);
+                    // Use expressId (robust) or fallback to metadata
+                    const localId = panel.element?.expressId || (panel.metadata?.ifcElementId ? parseInt(panel.metadata.ifcElementId) : null);
+                    if (localId) {
+                      localIdPanelMap.set(localId, panel);
                     }
                   });
 
@@ -2263,8 +2265,10 @@ export async function initializeViewer(containerId: string = "container") {
               // Update cache
               result.panels.forEach((panel: any) => {
                 panelDataCache.set(panel.id, panel);
-                if (panel.metadata?.ifcElementId) {
-                  localIdPanelMap.set(parseInt(panel.metadata.ifcElementId), panel);
+                // Use expressId (robust) or fallback to metadata
+                const localId = panel.element?.expressId || (panel.metadata?.ifcElementId ? parseInt(panel.metadata.ifcElementId) : null);
+                if (localId) {
+                  localIdPanelMap.set(localId, panel);
                 }
               });
 
@@ -2376,8 +2380,10 @@ export async function initializeViewer(containerId: string = "container") {
           // Update cache
           result.panels.forEach((panel: any) => {
             panelDataCache.set(panel.id, panel);
-            if (panel.metadata?.ifcElementId) {
-              localIdPanelMap.set(parseInt(panel.metadata.ifcElementId), panel);
+            // Use expressId (robust) or fallback to metadata
+            const localId = panel.element?.expressId || (panel.metadata?.ifcElementId ? parseInt(panel.metadata.ifcElementId) : null);
+            if (localId) {
+              localIdPanelMap.set(localId, panel);
             }
           });
 
@@ -2443,8 +2449,10 @@ export async function initializeViewer(containerId: string = "container") {
           // Update cache
           result.panels.forEach((panel: any) => {
             panelDataCache.set(panel.id, panel);
-            if (panel.metadata?.ifcElementId) {
-              localIdPanelMap.set(parseInt(panel.metadata.ifcElementId), panel);
+            // Use expressId (robust) or fallback to metadata
+            const localId = panel.element?.expressId || (panel.metadata?.ifcElementId ? parseInt(panel.metadata.ifcElementId) : null);
+            if (localId) {
+              localIdPanelMap.set(localId, panel);
             }
           });
 
