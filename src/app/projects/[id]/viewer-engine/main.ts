@@ -4432,7 +4432,7 @@ export async function initializeViewer(containerId: string = "container") {
   };
 
   // Update element info panel with groups and status
-  const updateElementInfoPanel = (nodeData: TreeNodeData) => {
+  const updateElementInfoPanel = async (nodeData: TreeNodeData) => {
     currentElementId = nodeData.localId;
     const connections = getElementConnections(nodeData.localId);
 
@@ -4457,6 +4457,49 @@ export async function initializeViewer(containerId: string = "container") {
       renderElementStatusFromPanel(panelData, statusList);
 
       // Active Status dropdown disabled per requirements
+    } else if (nodeData.localId) {
+      // Try to fetch panel directly by expressId (bypasses lazy loading)
+      console.log(`🔍 Fetching panel directly by expressId: ${nodeData.localId}`);
+
+      try {
+        const token = localStorage.getItem('auth_token');
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        const response = await fetch(`/api/panels/${projectIdFromUrl}/by-express-id/${nodeData.localId}`, {
+          headers
+        });
+
+        if (response.ok) {
+          const panelData = await response.json();
+          console.log('✅ Fetched panel directly:', panelData);
+
+          // Cache it for future use
+          panelDataCache.set(panelData.id, panelData);
+          localIdPanelMap.set(nodeData.localId, panelData);
+
+          // Attach to node for immediate use
+          (nodeData as any).panelData = panelData;
+
+          // Render groups and statuses
+          renderElementGroupsFromPanel(panelData, groupsList);
+          renderElementStatusFromPanel(panelData, statusList);
+        } else {
+          console.log('⚠️ Panel not found in database, using fallback method');
+          // Fallback to old method for IFC tree structure
+          renderElementGroups(connections);
+          renderElementStatus(connections);
+        }
+      } catch (error) {
+        console.error('❌ Error fetching panel:', error);
+        // Fallback to old method
+        renderElementGroups(connections);
+        renderElementStatus(connections);
+      }
     } else {
       console.log('⚠️ No panel data from database, using fallback method');
       // Fallback to old method for IFC tree structure
