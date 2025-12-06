@@ -37,6 +37,9 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
 
         logger.info(`🔌 Connecting to WebSocket server at: ${serverUrl}`);
 
+        // Flag to prevent reconnection after cleanup
+        let isCleanedUp = false;
+
         // Create socket connection
         const socket = io(serverUrl, {
             auth: { token },
