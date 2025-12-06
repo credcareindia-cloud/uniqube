@@ -6948,7 +6948,7 @@ export async function initializeViewer(containerId: string = "container") {
       'MEP': '#ec3b3b',              // Red
       'DOORS_WINDOWS': '#00cc66',    // Green(Teal)
       'FRAMES': '#ffb300',           // yellow/orange
-      'STRUCTURAL': '#808080'        // gray
+      'STRUCTURAL': '#D773FF'        // purple
     };
 
     return new THREE.Color(colorMap[category] || '#0047AB'); // Default to cobalt blue if unknown
