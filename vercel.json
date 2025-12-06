@@ -2,11 +2,11 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "https://3-234-154-19.sslip.io/api/$1"
+      "destination": "https://api.uniqube3d.co/api/$1"
     },
     {
       "source": "/qr/(.*)",
-      "destination": "https://3-234-154-19.sslip.io/qr/$1"
+      "destination": "https://api.uniqube3d.co/qr/$1"
     },
     {
       "source": "/(.*)",
