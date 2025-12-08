@@ -12,7 +12,7 @@ import {
   Package,
   Upload
 } from 'lucide-react'
-import { ProjectSkeleton } from '@/components/skeletons/ProjectSkeleton'
+import { CubeLoader } from '@/components/ui/CubeLoader'
 import { ProjectCard } from '@/components/dashboard/ProjectCard'
 import { ModelCreation } from '@/components/projects/ModelCreation'
 import { MultiFileModelCreation } from '@/components/projects/MultiFileModelCreation'
@@ -135,39 +135,7 @@ export default function ProjectsPage() {
   // Only show skeleton on initial load (when no projects and loading)
   // This prevents flickering during background refreshes
   if (rbacLoading && userProjects.length === 0) {
-    return (
-      <div className="w-full h-full space-y-6">
-        {/* Header Skeleton */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 bg-slate-100 rounded-xl animate-pulse"></div>
-            <div>
-              <div className="h-8 w-48 bg-slate-100 rounded mb-2 animate-pulse"></div>
-              <div className="h-4 w-32 bg-slate-50 rounded animate-pulse"></div>
-            </div>
-          </div>
-          <div className="h-10 w-40 bg-slate-100 rounded-lg animate-pulse"></div>
-        </div>
-
-        {/* Stats Grid Skeleton */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="bg-white border border-slate-200 rounded-lg p-6 h-32 animate-pulse">
-              <div className="w-10 h-10 bg-slate-100 rounded-lg mb-3"></div>
-              <div className="h-8 w-16 bg-slate-100 rounded mb-1"></div>
-              <div className="h-4 w-24 bg-slate-50 rounded"></div>
-            </div>
-          ))}
-        </div>
-
-        {/* Projects Grid Skeleton */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {[...Array(6)].map((_, i) => (
-            <ProjectSkeleton key={i} />
-          ))}
-        </div>
-      </div>
-    )
+    return <CubeLoader text="LOADING PROJECTS" />
   }
 
   return (

@@ -25,6 +25,7 @@ import * as LucideIcons from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { CubeLoader } from '@/components/ui/CubeLoader'
 import { CreateStatusModal } from '@/components/modals/CreateStatusModal'
 import { CreateGroupModal } from '@/components/modals/CreateGroupModal'
 import { EditPanelModal } from '@/components/modals/EditPanelModal'
@@ -1147,15 +1148,7 @@ export default function ProjectDetailPage() {
   }
 
   if (loading) {
-    return (
-      <div className="w-full h-full flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-slate-700 mx-auto mb-4"></div>
-          <h2 className="text-xl font-semibold text-slate-900">Loading Project...</h2>
-          <p className="text-slate-600 mt-2">Fetching project details</p>
-        </div>
-      </div>
-    )
+    return <CubeLoader text={project ? `LOADING ${project.name.toUpperCase()}` : 'LOADING PROJECT'} />
   }
 
   if (!permissions.canView) {
@@ -1558,9 +1551,10 @@ export default function ProjectDetailPage() {
                 </div>
 
                 {loadingStatusPanels ? (
-                  <div className="text-center py-12">
-                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-slate-700 mx-auto"></div>
-                    <p className="text-slate-600 mt-4">Loading panels...</p>
+                  <div className="space-y-3 p-1">
+                    <Skeleton className="h-16 w-full rounded-lg" />
+                    <Skeleton className="h-16 w-full rounded-lg" />
+                    <Skeleton className="h-16 w-full rounded-lg" />
                   </div>
                 ) : (
                   <div className="space-y-4">
