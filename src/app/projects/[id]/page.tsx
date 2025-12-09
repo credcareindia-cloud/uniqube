@@ -604,6 +604,9 @@ export default function ProjectDetailPage() {
     }
   }
 
+  const [deletionProgress, setDeletionProgress] = useState(0)
+  const [deletionMessage, setDeletionMessage] = useState('Initializing deletion...')
+
   const handleDeleteProject = async () => {
     if (!id) return
 
@@ -612,30 +615,62 @@ export default function ProjectDetailPage() {
       setShowDeleteProjectModal(false)
       setShowDeletingProjectModal(true)
       setIsDeletingProject(true)
+      setDeletionProgress(0)
+      setDeletionMessage('Starting deletion process...')
 
-      // Use the safe-delete endpoint for batched deletion
+      // Use the safe-delete endpoint which now returns a job ID
       const response = await authenticatedFetch(getApiUrl(`projects/${id}/safe-delete`), {
         method: 'DELETE'
       })
 
       if (!response.ok) {
-        throw new Error('Failed to delete project')
+        throw new Error('Failed to start project deletion')
       }
 
       const result = await response.json()
-      console.log('✅ Project deleted successfully:', result.summary)
+      console.log('✅ Project deletion started:', result)
 
-      await refreshUserProjects()
+      // Poll for status
+      const jobId = result.jobId
+      const pollInterval = setInterval(async () => {
+        try {
+          const statusResponse = await authenticatedFetch(getApiUrl(`projects/deletions/${jobId}`))
 
-      // Keep the modal visible briefly before navigating
-      setTimeout(() => {
-        navigate('/projects')
-      }, 500)
+          if (!statusResponse.ok) {
+            console.error('Failed to check deletion status')
+            return
+          }
+
+          const statusData = await statusResponse.json()
+          console.log('📊 Deletion status:', statusData)
+
+          setDeletionProgress(statusData.progress)
+          setDeletionMessage(statusData.message || 'Processing...')
+
+          if (statusData.status === 'COMPLETED') {
+            clearInterval(pollInterval)
+            console.log('✅ Project deletion completed successfully')
+            await refreshUserProjects()
+
+            // Brief delay to show 100%
+            setTimeout(() => {
+              navigate('/projects')
+            }, 500)
+          } else if (statusData.status === 'FAILED') {
+            clearInterval(pollInterval)
+            throw new Error(statusData.error || 'Deletion failed')
+          }
+        } catch (err) {
+          console.error('Error polling deletion status:', err)
+          // Don't clear interval immediately on transient errors, but maybe count them
+        }
+      }, 2000)
+
     } catch (error) {
       console.error('Error deleting project:', error)
       setShowDeletingProjectModal(false)
       setIsDeletingProject(false)
-      alert('Failed to delete project. Please try again.')
+      alert(`Failed to delete project: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
