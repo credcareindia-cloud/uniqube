@@ -6027,9 +6027,9 @@ export async function initializeViewer(containerId: string = "container") {
         throw new Error('Could not get canvas context');
       }
 
-      // Fill background with white
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(0, 0, stickerWidth, stickerHeight);
+      // Fill background with white (commented out - may need in future)
+      // ctx.fillStyle = '#FFFFFF';
+      // ctx.fillRect(0, 0, stickerWidth, stickerHeight);
 
       // Generate QR code first
       const qrCanvas = document.createElement('canvas');
@@ -6048,38 +6048,38 @@ export async function initializeViewer(containerId: string = "container") {
       const qrY = (stickerHeight - qrSize) / 2;
       ctx.drawImage(qrCanvas, qrX, qrY, qrSize, qrSize);
 
-      // Uniqube logo
-      const logo = new Image();
-      logo.crossOrigin = 'anonymous';
+      // Uniqube logo (commented out - may need in future)
+      // const logo = new Image();
+      // logo.crossOrigin = 'anonymous';
 
-      await new Promise<void>((resolve, reject) => {
-        logo.onload = () => resolve();
-        logo.onerror = () => reject(new Error('Failed to load logo'));
+      // await new Promise<void>((resolve, reject) => {
+      //   logo.onload = () => resolve();
+      //   logo.onerror = () => reject(new Error('Failed to load logo'));
 
-        logo.src = '/Uniqube_QR_logo.jpg';
-      });
+      //   logo.src = '/Uniqube_QR_logo.jpg';
+      // });
 
 
 
       const rightAreaX = qrX + qrSize + 40;
       const rightAreaWidth = stickerWidth - rightAreaX - 30;
-      const maxLogoHeight = 200;
+      // const maxLogoHeight = 200;
 
-      let logoWidth = logo.width;
-      let logoHeight = logo.height;
-
-
-      const scaleWidth = rightAreaWidth / logoWidth;
-      const scaleHeight = maxLogoHeight / logoHeight;
-      const scale = Math.min(scaleWidth, scaleHeight, 1);
-
-      logoWidth = logoWidth * scale;
-      logoHeight = logoHeight * scale;
+      // let logoWidth = logo.width;
+      // let logoHeight = logo.height;
 
 
-      const logoX = stickerWidth - logoWidth - 30;
-      const logoY = 20;
-      ctx.drawImage(logo, logoX, logoY, logoWidth, logoHeight);
+      // const scaleWidth = rightAreaWidth / logoWidth;
+      // const scaleHeight = maxLogoHeight / logoHeight;
+      // const scale = Math.min(scaleWidth, scaleHeight, 1);
+
+      // logoWidth = logoWidth * scale;
+      // logoHeight = logoHeight * scale;
+
+
+      // const logoX = stickerWidth - logoWidth - 30;
+      // const logoY = 20;
+      // ctx.drawImage(logo, logoX, logoY, logoWidth, logoHeight);
 
 
       if (includeName && panelName) {
@@ -6182,10 +6182,11 @@ export async function initializeViewer(containerId: string = "container") {
         }
 
 
-        const logoBottom = logoY + logoHeight + 10;
-        const stickerBottom = stickerHeight - 10;
-        const availableVerticalSpace = stickerBottom - logoBottom;
-        const verticalCenter = logoBottom + (availableVerticalSpace / 2);
+        // const logoBottom = logoY + logoHeight + 10;
+        // const stickerBottom = stickerHeight - 10;
+        // const availableVerticalSpace = stickerBottom - logoBottom;
+        // const verticalCenter = logoBottom + (availableVerticalSpace / 2);
+        const verticalCenter = stickerHeight / 2;
 
         const lineHeight = fontSize * 1.1;
 
@@ -6263,9 +6264,9 @@ export async function initializeViewer(containerId: string = "container") {
         throw new Error('Failed to get canvas context');
       }
 
-      // Fill white background
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(0, 0, stickerWidth, stickerHeight);
+      // Fill white background (commented out - may need in future)
+      // ctx.fillStyle = '#FFFFFF';
+      // ctx.fillRect(0, 0, stickerWidth, stickerHeight);
 
       // Generate QR code
       const qrCanvas = document.createElement('canvas');
@@ -6283,33 +6284,33 @@ export async function initializeViewer(containerId: string = "container") {
       const qrY = (stickerHeight - qrSize) / 2;
       ctx.drawImage(qrCanvas, qrX, qrY, qrSize, qrSize);
 
-      // Load and draw logo
-      const logo = new Image();
-      logo.crossOrigin = 'anonymous';
+      // Load and draw logo (commented out - may need in future)
+      // const logo = new Image();
+      // logo.crossOrigin = 'anonymous';
 
-      await new Promise<void>((resolve, reject) => {
-        logo.onload = () => resolve();
-        logo.onerror = () => reject(new Error('Failed to load logo'));
-        logo.src = '/Uniqube_QR_logo.jpg';
-      });
+      // await new Promise<void>((resolve, reject) => {
+      //   logo.onload = () => resolve();
+      //   logo.onerror = () => reject(new Error('Failed to load logo'));
+      //   logo.src = '/Uniqube_QR_logo.jpg';
+      // });
 
       const rightAreaX = qrX + qrSize + 40;
       const rightAreaWidth = stickerWidth - rightAreaX - 30;
-      const maxLogoHeight = 200;
+      // const maxLogoHeight = 200;
 
-      let logoWidth = logo.width;
-      let logoHeight = logo.height;
+      // let logoWidth = logo.width;
+      // let logoHeight = logo.height;
 
-      const scaleWidth = rightAreaWidth / logoWidth;
-      const scaleHeight = maxLogoHeight / logoHeight;
-      const scale = Math.min(scaleWidth, scaleHeight, 1);
+      // const scaleWidth = rightAreaWidth / logoWidth;
+      // const scaleHeight = maxLogoHeight / logoHeight;
+      // const scale = Math.min(scaleWidth, scaleHeight, 1);
 
-      logoWidth = logoWidth * scale;
-      logoHeight = logoHeight * scale;
+      // logoWidth = logoWidth * scale;
+      // logoHeight = logoHeight * scale;
 
-      const logoX = stickerWidth - logoWidth - 30;
-      const logoY = 20;
-      ctx.drawImage(logo, logoX, logoY, logoWidth, logoHeight);
+      // const logoX = stickerWidth - logoWidth - 30;
+      // const logoY = 20;
+      // ctx.drawImage(logo, logoX, logoY, logoWidth, logoHeight);
 
       // Draw panel name (same logic as JPG)
       if (includeName && panelName) {
@@ -6394,10 +6395,11 @@ export async function initializeViewer(containerId: string = "container") {
           });
         }
 
-        const logoBottom = logoY + logoHeight + 10;
-        const stickerBottom = stickerHeight - 10;
-        const availableVerticalSpace = stickerBottom - logoBottom;
-        const verticalCenter = logoBottom + (availableVerticalSpace / 2);
+        // const logoBottom = logoY + logoHeight + 10;
+        // const stickerBottom = stickerHeight - 10;
+        // const availableVerticalSpace = stickerBottom - logoBottom;
+        // const verticalCenter = logoBottom + (availableVerticalSpace / 2);
+        const verticalCenter = stickerHeight / 2;
 
         const lineHeight = fontSize * 1.1;
 
