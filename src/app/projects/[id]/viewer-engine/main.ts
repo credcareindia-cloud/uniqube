@@ -6027,9 +6027,9 @@ export async function initializeViewer(containerId: string = "container") {
         throw new Error('Could not get canvas context');
       }
 
-      // Fill background with white (commented out - may need in future)
-      // ctx.fillStyle = '#FFFFFF';
-      // ctx.fillRect(0, 0, stickerWidth, stickerHeight);
+      // Fill background with white
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, stickerWidth, stickerHeight);
 
       // Generate QR code first
       const qrCanvas = document.createElement('canvas');
@@ -6264,9 +6264,9 @@ export async function initializeViewer(containerId: string = "container") {
         throw new Error('Failed to get canvas context');
       }
 
-      // Fill white background (commented out - may need in future)
-      // ctx.fillStyle = '#FFFFFF';
-      // ctx.fillRect(0, 0, stickerWidth, stickerHeight);
+      // Fill white background
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, stickerWidth, stickerHeight);
 
       // Generate QR code
       const qrCanvas = document.createElement('canvas');
