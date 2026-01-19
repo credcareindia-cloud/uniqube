@@ -5924,10 +5924,16 @@ export async function initializeViewer(containerId: string = "container") {
               Scan this QR code to view element details and submit reports
             </p>
           </div>
-          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px;">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
             <input type="checkbox" id="print-with-name" checked style="width: 16px; height: 16px; cursor: pointer; accent-color: #64748b;" />
             <label for="print-with-name" style="margin: 0; font-size: 13px; color: #94a3b8; cursor: pointer; user-select: none;">
               Include panel name on QR code
+            </label>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px;">
+            <input type="checkbox" id="print-with-logo" checked style="width: 16px; height: 16px; cursor: pointer; accent-color: #64748b;" />
+            <label for="print-with-logo" style="margin: 0; font-size: 13px; color: #94a3b8; cursor: pointer; user-select: none;">
+              Include company logo on QR code
             </label>
           </div>
           <div style="display: flex; gap: 8px;">
@@ -5976,18 +5982,21 @@ export async function initializeViewer(containerId: string = "container") {
         const downloadJpgBtn = qrInfo.querySelector('#download-jpg-btn') as HTMLButtonElement;
         const downloadPdfBtn = qrInfo.querySelector('#download-pdf-btn') as HTMLButtonElement;
         const printWithNameCheckbox = qrInfo.querySelector('#print-with-name') as HTMLInputElement;
+        const printWithLogoCheckbox = qrInfo.querySelector('#print-with-logo') as HTMLInputElement;
 
         if (downloadJpgBtn) {
           downloadJpgBtn.addEventListener('click', () => {
             const includeName = printWithNameCheckbox?.checked ?? true;
-            downloadStickerJPG(qrUrl, panelName, includeName);
+            const includeLogo = printWithLogoCheckbox?.checked ?? true;
+            downloadStickerJPG(qrUrl, panelName, includeName, includeLogo);
           });
         }
 
         if (downloadPdfBtn) {
           downloadPdfBtn.addEventListener('click', () => {
             const includeName = printWithNameCheckbox?.checked ?? true;
-            downloadStickerPDF(qrUrl, panelName, includeName);
+            const includeLogo = printWithLogoCheckbox?.checked ?? true;
+            downloadStickerPDF(qrUrl, panelName, includeName, includeLogo);
           });
         }
       }
@@ -6009,7 +6018,7 @@ export async function initializeViewer(containerId: string = "container") {
   };
 
   // Download sticker as JPG function 
-  const downloadStickerJPG = async (qrUrl: string, panelName: string, includeName: boolean) => {
+  const downloadStickerJPG = async (qrUrl: string, panelName: string, includeName: boolean, includeLogo: boolean = true) => {
     try {
       // Sticker dimensions: 3" x 1.5" LANDSCAPE at 300 DPI for print quality
       const DPI = 300;
@@ -6048,38 +6057,46 @@ export async function initializeViewer(containerId: string = "container") {
       const qrY = (stickerHeight - qrSize) / 2;
       ctx.drawImage(qrCanvas, qrX, qrY, qrSize, qrSize);
 
-      // Uniqube logo
-      const logo = new Image();
-      logo.crossOrigin = 'anonymous';
+      // ========================================
+      // LOGO RENDERING
+      // ========================================
+      let logoY = 20;
+      let logoHeight = 0;
 
-      await new Promise<void>((resolve, reject) => {
-        logo.onload = () => resolve();
-        logo.onerror = () => reject(new Error('Failed to load logo'));
+      try {
+        const logo = new Image();
+        logo.crossOrigin = 'anonymous';
 
-        logo.src = '/Uniqube_QR_logo.jpg';
-      });
+        await new Promise<void>((resolve, reject) => {
+          logo.onload = () => resolve();
+          logo.onerror = () => reject(new Error('Failed to load logo'));
 
+          logo.src = '/Uniqube_QR_logo.jpg';
+        });
 
+        const rightAreaX = qrX + qrSize + 40;
+        const rightAreaWidth = stickerWidth - rightAreaX - 30;
+        const maxLogoHeight = 200;
 
-      const rightAreaX = qrX + qrSize + 40;
-      const rightAreaWidth = stickerWidth - rightAreaX - 30;
-      const maxLogoHeight = 200;
+        let logoWidth = logo.width;
+        logoHeight = logo.height;
 
-      let logoWidth = logo.width;
-      let logoHeight = logo.height;
+        const scaleWidth = rightAreaWidth / logoWidth;
+        const scaleHeight = maxLogoHeight / logoHeight;
+        const scale = Math.min(scaleWidth, scaleHeight, 1);
 
+        logoWidth = logoWidth * scale;
+        logoHeight = logoHeight * scale;
 
-      const scaleWidth = rightAreaWidth / logoWidth;
-      const scaleHeight = maxLogoHeight / logoHeight;
-      const scale = Math.min(scaleWidth, scaleHeight, 1);
+        const logoX = stickerWidth - logoWidth - 30;
+        logoY = 20;
 
-      logoWidth = logoWidth * scale;
-      logoHeight = logoHeight * scale;
-
-
-      const logoX = stickerWidth - logoWidth - 30;
-      const logoY = 20;
-      ctx.drawImage(logo, logoX, logoY, logoWidth, logoHeight);
+        if (includeLogo) {
+          ctx.drawImage(logo, logoX, logoY, logoWidth, logoHeight);
+        }
+      } catch (err) {
+        console.warn('Could not load logo for layout calculation', err);
+      }
 
 
       if (includeName && panelName) {
@@ -6245,7 +6262,7 @@ export async function initializeViewer(containerId: string = "container") {
   };
 
   // Download sticker as PDF function
-  const downloadStickerPDF = async (qrUrl: string, panelName: string, includeName: boolean) => {
+  const downloadStickerPDF = async (qrUrl: string, panelName: string, includeName: boolean, includeLogo: boolean = true) => {
     try {
       // Use same dimensions as JPG: 3" x 1.5" LANDSCAPE at 300 DPI
       const DPI = 300;
@@ -6283,33 +6300,51 @@ export async function initializeViewer(containerId: string = "container") {
       const qrY = (stickerHeight - qrSize) / 2;
       ctx.drawImage(qrCanvas, qrX, qrY, qrSize, qrSize);
 
-      // Load and draw logo
-      const logo = new Image();
-      logo.crossOrigin = 'anonymous';
+      // ========================================
+      // LOGO RENDERING (Optional)
+      // ========================================
+      // Set includeLogo to false to disable logo rendering
+      // This can be controlled via the "Include company logo" checkbox in the UI
 
-      await new Promise<void>((resolve, reject) => {
-        logo.onload = () => resolve();
-        logo.onerror = () => reject(new Error('Failed to load logo'));
-        logo.src = '/Uniqube_QR_logo.jpg';
-      });
+      // Declare logo position variables (used later for text positioning)
+      // Always load logo to calculate dimensions and preserve text layout
+      let logoY = 20;
+      let logoHeight = 0;
 
-      const rightAreaX = qrX + qrSize + 40;
-      const rightAreaWidth = stickerWidth - rightAreaX - 30;
-      const maxLogoHeight = 200;
+      try {
+        // Load and draw logo
+        const logo = new Image();
+        logo.crossOrigin = 'anonymous';
 
-      let logoWidth = logo.width;
-      let logoHeight = logo.height;
+        await new Promise<void>((resolve, reject) => {
+          logo.onload = () => resolve();
+          logo.onerror = () => reject(new Error('Failed to load logo'));
+          logo.src = '/Uniqube_QR_logo.jpg';
+        });
 
-      const scaleWidth = rightAreaWidth / logoWidth;
-      const scaleHeight = maxLogoHeight / logoHeight;
-      const scale = Math.min(scaleWidth, scaleHeight, 1);
+        const rightAreaX = qrX + qrSize + 40;
+        const rightAreaWidth = stickerWidth - rightAreaX - 30;
+        const maxLogoHeight = 200;
 
-      logoWidth = logoWidth * scale;
-      logoHeight = logoHeight * scale;
+        let logoWidth = logo.width;
+        logoHeight = logo.height;
 
-      const logoX = stickerWidth - logoWidth - 30;
-      const logoY = 20;
-      ctx.drawImage(logo, logoX, logoY, logoWidth, logoHeight);
+        const scaleWidth = rightAreaWidth / logoWidth;
+        const scaleHeight = maxLogoHeight / logoHeight;
+        const scale = Math.min(scaleWidth, scaleHeight, 1);
+
+        logoWidth = logoWidth * scale;
+        logoHeight = logoHeight * scale;
+
+        const logoX = stickerWidth - logoWidth - 30;
+        logoY = 20;
+
+        if (includeLogo) {
+          ctx.drawImage(logo, logoX, logoY, logoWidth, logoHeight);
+        }
+      } catch (err) {
+        console.warn('Could not load logo for layout calculation', err);
+      }
 
       // Draw panel name (same logic as JPG)
       if (includeName && panelName) {
