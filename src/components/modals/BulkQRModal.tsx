@@ -55,8 +55,8 @@ export function BulkQRModal({ isOpen, onClose, panels, selectedPanelIds, project
     setProgress(0)
     
     // Safety check for massive downloads
-    if (selectedPanelIds.length > 1000) {
-        setError('Cannot generate more than 1000 QR codes at once to protect browser memory. Please select fewer panels.')
+    if (selectedPanelIds.length >= 1000) {
+        setError('Cannot generate more than 1000 QR codes at once. Please select fewer panels.')
         setIsGeneratingServer(false)
         return
     }
