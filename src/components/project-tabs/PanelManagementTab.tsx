@@ -244,6 +244,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
   const [showEditPanel, setShowEditPanel] = useState(false)
   const [showQRModal, setShowQRModal] = useState(false)
   const [showBulkQRModal, setShowBulkQRModal] = useState(false)
+  const [bulkQRPanelIds, setBulkQRPanelIds] = useState<string[]>([])
   const [showGroupDropdown, setShowGroupDropdown] = useState(false)
   const [showStatusDropdown, setShowStatusDropdown] = useState(false)
   const [groupCounts, setGroupCounts] = useState<Record<string, number>>({})
@@ -1039,7 +1040,20 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
                 Remove from Group
               </button>
               <button
-                onClick={() => setShowBulkQRModal(true)}
+                onClick={() => {
+                  // Only allow downloading QR codes for panels on the CURRENT page
+                  const currentPageSelectedIds = filteredPanels
+                    .filter(p => selectedPanels.has(p.id))
+                    .map(p => p.id)
+                  
+                  if (currentPageSelectedIds.length === 0) {
+                    alert('Please select at least one panel on the current page to download QR codes. Cross-page bulk downloads are prevented to avoid browser crashes.')
+                    return
+                  }
+                  
+                  setBulkQRPanelIds(currentPageSelectedIds)
+                  setShowBulkQRModal(true)
+                }}
                 className="px-3 py-2 bg-slate-900 border border-slate-900 rounded-lg text-white font-medium text-sm hover:bg-slate-800 transition-colors flex items-center gap-2 shadow-sm"
               >
                 <QrCode className="w-4 h-4" />
@@ -1437,9 +1451,12 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
       {showBulkQRModal && (
         <BulkQRModal
           isOpen={showBulkQRModal}
-          onClose={() => setShowBulkQRModal(false)}
+          onClose={() => {
+            setShowBulkQRModal(false)
+            setBulkQRPanelIds([])
+          }}
           panels={panels} // Pass all known panels as a fallback map
-          selectedPanelIds={Array.from(selectedPanels)}
+          selectedPanelIds={bulkQRPanelIds}
           projectId={projectId}
         />
       )}
