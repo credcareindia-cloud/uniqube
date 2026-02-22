@@ -1831,6 +1831,8 @@ export default function ProjectDetailPage() {
         <DeletingProjectModal
           isOpen={showDeletingProjectModal}
           projectName={project.name}
+          progress={deletionProgress}
+          message={deletionMessage}
         />
       )}
     </div>

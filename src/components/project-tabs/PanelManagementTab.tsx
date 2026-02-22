@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { authenticatedFetch } from '@/utils/authenticatedFetch'
-import { Eye, Download, Filter, Search, Circle, ChevronDown } from 'lucide-react'
+import { Eye, Download, Filter, Search, Circle, ChevronDown, QrCode } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
 import { RemoveStatusModal } from '@/components/modals/RemoveStatusModal'
 import { RemoveGroupModal } from '@/components/modals/RemoveGroupModal'
@@ -10,6 +10,8 @@ import { AssignStatusModal } from '@/components/modals/AssignStatusModal'
 import { AddToGroupModal } from '@/components/modals/AddToGroupModal'
 import { PanelDetailModal } from '@/components/modals/PanelDetailModal'
 import { EditPanelModal } from '@/components/modals/EditPanelModal'
+import { QRModal } from '@/components/modals/QRModal'
+import { BulkQRModal } from '@/components/modals/BulkQRModal'
 import { toast } from '@/components/ui/use-toast'
 import { getApiUrl } from '@/config/api'
 
@@ -240,6 +242,8 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
   const [selectedPanel, setSelectedPanel] = useState<Panel | null>(null)
   const [showPanelDetail, setShowPanelDetail] = useState(false)
   const [showEditPanel, setShowEditPanel] = useState(false)
+  const [showQRModal, setShowQRModal] = useState(false)
+  const [showBulkQRModal, setShowBulkQRModal] = useState(false)
   const [showGroupDropdown, setShowGroupDropdown] = useState(false)
   const [showStatusDropdown, setShowStatusDropdown] = useState(false)
   const [groupCounts, setGroupCounts] = useState<Record<string, number>>({})
@@ -1034,6 +1038,13 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
               >
                 Remove from Group
               </button>
+              <button
+                onClick={() => setShowBulkQRModal(true)}
+                className="px-3 py-2 bg-slate-900 border border-slate-900 rounded-lg text-white font-medium text-sm hover:bg-slate-800 transition-colors flex items-center gap-2 shadow-sm"
+              >
+                <QrCode className="w-4 h-4" />
+                Download QRs
+              </button>
             </div>
           </div>
         </div>
@@ -1078,7 +1089,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
                   Status
                 </th>
                 <th className="text-left py-3 px-4 text-xs font-medium text-slate-600 uppercase tracking-wider">
-                  Actions
+                  QR
                 </th>
               </tr>
             </thead>
@@ -1197,10 +1208,14 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
                     </td>
                     <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
                       <button
-                        onClick={() => handlePanelClick(panel)}
+                        onClick={() => {
+                          setSelectedPanel(panel)
+                          setShowQRModal(true)
+                        }}
                         className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
+                        title="Show QR Code"
                       >
-                        <Eye className="h-4 w-4" />
+                        <QrCode className="h-4 w-4" />
                       </button>
                     </td>
                   </tr>
@@ -1401,6 +1416,31 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
               throw error
             }
           }}
+        />
+      )}
+
+      {/* QR Code Modal */}
+      {selectedPanel && (
+        <QRModal
+          isOpen={showQRModal}
+          onClose={() => {
+            setShowQRModal(false)
+            setSelectedPanel(null)
+          }}
+          panelId={selectedPanel.id}
+          panelName={selectedPanel.name || selectedPanel.tag || 'Unknown Panel'}
+          projectId={projectId}
+        />
+      )}
+
+      {/* Bulk QR Code Modal */}
+      {showBulkQRModal && (
+        <BulkQRModal
+          isOpen={showBulkQRModal}
+          onClose={() => setShowBulkQRModal(false)}
+          panels={panels} // Pass all known panels as a fallback map
+          selectedPanelIds={Array.from(selectedPanels)}
+          projectId={projectId}
         />
       )}
     </div>

@@ -2185,12 +2185,13 @@ export async function initializeViewer(containerId: string = "container") {
             modelNode.className = "tree-node model-node";
             modelNode.style.paddingLeft = "10px";
             modelNode.style.fontWeight = "600";
+            modelNode.style.cursor = "pointer";
 
             // Toggle icon
             const toggleIcon = document.createElement("span");
             toggleIcon.className = "tree-toggle-icon";
             toggleIcon.textContent = "▶";
-            toggleIcon.onclick = (e) => {
+            modelNode.onclick = (e) => {
               e.stopPropagation();
               const childrenContainer = modelContainer.querySelector(".model-children") as HTMLElement;
               if (childrenContainer) {
@@ -2309,6 +2310,7 @@ export async function initializeViewer(containerId: string = "container") {
     const storeyNode = document.createElement("div");
     storeyNode.className = "tree-node storey-node";
     storeyNode.style.paddingLeft = "30px";
+    storeyNode.style.cursor = "pointer";
     // Attach data for deep linking
     (storeyNode as any)._storeyData = storey;
     storeyNode.dataset.storeyName = storey.name;
@@ -2318,7 +2320,7 @@ export async function initializeViewer(containerId: string = "container") {
     toggleIcon.className = "tree-toggle-icon";
     toggleIcon.textContent = "▶";
 
-    toggleIcon.onclick = async (e) => {
+    storeyNode.onclick = async (e) => {
       e.stopPropagation();
       const childrenContainer = storeyContainer.querySelector(".storey-children") as HTMLElement;
 
