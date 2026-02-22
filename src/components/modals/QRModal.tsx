@@ -26,8 +26,13 @@ export function QRModal({ isOpen, onClose, panelId, panelName, projectId }: QRMo
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
-    if (isOpen && panelId && projectId) {
-      generateQRCode()
+    if (isOpen) {
+      if (!panelId) {
+        setQrUrl(null)
+        setError('No element selected. Please select an element to generate a QR code.')
+      } else if (projectId) {
+        generateQRCode()
+      }
     } else {
       setQrUrl(null)
       setError(null)
@@ -560,8 +565,10 @@ export function QRModal({ isOpen, onClose, panelId, panelName, projectId }: QRMo
           {error && (
             <div className="flex flex-col items-center justify-center min-h-[300px] text-red-500">
               <AlertTriangle className="h-12 w-12 mb-4" />
-              <p className="text-base font-semibold">Failed to generate QR code</p>
-              <p className="mt-2 text-sm text-center max-w-[80%]">{error}</p>
+              <p className="text-base font-semibold">
+                {!panelId ? 'No Element Selected' : 'Failed to generate QR code'}
+              </p>
+              <p className="mt-2 text-sm text-center max-w-[80%] text-slate-600">{error}</p>
             </div>
           )}
 

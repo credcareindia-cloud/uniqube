@@ -38,15 +38,21 @@ export function BulkQRModal({ isOpen, onClose, panels, selectedPanelIds, project
   const [includeLogo, setIncludeLogo] = useState(true)
 
   useEffect(() => {
-    if (isOpen && selectedPanelIds.length > 0 && projectId) {
-      generateAllQRCodes()
+    if (isOpen) {
+      if (selectedPanelIds.length === 0) {
+        setGeneratedQRs([])
+        setError('Please select at least one element to download QR codes.')
+        setProgress(0)
+      } else if (projectId) {
+        generateAllQRCodes()
+      }
     } else {
       setGeneratedQRs([])
       setError(null)
       setProgress(0)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, projectId])
+  }, [isOpen, projectId, selectedPanelIds])
 
   const generateAllQRCodes = async () => {
     setIsGeneratingServer(true)
@@ -549,14 +555,18 @@ export function BulkQRModal({ isOpen, onClose, panels, selectedPanelIds, project
           {!isBusy && generatedQRs.length === 0 && error && (
             <div className="flex flex-col items-center justify-center min-h-[250px] text-red-500">
               <AlertTriangle className="h-12 w-12 mb-4" />
-              <p className="text-base font-semibold">Failed to fetch QR codes</p>
+              <p className="text-base font-semibold">
+                {selectedPanelIds.length === 0 ? 'No Elements Selected' : 'Failed to fetch QR codes'}
+              </p>
               <p className="mt-2 text-sm text-center max-w-[80%]">{error}</p>
-              <button
-                onClick={generateAllQRCodes}
-                className="mt-6 px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800"
-              >
-                Try Again
-              </button>
+              {selectedPanelIds.length > 0 && (
+                <button
+                  onClick={generateAllQRCodes}
+                  className="mt-6 px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800"
+                >
+                  Try Again
+                </button>
+              )}
             </div>
           )}
         </div>

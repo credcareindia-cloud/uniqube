@@ -1046,11 +1046,6 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
                     .filter(p => selectedPanels.has(p.id))
                     .map(p => p.id)
                   
-                  if (currentPageSelectedIds.length === 0) {
-                    alert('Please select at least one panel on the current page to download QR codes. Cross-page bulk downloads are prevented to avoid browser crashes.')
-                    return
-                  }
-                  
                   setBulkQRPanelIds(currentPageSelectedIds)
                   setShowBulkQRModal(true)
                 }}
