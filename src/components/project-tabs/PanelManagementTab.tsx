@@ -647,15 +647,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
     }
   }
 
-  if (loading) {
-    return (
-      <div className="bg-white rounded-lg border border-slate-200 p-12">
-        <div className="flex items-center justify-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-900"></div>
-        </div>
-      </div>
-    )
-  }
+
 
   return (
     <div className="space-y-6 h-full">
@@ -1103,7 +1095,15 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {filteredPanels.length > 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan={8} className="py-16 text-center">
+                    <div className="flex items-center justify-center">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-900"></div>
+                    </div>
+                  </td>
+                </tr>
+              ) : filteredPanels.length > 0 ? (
                 filteredPanels.map((panel) => (
                   <tr
                     key={panel.id}
