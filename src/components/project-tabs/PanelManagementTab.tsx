@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { authenticatedFetch } from '@/utils/authenticatedFetch'
-import { Eye, Download, Filter, Search, Circle, ChevronDown, QrCode } from 'lucide-react'
+import { Eye, Download, Filter, Search, Circle, ChevronDown, QrCode, Pencil, Check, X as XIcon, Loader2 } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
 import { RemoveStatusModal } from '@/components/modals/RemoveStatusModal'
 import { RemoveGroupModal } from '@/components/modals/RemoveGroupModal'
@@ -249,6 +249,12 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
   const [showStatusDropdown, setShowStatusDropdown] = useState(false)
   const [groupCounts, setGroupCounts] = useState<Record<string, number>>({})
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({})
+  // Toggle: include "Structural Connections Assembly" panels. Default: off (hidden).
+  const [includeConnections, setIncludeConnections] = useState(false)
+  // Inline rename state
+  const [editingPanelId, setEditingPanelId] = useState<string | null>(null)
+  const [editingName, setEditingName] = useState('')
+  const [savingPanelId, setSavingPanelId] = useState<string | null>(null)
   const groupDropdownRef = useRef<HTMLDivElement>(null)
   const statusDropdownRef = useRef<HTMLDivElement>(null)
   const limit = 50
@@ -284,7 +290,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
     loadStatuses()
     loadModels()
     loadStatistics()
-  }, [projectId, page, searchTerm, selectedModelId, selectedGroupIds, selectedStatusIds])
+  }, [projectId, page, searchTerm, selectedModelId, selectedGroupIds, selectedStatusIds, includeConnections])
 
 
   const loadPanels = async () => {
@@ -319,6 +325,11 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
       // Add search term if present
       if (searchTerm.trim()) {
         params.append('search', searchTerm.trim())
+      }
+
+      // Include "Structural Connections Assembly" panels only when toggle is on.
+      if (includeConnections) {
+        params.append('includeConnections', 'true')
       }
 
       // Use /api/panels/:projectId endpoint which supports pagination
@@ -420,6 +431,58 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
     setShowPanelDetail(true)
     if (onPanelClick) {
       onPanelClick(panel)
+    }
+  }
+
+  const startEditingName = (panel: Panel) => {
+    setEditingPanelId(panel.id)
+    setEditingName(panel.name || '')
+  }
+
+  const cancelEditingName = () => {
+    setEditingPanelId(null)
+    setEditingName('')
+  }
+
+  const saveEditingName = async (panel: Panel) => {
+    const newName = editingName.trim()
+    if (!newName) {
+      toast({
+        title: 'Invalid name',
+        description: 'Panel name cannot be empty.',
+        variant: 'destructive',
+      })
+      return
+    }
+    if (newName === panel.name) {
+      cancelEditingName()
+      return
+    }
+    try {
+      setSavingPanelId(panel.id)
+      const response = await authenticatedFetch(getApiUrl(`panels/${panel.id}`), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data?.error || 'Failed to rename panel')
+      }
+      setPanels(prev =>
+        prev.map(p => (p.id === panel.id ? { ...p, name: newName } : p))
+      )
+      toast({ title: 'Panel renamed', description: newName })
+      cancelEditingName()
+    } catch (error) {
+      console.error('Error renaming panel:', error)
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to rename panel',
+        variant: 'destructive',
+      })
+    } finally {
+      setSavingPanelId(null)
     }
   }
 
@@ -659,18 +722,39 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
             <h2 className="text-lg font-semibold text-slate-900">Panel Management</h2>
             <p className="text-sm text-slate-500 mt-1">
               {totalPanels.toLocaleString()} panels in project
+              {!includeConnections && (
+                <span className="ml-2 text-xs text-slate-400">
+                  (Connections Assembly hidden)
+                </span>
+              )}
             </p>
           </div>
-          {/* <div className="flex items-center gap-2">
-            <button className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors">
-              <Download className="w-4 h-4" />
-              Export
-            </button>
-            <button className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors">
-              <Filter className="w-4 h-4" />
-              Filter
-            </button>
-          </div> */}
+          <div className="flex items-center gap-3">
+            <label
+              className="flex items-center gap-2 cursor-pointer select-none"
+              title="Show Structural Connections Assembly panels in the list"
+            >
+              <span className="text-sm text-slate-700">Include Connection Assembly</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={includeConnections}
+                onClick={() => {
+                  setIncludeConnections(prev => !prev)
+                  setPage(1)
+                }}
+                className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                  includeConnections ? 'bg-blue-600' : 'bg-slate-300'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                    includeConnections ? 'translate-x-4' : 'translate-x-0.5'
+                  }`}
+                />
+              </button>
+            </label>
+          </div>
         </div>
 
         {/* Search and Filters */}
@@ -1121,11 +1205,83 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
                         className="w-4 h-4 rounded border-slate-300 bg-white checked:bg-blue-600 focus:ring-2 focus:ring-blue-500"
                       />
                     </td>
-                    <td className="py-3 px-4">
-                      <div>
-                        <p className="font-medium text-slate-900 text-sm">{panel.name}</p>
-                        <p className="text-xs text-slate-500">{panel.tag || 'No tag'}</p>
-                      </div>
+                    <td className="py-3 px-4" onClick={(e) => {
+                      if (editingPanelId === panel.id) e.stopPropagation()
+                    }}>
+                      {editingPanelId === panel.id ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={editingName}
+                            autoFocus
+                            disabled={savingPanelId === panel.id}
+                            onChange={(e) => setEditingName(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => {
+                              e.stopPropagation()
+                              if (e.key === 'Enter') {
+                                e.preventDefault()
+                                saveEditingName(panel)
+                              } else if (e.key === 'Escape') {
+                                e.preventDefault()
+                                cancelEditingName()
+                              }
+                            }}
+                            className="flex-1 min-w-0 px-2 py-1 text-sm border border-blue-400 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            maxLength={500}
+                          />
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              saveEditingName(panel)
+                            }}
+                            disabled={savingPanelId === panel.id}
+                            className="p-1 rounded hover:bg-green-100 text-green-600 disabled:opacity-50"
+                            title="Save (Enter)"
+                          >
+                            {savingPanelId === panel.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Check className="w-4 h-4" />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              cancelEditingName()
+                            }}
+                            disabled={savingPanelId === panel.id}
+                            className="p-1 rounded hover:bg-slate-100 text-slate-500 disabled:opacity-50"
+                            title="Cancel (Esc)"
+                          >
+                            <XIcon className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="group flex items-start gap-2">
+                          <div className="min-w-0">
+                            <p className="font-medium text-slate-900 text-sm truncate" title={panel.name}>
+                              {panel.name}
+                            </p>
+                            <p className="text-xs text-slate-500 truncate" title={panel.tag || 'No tag'}>
+                              {panel.tag || 'No tag'}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              startEditingName(panel)
+                            }}
+                            className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                            title="Rename panel"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex items-center space-x-2">

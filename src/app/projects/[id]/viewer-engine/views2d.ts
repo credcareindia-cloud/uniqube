@@ -20,6 +20,12 @@ export interface Views2DConfig {
   fragments: FRAGS.FragmentsModels;
   obcFragments: OBC.FragmentsManager;
   models: Map<string, FRAGS.FragmentsModel>;
+  /**
+   * Invoked after `ensureModelsVisible` resets highlights on FRAGS models.
+   * Use this to re-apply the same ghost + selection styling in 2D (and 3D) so
+   * floor-plan / ortho views match the current tree or canvas selection.
+   */
+  onAfterEnsureModelsVisible?: (mode: '2d' | '3d') => Promise<void>;
 }
 
 export interface StoreyInfo {
@@ -35,6 +41,7 @@ export class Views2DManager {
   private fragments: FRAGS.FragmentsModels;
   private obcFragments: OBC.FragmentsManager;
   private models: Map<string, FRAGS.FragmentsModel>;
+  private config: Views2DConfig;
   private ifcProperties: any; 
   private planModeActive: boolean = false;
   private storeyViewsInitialized: boolean = false;
@@ -59,6 +66,7 @@ export class Views2DManager {
   } | null = null;
   
   constructor(config: Views2DConfig) {
+    this.config = config;
     this.components = config.components;
     this.world = config.world;
     this.fragments = config.fragments;
@@ -359,6 +367,12 @@ export class Views2DManager {
       }
       await this.fragments.update(true);
     } catch {}
+
+    try {
+      await this.config.onAfterEnsureModelsVisible?.(is2D ? '2d' : '3d');
+    } catch (e) {
+      console.warn('⚠️ onAfterEnsureModelsVisible failed:', e);
+    }
 
     try {
       // OBC models: 2D helper models - hide them as we use FRAGS for actual geometry

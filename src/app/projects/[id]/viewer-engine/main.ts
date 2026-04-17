@@ -209,6 +209,57 @@ export async function initializeViewer(containerId: string = "container") {
   const models: Map<string, FRAGS.FragmentsModel> = new Map();
   let allModelsLoaded = false;
 
+  /** Keeps ghost + solid highlight in sync when 2D mode calls `resetHighlight` on all models */
+  let lastFragmentSelection: { modelId: string; ids: number[] } | null = null;
+
+  const getModelMapId = (m: FRAGS.FragmentsModel): string | null => {
+    for (const [id, ref] of models.entries()) {
+      if (ref === m) return id;
+    }
+    return null;
+  };
+
+  const setLastFragmentSelection = (modelId: string | null | undefined, ids: number[]) => {
+    if (!modelId || !ids.length) {
+      lastFragmentSelection = null;
+      return;
+    }
+    lastFragmentSelection = { modelId, ids: [...ids] };
+  };
+
+  const reapplyLastFragmentGhostSelection = async () => {
+    if (!lastFragmentSelection) return;
+    const { modelId, ids } = lastFragmentSelection;
+    const targetModel = models.get(modelId);
+    if (!targetModel || !ids.length) return;
+    try {
+      const tasks: Promise<any>[] = [];
+      for (const [, m] of models.entries()) tasks.push(m.resetHighlight(undefined));
+      await Promise.all(tasks);
+      tasks.length = 0;
+      for (const [, m] of models.entries()) {
+        tasks.push(
+          m.highlight(undefined, {
+            color: new THREE.Color(0xcccccc),
+            opacity: 0.2,
+            transparent: true,
+            renderedFaces: FRAGS.RenderedFaces.TWO,
+          })
+        );
+      }
+      await Promise.all(tasks);
+      await targetModel.highlight(ids, {
+        color: new THREE.Color('#0047AB'),
+        opacity: 1,
+        transparent: false,
+        renderedFaces: FRAGS.RenderedFaces.TWO,
+      });
+      await fragments.update(true);
+    } catch (e) {
+      console.warn('reapplyLastFragmentGhostSelection:', e);
+    }
+  };
+
   // Initialize 2D Views Manager
   let views2d: Views2DManager | null = null;
   try {
@@ -217,7 +268,10 @@ export async function initializeViewer(containerId: string = "container") {
       world,
       fragments,
       obcFragments,
-      models
+      models,
+      onAfterEnsureModelsVisible: async () => {
+        await reapplyLastFragmentGhostSelection();
+      },
     });
     console.log('✅ 2D Views Manager initialized');
   } catch (e) {
@@ -879,6 +933,45 @@ export async function initializeViewer(containerId: string = "container") {
         // Debug log to see values
         console.log(`🔍 Hierarchy path for ${localId}:`, path.map(n => `${n.type || n.category} (${n.localId || n.expressID})`));
 
+        const nodeName = (n: any) => String(n?.name ?? n?.Name ?? '');
+
+        // Prefer Structural Framing Assembly over Connections Assembly when both appear in the path
+        const assemblyCandidates: { id: number; typeRaw: string; name: string }[] = [];
+        for (let i = path.length - 1; i >= 0; i--) {
+          const node = path[i];
+          const parent = i > 0 ? path[i - 1] : null;
+          let typeRaw = node.type || node.category;
+          if (!typeRaw && parent) typeRaw = parent.type || parent.category;
+          typeRaw = typeRaw || 'Unknown';
+          const id = node.localId || node.expressID;
+          const typeUpper = typeRaw.toUpperCase();
+          const typeNormalized = typeUpper.replace(/^IFC/, '');
+          const isPanel = PANEL_TYPES.some(t => {
+            const tNormalized = t.replace(/^IFC/, '');
+            return typeNormalized.includes(tNormalized);
+          });
+          if (isPanel && id !== null && id !== undefined && typeNormalized.includes('ELEMENTASSEMBLY')) {
+            assemblyCandidates.push({ id, typeRaw, name: nodeName(node) });
+          }
+        }
+        if (assemblyCandidates.length) {
+          const framing = assemblyCandidates.find((c) => /framing/i.test(c.name));
+          if (framing) {
+            console.log(`✅ Parent assembly (Framing preferred): ${framing.typeRaw} (${framing.id})`);
+            return framing.id;
+          }
+          const notConnection = assemblyCandidates.find(
+            (c) => !/connection/i.test(c.name) && !/connections/i.test(c.name)
+          );
+          if (notConnection) {
+            console.log(`✅ Parent assembly (non-connection): ${notConnection.typeRaw} (${notConnection.id})`);
+            return notConnection.id;
+          }
+          const fallback = assemblyCandidates[assemblyCandidates.length - 1];
+          console.log(`✅ Parent assembly (fallback): ${fallback.typeRaw} (${fallback.id})`);
+          return fallback.id;
+        }
+
         // Find ALL panel types in the path, then return the TOPMOST one
         let topmostPanelId: number | null = null;
         let topmostPanelType: string | null = null;
@@ -1364,6 +1457,9 @@ export async function initializeViewer(containerId: string = "container") {
         transparent: false,
         renderedFaces: FRAGS.RenderedFaces.TWO,
       });
+
+      const resolvedMapId = modelId || getModelMapId(model);
+      setLastFragmentSelection(resolvedMapId, idsToHighlight);
 
       // Focus camera close to selection
       await focusCameraOnLocalIds(idsToHighlight, { closer: 0.9 });
@@ -1852,9 +1948,13 @@ export async function initializeViewer(containerId: string = "container") {
               renderedFaces: FRAGS.RenderedFaces.TWO,
             });
             console.log("Highlight applied to", targetIds.length, "elements");
+            const mapId = getModelMapId(model);
+            if (mapId) setLastFragmentSelection(mapId, targetIds);
           } catch (error) {
             console.error("Failed to highlight elements:", error);
           }
+        } else {
+          setLastFragmentSelection(null, []);
         }
 
         // Focus camera precisely on the selected items (a bit closer than perfect fit)
@@ -2684,6 +2784,8 @@ export async function initializeViewer(containerId: string = "container") {
               renderedFaces: FRAGS.RenderedFaces.TWO,
             });
 
+            setLastFragmentSelection(panel.modelId, idsToHighlight);
+
             // Focus camera on this panel (and keep it a little closer)
             await focusCameraOnLocalIds(idsToHighlight, { closer: 0.9 });
 
@@ -3168,7 +3270,7 @@ export async function initializeViewer(containerId: string = "container") {
       selectionActive = !selectionActive;
       selectionBtn.classList.toggle('active', selectionActive);
       if (selectionActive) {
-        console.log('🖱️ Selection tool enabled');
+        console.log('🖱️ Selection tool enabled (double-click model to select)');
         selectionHandler = async (ev: MouseEvent) => {
           // Always compute based on renderer canvas
           const canvas = (world.renderer?.three as any)?.domElement as HTMLCanvasElement | undefined;
@@ -3176,8 +3278,10 @@ export async function initializeViewer(containerId: string = "container") {
             console.warn('No renderer canvas found for picking');
             return;
           }
-          if (ev.type !== 'click') return; // ensure click only
-          console.log('🖱️ Click for selection at', ev.clientX, ev.clientY);
+          if (ev.type !== 'dblclick') return;
+          ev.preventDefault();
+          ev.stopPropagation();
+          console.log('🖱️ Double-click for selection at', ev.clientX, ev.clientY);
           // If user holds Shift, also open the tree for this selection
           openTreeNextSelection = !!ev.shiftKey;
           const rect = canvas.getBoundingClientRect();
@@ -3238,10 +3342,10 @@ export async function initializeViewer(containerId: string = "container") {
           }
         };
         const canvas = (world.renderer?.three as any)?.domElement as HTMLCanvasElement | undefined;
-        if (canvas) canvas.addEventListener('click', selectionHandler);
+        if (canvas) canvas.addEventListener('dblclick', selectionHandler);
       } else {
         const canvas = (world.renderer?.three as any)?.domElement as HTMLCanvasElement | undefined;
-        if (selectionHandler && canvas) canvas.removeEventListener('click', selectionHandler);
+        if (selectionHandler && canvas) canvas.removeEventListener('dblclick', selectionHandler);
         selectionHandler = null;
         console.log('🛑 Selection tool disabled');
       }
@@ -3252,6 +3356,7 @@ export async function initializeViewer(containerId: string = "container") {
   if (treeResetBtn) {
     treeResetBtn.addEventListener("click", async () => {
       try {
+        lastFragmentSelection = null;
         // Reset all highlights and visibility for all models
         for (const [_, model] of models.entries()) {
           await model.resetHighlight(undefined);
