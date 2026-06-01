@@ -35,6 +35,7 @@ import { StatusManagementTab } from '@/components/project-tabs/StatusManagementT
 import { GroupManagementTab } from '@/components/project-tabs/GroupManagementTab'
 import { PanelManagementTab } from '@/components/project-tabs/PanelManagementTab'
 import { ProjectDetailsTab } from '@/components/project-tabs/ProjectDetailsTab'
+import { DocsTab } from '@/components/project-tabs/DocsTab'
 import { EditProjectModal } from '@/components/modals/EditProjectModal'
 import { ConfirmDeleteModal } from '@/components/modals/ConfirmDeleteModal'
 import { DeletingProjectModal } from '@/components/modals/DeletingProjectModal'
@@ -1314,6 +1315,18 @@ export default function ProjectDetailPage() {
               </>
             )}
             <button
+              onClick={() => setActiveTab('docs')}
+              className={`pb-3 text-sm font-medium transition-colors relative ${activeTab === 'docs'
+                ? 'text-slate-900'
+                : 'text-slate-500 hover:text-slate-700'
+                }`}
+            >
+              Docs
+              {activeTab === 'docs' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-900" />
+              )}
+            </button>
+            <button
               onClick={() => setActiveTab('details')}
               className={`pb-3 text-sm font-medium transition-colors relative ml-auto ${activeTab === 'details'
                 ? 'text-slate-900'
@@ -1417,6 +1430,10 @@ export default function ProjectDetailPage() {
 
           {activeTab === 'panels' && (
             <PanelManagementTab projectId={parseInt(id)} />
+          )}
+
+          {activeTab === 'docs' && (
+            <DocsTab projectId={parseInt(id!)} />
           )}
 
           {activeTab === 'details' && (
