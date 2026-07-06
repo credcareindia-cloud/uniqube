@@ -18,18 +18,30 @@ import { authenticatedFetch } from '@/utils/authenticatedFetch'
 import { API_BASE_URL, getApiUrl } from '@/config/api'
 import { toast } from '@/components/ui/use-toast'
 
+export type DocumentCategory = 'DRAWINGS' | 'LOGISTICS' | 'CNC'
+
 interface ProjectDocument {
   id: string
   name: string
   originalFilename: string
   mimeType: string
   sizeBytes: number
+  category: DocumentCategory
   createdAt: string
   uploader?: { id: string; name: string; email: string } | null
 }
 
-interface DocsTabProps {
+export interface ProjectDocumentsTabProps {
   projectId: number
+  category: DocumentCategory
+  title: string
+  description: string
+  namePlaceholder: string
+  /** Omit or pass empty string to show all files/folders in the OS picker (validation still runs on select). */
+  accept?: string
+  allowedExtensions: string[]
+  emptyTitle: string
+  emptyDescription: string
 }
 
 const formatBytes = (bytes: number) => {
@@ -55,11 +67,26 @@ const fileIconFor = (mime: string, filename: string) => {
   const ext = filename.split('.').pop()?.toLowerCase() || ''
   if (lower.startsWith('image/')) return ImageIcon
   if (lower.includes('pdf') || ext === 'pdf') return FileType2
-  if (['dwg', 'dxf', 'dwf', 'rvt', 'skp'].includes(ext)) return FileText
+  if (['dwg', 'dxf', 'dwf', 'rvt', 'skp', 'nc', 'cnc', 'tap', 'gcode'].includes(ext)) return FileText
   return File
 }
 
-export function DocsTab({ projectId }: DocsTabProps) {
+function getExtension(filename: string): string {
+  const idx = filename.lastIndexOf('.')
+  return idx >= 0 ? filename.slice(idx + 1).toLowerCase() : ''
+}
+
+export function ProjectDocumentsTab({
+  projectId,
+  category,
+  title,
+  description,
+  namePlaceholder,
+  accept,
+  allowedExtensions,
+  emptyTitle,
+  emptyDescription,
+}: ProjectDocumentsTabProps) {
   const [docs, setDocs] = useState<ProjectDocument[]>([])
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
@@ -73,19 +100,21 @@ export function DocsTab({ projectId }: DocsTabProps) {
 
   useEffect(() => {
     void loadDocs()
-  }, [projectId])
+  }, [projectId, category])
 
   const loadDocs = async () => {
     try {
       setLoading(true)
-      const res = await authenticatedFetch(getApiUrl(`documents/${projectId}`))
+      const res = await authenticatedFetch(
+        getApiUrl(`documents/${projectId}?category=${category}`)
+      )
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
       setDocs(data.documents || [])
     } catch (err) {
       console.error('Failed to load documents', err)
       toast({
-        title: 'Failed to load documents',
+        title: 'Failed to load files',
         description: err instanceof Error ? err.message : 'Unknown error',
         variant: 'destructive',
       })
@@ -95,9 +124,23 @@ export function DocsTab({ projectId }: DocsTabProps) {
   }
 
   const handlePickFile = (file: File | null) => {
+    if (!file) {
+      setUploadFile(null)
+      return
+    }
+    const ext = getExtension(file.name)
+    if (!allowedExtensions.includes(ext)) {
+      toast({
+        title: 'Unsupported file type',
+        description: `Allowed: ${allowedExtensions.join(', ')}`,
+        variant: 'destructive',
+      })
+      setUploadFile(null)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      return
+    }
     setUploadFile(file)
-    if (file && !uploadName.trim()) {
-      // Default the name to the filename without extension.
+    if (!uploadName.trim()) {
       const dot = file.name.lastIndexOf('.')
       const base = dot > 0 ? file.name.slice(0, dot) : file.name
       setUploadName(base)
@@ -111,7 +154,7 @@ export function DocsTab({ projectId }: DocsTabProps) {
       return
     }
     if (!uploadName.trim()) {
-      toast({ title: 'Document name required', variant: 'destructive' })
+      toast({ title: 'Name required', variant: 'destructive' })
       return
     }
 
@@ -120,6 +163,7 @@ export function DocsTab({ projectId }: DocsTabProps) {
 
       const form = new FormData()
       form.append('name', uploadName.trim())
+      form.append('category', category)
       form.append('file', uploadFile)
 
       const token = localStorage.getItem('auth_token')
@@ -139,7 +183,7 @@ export function DocsTab({ projectId }: DocsTabProps) {
       setUploadName('')
       setUploadFile(null)
       if (fileInputRef.current) fileInputRef.current.value = ''
-      toast({ title: 'Document uploaded', description: data.document.name })
+      toast({ title: 'File uploaded', description: data.document.name })
     } catch (err) {
       console.error('Upload failed', err)
       toast({
@@ -158,7 +202,6 @@ export function DocsTab({ projectId }: DocsTabProps) {
       const res = await authenticatedFetch(getApiUrl(`documents/${projectId}/${doc.id}/download`))
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
-      // Open in new tab — works for PDFs/images, triggers browser download for other types.
       window.open(data.url, '_blank', 'noopener,noreferrer')
     } catch (err) {
       console.error('Download failed', err)
@@ -184,7 +227,7 @@ export function DocsTab({ projectId }: DocsTabProps) {
         throw new Error(data?.error || `Delete failed (${res.status})`)
       }
       setDocs(prev => prev.filter(d => d.id !== doc.id))
-      toast({ title: 'Document deleted', description: doc.name })
+      toast({ title: 'File deleted', description: doc.name })
     } catch (err) {
       console.error('Delete failed', err)
       toast({
@@ -245,14 +288,11 @@ export function DocsTab({ projectId }: DocsTabProps) {
 
   return (
     <div className="space-y-6">
-      {/* Upload form */}
       <div className="bg-white rounded-lg border border-slate-200 p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">Documents</h2>
-            <p className="text-sm text-slate-500 mt-1">
-              Upload PDFs, drawings, and reference files for this project.
-            </p>
+            <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
+            <p className="text-sm text-slate-500 mt-1">{description}</p>
           </div>
         </div>
 
@@ -261,14 +301,12 @@ export function DocsTab({ projectId }: DocsTabProps) {
           className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-3 items-start"
         >
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">
-              Document name
-            </label>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Name</label>
             <input
               type="text"
               value={uploadName}
               onChange={(e) => setUploadName(e.target.value)}
-              placeholder="e.g. Architectural drawings (Floor 1)"
+              placeholder={namePlaceholder}
               maxLength={255}
               className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:border-slate-500 focus:outline-none"
               disabled={uploading}
@@ -276,17 +314,20 @@ export function DocsTab({ projectId }: DocsTabProps) {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">
-              File
-            </label>
+            <label className="block text-xs font-medium text-slate-600 mb-1">File</label>
             <input
               ref={fileInputRef}
               type="file"
               onChange={(e) => handlePickFile(e.target.files?.[0] || null)}
               className="block w-full text-sm text-slate-700 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 file:cursor-pointer"
               disabled={uploading}
-              accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.dwg,.dxf,.dwf,.rvt,.skp,.zip,.txt,.csv,application/pdf,image/*"
+              {...(accept ? { accept } : {})}
             />
+            {allowedExtensions.length > 0 && (
+              <p className="text-xs text-slate-400 mt-1">
+                Allowed: {allowedExtensions.map(e => `.${e}`).join(', ')}
+              </p>
+            )}
             {uploadFile && (
               <p className="text-xs text-slate-500 mt-1">
                 {uploadFile.name} • {formatBytes(uploadFile.size)}
@@ -316,7 +357,6 @@ export function DocsTab({ projectId }: DocsTabProps) {
         </form>
       </div>
 
-      {/* Documents table */}
       <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -346,8 +386,8 @@ export function DocsTab({ projectId }: DocsTabProps) {
                       <div className="w-16 h-16 mb-4 rounded-full bg-slate-100 flex items-center justify-center">
                         <FileText className="w-8 h-8 text-slate-400" />
                       </div>
-                      <p className="text-lg font-semibold text-slate-900 mb-1">No documents yet</p>
-                      <p className="text-sm text-slate-500">Upload PDFs or drawings using the form above.</p>
+                      <p className="text-lg font-semibold text-slate-900 mb-1">{emptyTitle}</p>
+                      <p className="text-sm text-slate-500">{emptyDescription}</p>
                     </div>
                   </td>
                 </tr>
@@ -374,22 +414,10 @@ export function DocsTab({ projectId }: DocsTabProps) {
                               maxLength={255}
                               className="flex-1 min-w-0 px-2 py-1 text-sm border border-blue-400 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                             />
-                            <button
-                              type="button"
-                              onClick={() => saveRename(doc)}
-                              disabled={isBusy}
-                              className="p-1 rounded hover:bg-green-100 text-green-600 disabled:opacity-50"
-                              title="Save"
-                            >
+                            <button type="button" onClick={() => saveRename(doc)} disabled={isBusy} className="p-1 rounded hover:bg-green-100 text-green-600 disabled:opacity-50" title="Save">
                               {isBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                             </button>
-                            <button
-                              type="button"
-                              onClick={cancelRename}
-                              disabled={isBusy}
-                              className="p-1 rounded hover:bg-slate-100 text-slate-500 disabled:opacity-50"
-                              title="Cancel"
-                            >
+                            <button type="button" onClick={cancelRename} disabled={isBusy} className="p-1 rounded hover:bg-slate-100 text-slate-500 disabled:opacity-50" title="Cancel">
                               <XIcon className="w-4 h-4" />
                             </button>
                           </div>
@@ -397,19 +425,10 @@ export function DocsTab({ projectId }: DocsTabProps) {
                           <div className="group flex items-start gap-2">
                             <Icon className="w-5 h-5 text-slate-400 mt-0.5 flex-shrink-0" />
                             <div className="min-w-0">
-                              <p className="font-medium text-slate-900 text-sm truncate" title={doc.name}>
-                                {doc.name}
-                              </p>
-                              <p className="text-xs text-slate-500 truncate" title={doc.originalFilename}>
-                                {doc.originalFilename}
-                              </p>
+                              <p className="font-medium text-slate-900 text-sm truncate" title={doc.name}>{doc.name}</p>
+                              <p className="text-xs text-slate-500 truncate" title={doc.originalFilename}>{doc.originalFilename}</p>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => startRename(doc)}
-                              className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                              title="Rename"
-                            >
+                            <button type="button" onClick={() => startRename(doc)} className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" title="Rename">
                               <Pencil className="w-3.5 h-3.5" />
                             </button>
                           </div>
@@ -425,26 +444,10 @@ export function DocsTab({ projectId }: DocsTabProps) {
                       <td className="py-3 px-4 text-sm text-slate-600">{formatDate(doc.createdAt)}</td>
                       <td className="py-3 px-4">
                         <div className="flex items-center justify-end gap-1">
-                          <button
-                            type="button"
-                            onClick={() => handleDownload(doc)}
-                            disabled={isBusy}
-                            className="p-2 rounded text-slate-600 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-50"
-                            title="Download / open"
-                          >
-                            {isBusy && actioningId === doc.id ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <Download className="w-4 h-4" />
-                            )}
+                          <button type="button" onClick={() => handleDownload(doc)} disabled={isBusy} className="p-2 rounded text-slate-600 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-50" title="Download / open">
+                            {isBusy && actioningId === doc.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(doc)}
-                            disabled={isBusy}
-                            className="p-2 rounded text-red-600 hover:text-red-700 hover:bg-red-50 disabled:opacity-50"
-                            title="Delete"
-                          >
+                          <button type="button" onClick={() => handleDelete(doc)} disabled={isBusy} className="p-2 rounded text-red-600 hover:text-red-700 hover:bg-red-50 disabled:opacity-50" title="Delete">
                             <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
@@ -460,3 +463,6 @@ export function DocsTab({ projectId }: DocsTabProps) {
     </div>
   )
 }
+
+// Backward-compatible alias
+export const DocsTab = ProjectDocumentsTab

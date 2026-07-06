@@ -35,7 +35,7 @@ import { StatusManagementTab } from '@/components/project-tabs/StatusManagementT
 import { GroupManagementTab } from '@/components/project-tabs/GroupManagementTab'
 import { PanelManagementTab } from '@/components/project-tabs/PanelManagementTab'
 import { ProjectDetailsTab } from '@/components/project-tabs/ProjectDetailsTab'
-import { DocsTab } from '@/components/project-tabs/DocsTab'
+import { ProjectDocumentsTab } from '@/components/project-tabs/DocsTab'
 import { EditProjectModal } from '@/components/modals/EditProjectModal'
 import { ConfirmDeleteModal } from '@/components/modals/ConfirmDeleteModal'
 import { DeletingProjectModal } from '@/components/modals/DeletingProjectModal'
@@ -1315,14 +1315,38 @@ export default function ProjectDetailPage() {
               </>
             )}
             <button
-              onClick={() => setActiveTab('docs')}
-              className={`pb-3 text-sm font-medium transition-colors relative ${activeTab === 'docs'
+              onClick={() => setActiveTab('drawings')}
+              className={`pb-3 text-sm font-medium transition-colors relative ${activeTab === 'drawings'
                 ? 'text-slate-900'
                 : 'text-slate-500 hover:text-slate-700'
                 }`}
             >
-              Docs
-              {activeTab === 'docs' && (
+              Drawings
+              {activeTab === 'drawings' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-900" />
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab('logistics')}
+              className={`pb-3 text-sm font-medium transition-colors relative ${activeTab === 'logistics'
+                ? 'text-slate-900'
+                : 'text-slate-500 hover:text-slate-700'
+                }`}
+            >
+              Logistics
+              {activeTab === 'logistics' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-900" />
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab('cnc')}
+              className={`pb-3 text-sm font-medium transition-colors relative ${activeTab === 'cnc'
+                ? 'text-slate-900'
+                : 'text-slate-500 hover:text-slate-700'
+                }`}
+            >
+              CNC
+              {activeTab === 'cnc' && (
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-900" />
               )}
             </button>
@@ -1432,8 +1456,45 @@ export default function ProjectDetailPage() {
             <PanelManagementTab projectId={parseInt(id)} />
           )}
 
-          {activeTab === 'docs' && (
-            <DocsTab projectId={parseInt(id!)} />
+          {activeTab === 'drawings' && (
+            <ProjectDocumentsTab
+              projectId={parseInt(id!)}
+              category="DRAWINGS"
+              title="Drawings"
+              description="Upload PDFs, CAD files, and reference drawings for this project."
+              namePlaceholder="e.g. Architectural drawings (Floor 1)"
+              accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.dwg,.dxf,.dwf,.rvt,.skp,.zip,.txt,.csv,application/pdf,image/*"
+              allowedExtensions={['pdf', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'dwg', 'dxf', 'dwf', 'rvt', 'skp', 'zip', 'txt', 'csv']}
+              emptyTitle="No drawings yet"
+              emptyDescription="Upload PDFs or drawings using the form above."
+            />
+          )}
+
+          {activeTab === 'logistics' && (
+            <ProjectDocumentsTab
+              projectId={parseInt(id!)}
+              category="LOGISTICS"
+              title="Logistics"
+              description="Upload logistics PDF documents for this project."
+              namePlaceholder="e.g. Shipping schedule — Batch 1"
+              accept=".pdf,application/pdf"
+              allowedExtensions={['pdf']}
+              emptyTitle="No logistics documents yet"
+              emptyDescription="Upload PDF files using the form above."
+            />
+          )}
+
+          {activeTab === 'cnc' && (
+            <ProjectDocumentsTab
+              projectId={parseInt(id!)}
+              category="CNC"
+              title="CNC"
+              description="Upload CNC programs, spreadsheets (Excel/CSV), and related shop files."
+              namePlaceholder="e.g. Panel ILB-101 program"
+              allowedExtensions={['nc', 'cnc', 'tap', 'gcode', 'gc', 'mpg', 'cps', 'iso', 'txt', 'csv', 'xls', 'xlsx']}
+              emptyTitle="No CNC files yet"
+              emptyDescription="Upload CNC or spreadsheet files using the form above."
+            />
           )}
 
           {activeTab === 'details' && (
