@@ -209,8 +209,18 @@ export async function initializeViewer(containerId: string = "container") {
   const models: Map<string, FRAGS.FragmentsModel> = new Map();
   let allModelsLoaded = false;
 
-  /** Keeps ghost + solid highlight in sync when 2D mode calls `resetHighlight` on all models */
-  let lastFragmentSelection: { modelId: string; ids: number[] } | null = null;
+  type PanelSelectionEntry = {
+    modelId: string;
+    panelLocalId: number;
+    fragmentIds: number[];
+    name?: string;
+  };
+
+  /** Active multi-panel selection (panels chosen via selection tool or tree) */
+  let selectedPanels: PanelSelectionEntry[] = [];
+
+  /** Snapshot of fragment highlights for 2D view re-sync */
+  let lastFragmentHighlight: { modelId: string; ids: number[] }[] = [];
 
   const getModelMapId = (m: FRAGS.FragmentsModel): string | null => {
     for (const [id, ref] of models.entries()) {
@@ -219,42 +229,46 @@ export async function initializeViewer(containerId: string = "container") {
     return null;
   };
 
-  const setLastFragmentSelection = (modelId: string | null | undefined, ids: number[]) => {
-    if (!modelId || !ids.length) {
-      lastFragmentSelection = null;
-      return;
-    }
-    lastFragmentSelection = { modelId, ids: [...ids] };
+  const saveFragmentHighlightSnapshot = (entries: { modelId: string; ids: number[] }[]) => {
+    lastFragmentHighlight = entries
+      .filter((e) => e.modelId && e.ids.length)
+      .map((e) => ({ modelId: e.modelId, ids: [...e.ids] }));
   };
 
-  const reapplyLastFragmentGhostSelection = async () => {
-    if (!lastFragmentSelection) return;
-    const { modelId, ids } = lastFragmentSelection;
-    const targetModel = models.get(modelId);
-    if (!targetModel || !ids.length) return;
-    try {
-      const tasks: Promise<any>[] = [];
-      for (const [, m] of models.entries()) tasks.push(m.resetHighlight(undefined));
-      await Promise.all(tasks);
-      tasks.length = 0;
-      for (const [, m] of models.entries()) {
-        tasks.push(
-          m.highlight(undefined, {
-            color: new THREE.Color(0xcccccc),
-            opacity: 0.2,
-            transparent: true,
-            renderedFaces: FRAGS.RenderedFaces.TWO,
-          })
-        );
-      }
-      await Promise.all(tasks);
-      await targetModel.highlight(ids, {
+  const applyGhostAndHighlights = async (highlights: { modelId: string; ids: number[] }[]) => {
+    const tasks: Promise<any>[] = [];
+    for (const [, m] of models.entries()) tasks.push(m.resetHighlight(undefined));
+    await Promise.all(tasks);
+    tasks.length = 0;
+    for (const [, m] of models.entries()) {
+      tasks.push(
+        m.highlight(undefined, {
+          color: new THREE.Color(0xcccccc),
+          opacity: 0.2,
+          transparent: true,
+          renderedFaces: FRAGS.RenderedFaces.TWO,
+        })
+      );
+    }
+    await Promise.all(tasks);
+
+    for (const entry of highlights) {
+      const targetModel = models.get(entry.modelId);
+      if (!targetModel || !entry.ids.length) continue;
+      await targetModel.highlight(entry.ids, {
         color: new THREE.Color('#0047AB'),
         opacity: 1,
         transparent: false,
         renderedFaces: FRAGS.RenderedFaces.TWO,
       });
-      await fragments.update(true);
+    }
+    await fragments.update(true);
+  };
+
+  const reapplyLastFragmentGhostSelection = async () => {
+    if (!lastFragmentHighlight.length) return;
+    try {
+      await applyGhostAndHighlights(lastFragmentHighlight);
     } catch (e) {
       console.warn('reapplyLastFragmentGhostSelection:', e);
     }
@@ -1025,11 +1039,7 @@ export async function initializeViewer(containerId: string = "container") {
     const treeContainer = document.getElementById("tree-container");
     if (!treeContainer) return false;
 
-    const expandAndSelect = (target: HTMLElement) => {
-      // Clear previous selection
-      treeContainer.querySelectorAll('.tree-node.selected').forEach(n => n.classList.remove('selected'));
-      target.classList.add('selected');
-
+    const expandAndNavigate = (target: HTMLElement) => {
       // Expand its parent storey if collapsed
       const storeyChildren = target.closest('.storey-children') as HTMLElement | null;
       if (storeyChildren && storeyChildren.classList.contains('collapsed')) {
@@ -1050,14 +1060,12 @@ export async function initializeViewer(containerId: string = "container") {
         }
       }
 
-      // Scroll into view with centering and a small delay to ensure layout is stable
+      syncTreeSelectionUI();
+
       setTimeout(() => {
-        (target as HTMLElement).scrollIntoView({ block: 'center', behavior: 'smooth' });
-        // Trigger the node's click handler to show element info panel
-        target.click();
+        target.scrollIntoView({ block: 'center', behavior: 'smooth' });
       }, 100);
 
-      // Ensure tree panel is open
       const treePanel = document.getElementById('tree-panel');
       treePanel?.classList.remove('panel-hidden');
     };
@@ -1076,7 +1084,7 @@ export async function initializeViewer(containerId: string = "container") {
     let target = await waitForNode(localId, 1); // Quick check
 
     if (target) {
-      expandAndSelect(target);
+      expandAndNavigate(target);
       return true;
     }
 
@@ -1095,7 +1103,7 @@ export async function initializeViewer(containerId: string = "container") {
         // Check DOM again for parent
         target = await waitForNode(targetId, 1);
         if (target) {
-          expandAndSelect(target);
+          expandAndNavigate(target);
           return true;
         }
       }
@@ -1296,7 +1304,7 @@ export async function initializeViewer(containerId: string = "container") {
                   // Select the target node (Retry a few times for DOM update)
                   const newTarget = await waitForNode(targetId, 5);
                   if (newTarget) {
-                    expandAndSelect(newTarget);
+                    expandAndNavigate(newTarget);
                     return true;
                   } else {
                     console.warn("Node still not found after loading page");
@@ -1360,7 +1368,7 @@ export async function initializeViewer(containerId: string = "container") {
               // Try to select again
               const newTarget = await waitForNode(targetId, 3);
               if (newTarget) {
-                expandAndSelect(newTarget);
+                expandAndNavigate(newTarget);
                 return true;
               }
             }
@@ -1380,97 +1388,13 @@ export async function initializeViewer(containerId: string = "container") {
 
 
   // Helper: select element by localId (highlight + camera + info panel)
-  const selectElementByLocalId = async (localId: number, modelId?: string) => {
+  const selectElementByLocalId = async (
+    localId: number,
+    modelId?: string,
+    options?: { mode?: 'replace' | 'toggle' }
+  ) => {
     try {
-      // Determine which model contains this localId
-      let model: FRAGS.FragmentsModel | null = null;
-
-      if (modelId) {
-        model = models.get(modelId) || null;
-        if (!model) {
-          console.warn(`Specified model ${modelId} not found in loaded models`);
-          // Fallback to search if specific model not found
-          model = await findModelForLocalId(localId);
-        }
-      } else {
-        model = await findModelForLocalId(localId);
-      }
-
-      if (!model) {
-        console.warn('No model found for localId', localId);
-        return;
-      }
-
-      // 1. Resolve Parent ID FIRST
-      // We want to select the main parent object (e.g. Wall) even if a child (e.g. Screw) was clicked.
-      let targetId = localId;
-      const parentId = await findParentPanelId(model, localId);
-      if (parentId) {
-        targetId = parentId;
-        console.log(`ℹ️ Selection: Resolved child ${localId} to parent ${targetId}`);
-      }
-
-      // Reset highlights and ghost all models
-      const tasks: Promise<any>[] = [];
-      for (const [_, m] of models.entries()) {
-        tasks.push(m.resetHighlight(undefined));
-      }
-      await Promise.all(tasks);
-      tasks.length = 0;
-      for (const [_, m] of models.entries()) {
-        tasks.push(m.highlight(undefined, {
-          color: new THREE.Color(0xcccccc),
-          opacity: 0.2,
-          transparent: true,
-          renderedFaces: FRAGS.RenderedFaces.TWO,
-        }));
-      }
-      await Promise.all(tasks);
-
-      // Parent + children IDs (using the resolved targetId)
-      let idsToHighlight: number[] = [targetId];
-
-      // Use spatial structure to collect parent + children (most reliable method)
-      try {
-        const cacheKey = (model as any).modelId || (model as any).threads?.modelId || 'default';
-        let spatialStructure = spatialStructureCache.get(cacheKey);
-        if (!spatialStructure) {
-          spatialStructure = await model.getSpatialStructure();
-          spatialStructureCache.set(cacheKey, spatialStructure);
-        }
-        if (spatialStructure) {
-          // Collect children of the TARGET (Parent) ID
-          const related = collectParentAndChildIds(spatialStructure, targetId);
-          if (related.length > 0) {
-            idsToHighlight = related;
-            console.log(`📦 Found ${related.length} related elements (parent + children) from spatial structure`);
-          }
-        }
-      } catch (e) {
-        console.warn('Could not compute parent/children for localId', targetId, e);
-      }
-
-      // Highlight selected ids in cobalt blue in owning model
-      await model.highlight(idsToHighlight, {
-        color: new THREE.Color('#0047AB'),
-        opacity: 1,
-        transparent: false,
-        renderedFaces: FRAGS.RenderedFaces.TWO,
-      });
-
-      const resolvedMapId = modelId || getModelMapId(model);
-      setLastFragmentSelection(resolvedMapId, idsToHighlight);
-
-      // Focus camera close to selection
-      await focusCameraOnLocalIds(idsToHighlight, { closer: 0.9 });
-      await fragments.update(true);
-
-      // 2. Tree navigation (which will trigger the tree node click handler to show element info)
-      if (SYNC_TREE_ON_SELECT || openTreeNextSelection) {
-        await selectTreeNodeByLocalId(targetId);
-      }
-      openTreeNextSelection = false;
-
+      await selectPanels(localId, modelId, { mode: options?.mode ?? 'replace' });
     } catch (e) {
       console.error('Error selecting element by localId:', e);
     }
@@ -1536,6 +1460,204 @@ export async function initializeViewer(containerId: string = "container") {
     }
 
     return collected;
+  };
+
+  const findSelectedPanelIndex = (modelId: string, panelLocalId: number) =>
+    selectedPanels.findIndex((p) => p.modelId === modelId && p.panelLocalId === panelLocalId);
+
+  const resolvePanelHighlightIds = async (
+    localId: number,
+    modelId?: string
+  ): Promise<{
+    model: FRAGS.FragmentsModel;
+    modelId: string;
+    panelLocalId: number;
+    fragmentIds: number[];
+  } | null> => {
+    let model: FRAGS.FragmentsModel | null = null;
+
+    if (modelId) {
+      model = models.get(modelId) || null;
+      if (!model) {
+        console.warn(`Specified model ${modelId} not found in loaded models`);
+        model = await findModelForLocalId(localId);
+      }
+    } else {
+      model = await findModelForLocalId(localId);
+    }
+
+    if (!model) {
+      console.warn('No model found for localId', localId);
+      return null;
+    }
+
+    let panelLocalId = localId;
+    const parentId = await findParentPanelId(model, localId);
+    if (parentId) {
+      panelLocalId = parentId;
+      console.log(`ℹ️ Selection: Resolved child ${localId} to parent ${panelLocalId}`);
+    }
+
+    let fragmentIds: number[] = [panelLocalId];
+    try {
+      const cacheKey = (model as any).modelId || (model as any).threads?.modelId || 'default';
+      let spatialStructure = spatialStructureCache.get(cacheKey);
+      if (!spatialStructure) {
+        spatialStructure = await model.getSpatialStructure();
+        spatialStructureCache.set(cacheKey, spatialStructure);
+      }
+      if (spatialStructure) {
+        const related = collectParentAndChildIds(spatialStructure, panelLocalId);
+        if (related.length > 0) {
+          fragmentIds = related;
+        }
+      }
+    } catch (e) {
+      console.warn('Could not compute parent/children for localId', panelLocalId, e);
+    }
+
+    const resolvedMapId = modelId || getModelMapId(model);
+    if (!resolvedMapId) return null;
+
+    return { model, modelId: resolvedMapId, panelLocalId, fragmentIds };
+  };
+
+  const buildHighlightSnapshotFromSelection = () => {
+    const byModel = new Map<string, Set<number>>();
+    for (const entry of selectedPanels) {
+      if (!byModel.has(entry.modelId)) byModel.set(entry.modelId, new Set());
+      entry.fragmentIds.forEach((id) => byModel.get(entry.modelId)!.add(id));
+    }
+    return Array.from(byModel.entries()).map(([mid, ids]) => ({
+      modelId: mid,
+      ids: [...ids],
+    }));
+  };
+
+  const applySelectionHighlight = async () => {
+    const snapshot = buildHighlightSnapshotFromSelection();
+    saveFragmentHighlightSnapshot(snapshot);
+    await applyGhostAndHighlights(snapshot);
+  };
+
+  const syncTreeSelectionUI = () => {
+    const treeContainer = document.getElementById('tree-container');
+    if (!treeContainer) return;
+    treeContainer.querySelectorAll('.tree-node.selected').forEach((n) => n.classList.remove('selected'));
+    for (const entry of selectedPanels) {
+      const node = treeContainer.querySelector(
+        `.tree-node.panel-node[data-local-id="${entry.panelLocalId}"]`
+      ) as HTMLElement | null;
+      node?.classList.add('selected');
+    }
+  };
+
+  const updateSelectionStatusBar = () => {
+    const summary = document.getElementById('selection-summary');
+    const countText = document.getElementById('selection-count-text');
+    if (!summary || !countText) return;
+    if (selectedPanels.length <= 1) {
+      summary.classList.add('panel-hidden');
+      return;
+    }
+    summary.classList.remove('panel-hidden');
+    countText.textContent = `${selectedPanels.length} panels selected`;
+  };
+
+  const showSelectionInfoPanel = () => {
+    const infoPanel = document.getElementById('infoPanel');
+    const statusPanel = document.getElementById('statusPanel');
+    const groupsPanel = document.getElementById('groupsPanel');
+
+    if (!selectedPanels.length) {
+      infoPanel?.classList.add('panel-hidden');
+      return;
+    }
+
+    if (selectedPanels.length === 1) {
+      const entry = selectedPanels[0];
+      const panelData = localIdPanelMap.get(entry.panelLocalId);
+      if (panelData) {
+        updateInfoPanel({
+          localId: entry.panelLocalId,
+          name: panelData.name || panelData.tag || 'Unnamed',
+          type: panelData.type,
+          tag: panelData.tag,
+          id: panelData.id,
+          elementId: panelData.elementId,
+          metadata: panelData.metadata,
+          category: 'element',
+          children: [],
+          panelData,
+        } as any);
+      }
+      return;
+    }
+
+    if (statusPanel) statusPanel.classList.add('panel-hidden');
+    if (groupsPanel) groupsPanel.classList.add('panel-hidden');
+    if (infoPanel) {
+      infoPanel.classList.remove('panel-hidden');
+      void renderMultiSelectionInfoPanel();
+    }
+  };
+
+  const clearPanelSelection = async () => {
+    selectedPanels = [];
+    lastFragmentHighlight = [];
+    for (const [, m] of models.entries()) {
+      await m.resetHighlight(undefined);
+    }
+    await fragments.update(true);
+    syncTreeSelectionUI();
+    updateSelectionStatusBar();
+    document.getElementById('infoPanel')?.classList.add('panel-hidden');
+  };
+
+  const selectPanels = async (
+    localId: number,
+    modelId?: string,
+    options: { mode?: 'replace' | 'toggle'; skipCamera?: boolean; skipInfoPanelRefresh?: boolean } = {
+      mode: 'replace',
+    }
+  ) => {
+    const resolved = await resolvePanelHighlightIds(localId, modelId);
+    if (!resolved) return;
+
+    const { modelId: mid, panelLocalId, fragmentIds } = resolved;
+    const panelData = localIdPanelMap.get(panelLocalId);
+    const name = panelData?.name || panelData?.tag || `Panel ${panelLocalId}`;
+    const idx = findSelectedPanelIndex(mid, panelLocalId);
+
+    if (options.mode === 'toggle') {
+      if (idx >= 0) {
+        selectedPanels.splice(idx, 1);
+      } else {
+        selectedPanels.push({ modelId: mid, panelLocalId, fragmentIds, name });
+      }
+    } else {
+      selectedPanels = [{ modelId: mid, panelLocalId, fragmentIds, name }];
+    }
+
+    if (selectedPanels.length === 0) {
+      await clearPanelSelection();
+      return;
+    }
+
+    await applySelectionHighlight();
+    syncTreeSelectionUI();
+    updateSelectionStatusBar();
+    if (!options.skipInfoPanelRefresh) {
+      showSelectionInfoPanel();
+    }
+    if (!options.skipCamera) {
+      await focusCameraOnLocalIds(fragmentIds, { closer: 0.9 });
+    }
+
+    if ((SYNC_TREE_ON_SELECT || openTreeNextSelection) && options.mode === 'replace') {
+      await selectTreeNodeByLocalId(panelLocalId);
+    }
+    openTreeNextSelection = false;
   };
 
   // Duplicate helper block removed; hoisted function declarations above are used
@@ -1949,12 +2071,18 @@ export async function initializeViewer(containerId: string = "container") {
             });
             console.log("Highlight applied to", targetIds.length, "elements");
             const mapId = getModelMapId(model);
-            if (mapId) setLastFragmentSelection(mapId, targetIds);
+            if (mapId) {
+              selectedPanels = [];
+              updateSelectionStatusBar();
+              saveFragmentHighlightSnapshot([{ modelId: mapId, ids: targetIds }]);
+            }
           } catch (error) {
             console.error("Failed to highlight elements:", error);
           }
         } else {
-          setLastFragmentSelection(null, []);
+          selectedPanels = [];
+          lastFragmentHighlight = [];
+          updateSelectionStatusBar();
         }
 
         // Focus camera precisely on the selected items (a bit closer than perfect fit)
@@ -2136,6 +2264,258 @@ export async function initializeViewer(containerId: string = "container") {
     } catch (error) {
       console.error('Error fetching panels for storey:', error);
       return null;
+    }
+  };
+
+  const comparePanelNames = (a: string, b: string) =>
+    a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+
+  const getStoreyKeysFromSelection = () => {
+    const keys = new Map<string, { modelId: string; storeyName: string }>();
+    for (const entry of selectedPanels) {
+      const panelData = localIdPanelMap.get(entry.panelLocalId);
+      const storeyName = panelData?.metadata?.storeyName || 'Unknown Storey';
+      const key = `${entry.modelId}::${storeyName}`;
+      keys.set(key, { modelId: entry.modelId, storeyName });
+    }
+    return [...keys.values()];
+  };
+
+  const fetchAllPanelsForStorey = async (
+    projectId: string,
+    modelId: string,
+    storeyName: string
+  ) => {
+    const allPanels: any[] = [];
+    let page = 1;
+    const limit = 100;
+
+    while (true) {
+      const result = await fetchPanelsForStorey(projectId, modelId, storeyName, page, limit);
+      if (!result?.panels?.length) break;
+      allPanels.push(...result.panels);
+      if (page >= (result.totalPages || 1) || result.panels.length < limit) break;
+      page += 1;
+    }
+
+    return allPanels;
+  };
+
+  const isPanelInSelection = (modelId: string, panelLocalId: number) =>
+    findSelectedPanelIndex(modelId, panelLocalId) >= 0;
+
+  const filterMultiSelectList = (query: string) => {
+    const list = document.getElementById('multi-select-checkbox-list');
+    const noResults = document.getElementById('multi-select-no-results');
+    if (!list) return;
+
+    const q = query.trim().toLowerCase();
+    let visibleCount = 0;
+
+    list.querySelectorAll('.multi-select-checkbox-item').forEach((item) => {
+      const el = item as HTMLElement;
+      const text = el.dataset.searchText || '';
+      const match = !q || text.includes(q);
+      el.classList.toggle('multi-select-filtered-out', !match);
+      if (match) visibleCount += 1;
+    });
+
+    list.querySelectorAll('.multi-select-storey-group').forEach((group) => {
+      const el = group as HTMLElement;
+      const hasVisible = !!group.querySelector(
+        '.multi-select-checkbox-item:not(.multi-select-filtered-out)'
+      );
+      el.classList.toggle('multi-select-filtered-out', !hasVisible);
+    });
+
+    if (noResults) {
+      noResults.classList.toggle('panel-hidden', visibleCount > 0 || !q);
+    }
+  };
+
+  const attachMultiSelectSearchHandler = () => {
+    const searchInput = document.getElementById('multi-select-search') as HTMLInputElement | null;
+    if (!searchInput) return;
+
+    searchInput.addEventListener('input', () => {
+      filterMultiSelectList(searchInput.value);
+    });
+  };
+
+  const attachMultiSelectCheckboxHandlers = (container: HTMLElement) => {
+    container.onchange = async (e) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName !== 'INPUT' || (target as HTMLInputElement).type !== 'checkbox') return;
+
+      const input = target as HTMLInputElement;
+      const modelId = input.dataset.modelId;
+      const localId = parseInt(input.dataset.localId || '', 10);
+      if (!modelId || !localId) return;
+
+      const currentlySelected = isPanelInSelection(modelId, localId);
+      if (input.checked === currentlySelected) return;
+
+      await selectPanels(localId, modelId, {
+        mode: 'toggle',
+        skipCamera: true,
+        skipInfoPanelRefresh: true,
+      });
+
+      if (selectedPanels.length <= 1) {
+        showSelectionInfoPanel();
+        return;
+      }
+
+      const countEl = document.getElementById('multi-select-count');
+      if (countEl) {
+        countEl.textContent =
+          selectedPanels.length === 1
+            ? '1 panel selected'
+            : `${selectedPanels.length} panels selected`;
+      }
+    };
+  };
+
+  const renderMultiSelectionInfoPanel = async () => {
+    const infoPanel = document.getElementById('infoPanel');
+    const infoSection = infoPanel?.querySelector('.info-section');
+    const groupsList = document.getElementById('element-groups-list');
+    const statusList = document.getElementById('element-status-list');
+    if (!infoSection) return;
+
+    infoSection.innerHTML = `
+      <div class="info-row">
+        <div class="info-label">Selection</div>
+        <div class="info-value" id="multi-select-count">${selectedPanels.length} panels selected</div>
+      </div>
+      <div class="multi-select-search-wrap">
+        <i class="fas fa-search"></i>
+        <input
+          type="search"
+          id="multi-select-search"
+          class="multi-select-search"
+          placeholder="Search panels…"
+          autocomplete="off"
+        />
+      </div>
+      <div id="multi-select-checkbox-list" class="multi-select-checkbox-list">
+        <div class="multi-select-loading"><i class="fas fa-spinner fa-spin"></i> Loading panels…</div>
+      </div>
+      <div id="multi-select-no-results" class="multi-select-no-results panel-hidden">No panels match your search.</div>
+      <p class="multi-select-hint">Check or uncheck panels to add or remove from the selection.</p>
+    `;
+
+    if (groupsList) {
+      groupsList.innerHTML =
+        '<p class="multi-select-side-hint">Select one panel to manage groups.</p>';
+    }
+    if (statusList) {
+      statusList.innerHTML =
+        '<p class="multi-select-side-hint">Select one panel to manage statuses.</p>';
+    }
+
+    attachMultiSelectSearchHandler();
+
+    const listContainer = document.getElementById('multi-select-checkbox-list');
+    if (!listContainer || !projectIdFromUrl) return;
+
+    const storeyKeys = getStoreyKeysFromSelection();
+    const panelMap = new Map<string, any>();
+
+    for (const entry of selectedPanels) {
+      const key = `${entry.modelId}::${entry.panelLocalId}`;
+      panelMap.set(key, {
+        modelId: entry.modelId,
+        localId: entry.panelLocalId,
+        name: entry.name || `Panel ${entry.panelLocalId}`,
+        storeyName:
+          localIdPanelMap.get(entry.panelLocalId)?.metadata?.storeyName || 'Selected panels',
+      });
+    }
+
+    try {
+      for (const { modelId, storeyName } of storeyKeys) {
+        const panels = await fetchAllPanelsForStorey(projectIdFromUrl, modelId, storeyName);
+        for (const panel of panels) {
+          const localId =
+            panel.localId ||
+            panel.element?.expressId ||
+            (panel.metadata?.ifcElementId ? parseInt(panel.metadata.ifcElementId, 10) : null);
+          if (!localId) continue;
+          const key = `${modelId}::${localId}`;
+          if (!panelMap.has(key)) {
+            panelMap.set(key, {
+              modelId,
+              localId,
+              name: panel.name || panel.tag || `Panel ${localId}`,
+              storeyName: panel.metadata?.storeyName || storeyName,
+            });
+          }
+          if (!localIdPanelMap.has(localId)) {
+            localIdPanelMap.set(localId, panel);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load panels for multi-select list:', error);
+    }
+
+    const grouped = new Map<string, any[]>();
+    for (const panel of panelMap.values()) {
+      const groupKey = `${panel.modelId}::${panel.storeyName}`;
+      if (!grouped.has(groupKey)) grouped.set(groupKey, []);
+      grouped.get(groupKey)!.push(panel);
+    }
+
+    const sortedGroups = [...grouped.entries()].sort((a, b) => {
+      const [, storeyA] = a[0].split('::');
+      const [, storeyB] = b[0].split('::');
+      return comparePanelNames(storeyA, storeyB);
+    });
+
+    if (!sortedGroups.length) {
+      listContainer.innerHTML =
+        '<p class="multi-select-side-hint">No panels available for this selection.</p>';
+      return;
+    }
+
+    listContainer.innerHTML = sortedGroups
+      .map(([groupKey, panels]) => {
+        const [, storeyName] = groupKey.split('::');
+        const sortedPanels = [...panels].sort((a, b) => comparePanelNames(a.name, b.name));
+        const items = sortedPanels
+          .map((panel) => {
+            const checked = isPanelInSelection(panel.modelId, panel.localId);
+            const searchText = `${panel.name} ${storeyName}`.toLowerCase();
+            return `
+              <label class="multi-select-checkbox-item" data-search-text="${searchText.replace(/"/g, '&quot;')}">
+                <input
+                  type="checkbox"
+                  ${checked ? 'checked' : ''}
+                  data-model-id="${panel.modelId}"
+                  data-local-id="${panel.localId}"
+                />
+                <span class="multi-select-checkbox-label">${panel.name}</span>
+              </label>
+            `;
+          })
+          .join('');
+
+        const showStoreyHeading = sortedGroups.length > 1 || storeyKeys.length > 1;
+        return `
+          <div class="multi-select-storey-group">
+            ${showStoreyHeading ? `<div class="multi-select-storey-title">${storeyName}</div>` : ''}
+            ${items}
+          </div>
+        `;
+      })
+      .join('');
+
+    attachMultiSelectCheckboxHandlers(listContainer);
+
+    const searchInput = document.getElementById('multi-select-search') as HTMLInputElement | null;
+    if (searchInput?.value) {
+      filterMultiSelectList(searchInput.value);
     }
   };
 
@@ -2710,193 +3090,11 @@ export async function initializeViewer(containerId: string = "container") {
     }
 
     // Click handler for highlighting and showing element info
-    panelNode.onclick = async () => {
-      if (panel.localId) {
-        // Visual select in tree
-        const treeContainer = document.getElementById("tree-container");
-        if (treeContainer) treeContainer.querySelectorAll('.tree-node.selected').forEach(n => n.classList.remove('selected'));
-        panelNode.classList.add('selected');
-        console.log(`Clicked panel: ${panel.name}, localId: ${panel.localId}, modelId: ${panel.modelId}`);
-
-        // Highlight in viewer
-        const highlightPromises = [];
-        for (const [_, m] of models.entries()) {
-          highlightPromises.push(m.resetHighlight(undefined));
-        }
-        await Promise.all(highlightPromises);
-        highlightPromises.length = 0;
-
-        // Ghost mode
-        for (const [_, m] of models.entries()) {
-          highlightPromises.push(
-            m.highlight(undefined, {
-              color: new THREE.Color(0xcccccc),
-              opacity: 0.2,
-              transparent: true,
-              renderedFaces: FRAGS.RenderedFaces.TWO,
-            })
-          );
-        }
-        await Promise.all(highlightPromises);
-
-        // Highlight selected panel with parent-child relationships
-        // Find the correct model for this panel
-        const targetModel = models.get(panel.modelId);
-        if (targetModel) {
-          console.log(`✅ Found target model for panel: ${panel.modelId}`);
-
-          // Resolve parent ID first (consistency with selection tool)
-          let targetId = panel.localId;
-          const parentId = await findParentPanelId(targetModel, panel.localId);
-          if (parentId) {
-            targetId = parentId;
-            console.log(`ℹ️ Tree Click: Resolved child ${panel.localId} to parent ${targetId}`);
-          }
-          try {
-            // Get all related IDs (parent + children) for highlighting
-            let idsToHighlight: number[] = [targetId];
-
-            // Use spatial structure to collect parent + children (most reliable method)
-            try {
-              // Get the spatial structure from the correct model
-              const spatialStructure = await targetModel.getSpatialStructure();
-
-              if (spatialStructure) {
-                // Collect parent + all children IDs using the RESOLVED targetId (parent)
-                const relatedIds = collectParentAndChildIds(spatialStructure, targetId);
-
-                if (relatedIds.length > 0) {
-                  idsToHighlight = relatedIds;
-                  console.log(`📦 Found ${relatedIds.length} related elements (parent + children) from spatial structure`);
-                } else {
-                  console.log(`⚠️ No related elements found, using targetId only`);
-                }
-              }
-            } catch (structureError) {
-              console.log(`⚠️ Could not get spatial structure, using localId only:`, structureError);
-            }
-
-            // Highlight ALL collected IDs (parent + children)
-            await targetModel.highlight(idsToHighlight, {
-              color: new THREE.Color('#0047AB'),
-              opacity: 1,
-              transparent: false,
-              renderedFaces: FRAGS.RenderedFaces.TWO,
-            });
-
-            setLastFragmentSelection(panel.modelId, idsToHighlight);
-
-            // Focus camera on this panel (and keep it a little closer)
-            await focusCameraOnLocalIds(idsToHighlight, { closer: 0.9 });
-
-            await fragments.update(true);
-
-            // Show element information panel (same as old tree structure)
-            const nodeData = {
-              localId: panel.localId,
-              name: panel.name || panel.tag || 'Unnamed',
-              type: panel.type,
-              tag: panel.tag,
-              id: panel.id,
-              elementId: panel.elementId,
-              metadata: panel.metadata,
-              category: 'element',
-              children: [],
-              // Add panel data for groups and statuses
-              panelData: panel,
-            } as any;
-
-            // Show info panel and update with element data
-            const infoPanel = document.getElementById("infoPanel");
-            const statusPanel = document.getElementById("statusPanel");
-            const groupsPanel = document.getElementById("groupsPanel");
-
-            if (statusPanel) statusPanel.classList.add("panel-hidden");
-            if (groupsPanel) groupsPanel.classList.add("panel-hidden");
-            if (infoPanel) {
-              infoPanel.classList.remove("panel-hidden");
-
-              // Update basic info
-              const infoSection = infoPanel.querySelector(".info-section");
-              if (infoSection) {
-                infoSection.innerHTML = `
-                <div class="info-row">
-                  <div class="info-label">Name</div>
-                  <div class="info-value">${nodeData.name}</div>
-                </div>
-                <div class="info-row">
-                  <div class="info-label">ID</div>
-                  <div class="info-value">${nodeData.localId}</div>
-                </div>
-                <div class="info-row">
-                  <div class="info-label">Type</div>
-                  <div class="info-value">${nodeData.type}</div>
-                </div>
-                <!-- COMMENTED OUT: Active Status dropdown - replaced with multiple status assignment
-                <div class="info-row">
-                  <div class="info-label">Active Status</div>
-                  <div class="info-value">
-                    <select id="element-active-status" class="status-select">
-                      <option value="">No status assigned</option>
-                    </select>
-                  </div>
-                </div>
-                -->
-                <div class="info-actions">
-                  <button id="show-qr-btn" class="info-action-btn" title="Show QR Code">
-                    <i class="fas fa-qrcode"></i>
-                  </button>
-                  <button id="show-submissions-btn" class="info-action-btn" title="View Submissions">
-                    <i class="fas fa-bell"></i>
-                    <span id="submission-count" class="notification-badge">0</span>
-                  </button>
-                </div>
-              `;
-              }
-
-              // Update groups and status sections
-              updateElementInfoPanel(nodeData);
-
-              // Attach QR code button event listener
-              const showQrBtnInPanel = infoPanel.querySelector("#show-qr-btn");
-              if (showQrBtnInPanel) {
-                showQrBtnInPanel.addEventListener("click", () => {
-                  if (nodeData.localId) {
-                    console.log("🔲 Showing QR code for element:", nodeData.localId);
-                    showQRCode(nodeData.localId);
-                  }
-                });
-              }
-
-              // Attach submissions button event listener
-              const showSubmissionsBtnInPanel = infoPanel.querySelector("#show-submissions-btn");
-              if (showSubmissionsBtnInPanel) {
-                showSubmissionsBtnInPanel.addEventListener("click", () => {
-                  if (nodeData.localId) {
-                    console.log("📋 Showing submissions for element:", nodeData.localId);
-                    showSubmissionsModal(nodeData.localId);
-                  }
-                });
-
-                // Fetch and show badge for unread submissions
-                if (nodeData.localId) {
-                  const panelData = localIdPanelMap.get(nodeData.localId);
-                  if (panelData && panelData.id) {
-                    fetchAndDisplaySubmissionBadge(nodeData.localId, panelData.id);
-                  }
-                }
-              }
-            }
-
-            console.log("✅ Element information panel updated");
-
-          } catch (error) {
-            console.error("Error highlighting panel:", error);
-          }
-        } else {
-          console.error(`❌ Target model not found for panel: ${panel.modelId}. Available models:`, Array.from(models.keys()));
-        }
-      }
+    panelNode.onclick = async (ev: MouseEvent) => {
+      if (!panel.localId) return;
+      const additive = ev.ctrlKey || ev.metaKey;
+      console.log(`Clicked panel: ${panel.name}, localId: ${panel.localId}, modelId: ${panel.modelId}`);
+      await selectPanels(panel.localId, panel.modelId, { mode: additive ? 'toggle' : 'replace' });
     };
 
     container.appendChild(panelNode);
@@ -3272,7 +3470,6 @@ export async function initializeViewer(containerId: string = "container") {
       if (selectionActive) {
         console.log('🖱️ Selection tool enabled (double-click model to select)');
         selectionHandler = async (ev: MouseEvent) => {
-          // Always compute based on renderer canvas
           const canvas = (world.renderer?.three as any)?.domElement as HTMLCanvasElement | undefined;
           if (!canvas) {
             console.warn('No renderer canvas found for picking');
@@ -3281,8 +3478,10 @@ export async function initializeViewer(containerId: string = "container") {
           if (ev.type !== 'dblclick') return;
           ev.preventDefault();
           ev.stopPropagation();
-          console.log('🖱️ Double-click for selection at', ev.clientX, ev.clientY);
-          // If user holds Shift, also open the tree for this selection
+          const additive = ev.ctrlKey || ev.metaKey;
+          console.log(
+            `🖱️ Double-click for selection at ${ev.clientX}, ${ev.clientY}${additive ? ' (add/remove)' : ''}`
+          );
           openTreeNextSelection = !!ev.shiftKey;
           const rect = canvas.getBoundingClientRect();
           const ndc = new THREE.Vector2(
@@ -3300,7 +3499,9 @@ export async function initializeViewer(containerId: string = "container") {
             const result = await caster.castRay();
             if (result && typeof (result as any).localId === 'number') {
               console.log('Raycasters hit:', (result as any).localId);
-              await selectElementByLocalId((result as any).localId);
+              await selectElementByLocalId((result as any).localId, undefined, {
+                mode: additive ? 'toggle' : 'replace',
+              });
               return;
             }
           } catch (e) {
@@ -3336,7 +3537,9 @@ export async function initializeViewer(containerId: string = "container") {
           }
           if (best) {
             console.log('Manual raycast hit:', best.localId, 'dist:', best.distance);
-            await selectElementByLocalId(best.localId);
+            await selectElementByLocalId(best.localId, undefined, {
+              mode: additive ? 'toggle' : 'replace',
+            });
           } else {
             console.log('No element hit');
           }
@@ -3352,11 +3555,21 @@ export async function initializeViewer(containerId: string = "container") {
     });
   }
 
+  document.getElementById('clear-selection-btn')?.addEventListener('click', () => {
+    clearPanelSelection();
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && selectedPanels.length > 0) {
+      clearPanelSelection();
+    }
+  });
+
   // Reset button - clears all highlights and shows everything normally
   if (treeResetBtn) {
     treeResetBtn.addEventListener("click", async () => {
       try {
-        lastFragmentSelection = null;
+        await clearPanelSelection();
         // Reset all highlights and visibility for all models
         for (const [_, model] of models.entries()) {
           await model.resetHighlight(undefined);

@@ -820,7 +820,7 @@ export default function ViewerPage() {
         </button>
         <button id="selection-tool-btn" className="toolbar-button">
           <i className="fas fa-mouse-pointer"></i>
-          <span className="tooltip">Selection tool — double-click the model</span>
+          <span className="tooltip">Selection — double-click a panel · ⌘/Ctrl+double-click to add/remove · Esc to clear</span>
         </button>
         <button
           id="plan-toggle-btn"
@@ -852,7 +852,7 @@ export default function ViewerPage() {
         </button>
         <button id="filter-frames-btn" className="toolbar-button filter-btn" data-filter="FRAMES">
           <i data-lucide="frame"></i>
-          <span className="tooltip">Filter Frames</span>
+          <span className="tooltip">ACP</span>
         </button>
         <button id="filter-structural-btn" className="toolbar-button filter-btn" data-filter="STRUCTURAL">
           <i data-lucide="building-2"></i>
@@ -1175,6 +1175,13 @@ export default function ViewerPage() {
       <div id="statusBar">
         <div id="status">
           <i className="fas fa-circle"></i> Ready
+        </div>
+        <div id="selection-summary" className="selection-summary panel-hidden">
+          <i className="fas fa-check-double"></i>
+          <span id="selection-count-text">0 panels selected</span>
+          <button id="clear-selection-btn" type="button" title="Clear selection (Esc)">
+            Clear
+          </button>
         </div>
         <div id="stats">
           <div className="stat">
