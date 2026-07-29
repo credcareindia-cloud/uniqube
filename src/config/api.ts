@@ -4,14 +4,24 @@
  * Uses environment variables with fallbacks for development
  */
 
-// Backend API URL
-export const API_BASE_URL = 
-  import.meta.env?.VITE_API_BASE_URL || 
-  'http://localhost:4000/api';
+function resolveApiBase(path: '/api' | '' = '/api') {
+  // Prefer same-origin relative URLs so Vite can proxy (localhost, LAN, Cloudflare tunnel)
+  if (typeof window !== 'undefined') {
+    return path === '/api' ? '/api' : '';
+  }
+  if (path === '/api' && import.meta.env?.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL as string;
+  }
+  if (path === '' && import.meta.env?.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL as string;
+  }
+  return `http://localhost:4000${path}`;
+}
 
-export const API_URL = 
-  import.meta.env?.VITE_API_URL || 
-  'http://localhost:4000';
+// Backend API URL
+export const API_BASE_URL = resolveApiBase('/api');
+
+export const API_URL = resolveApiBase('');
 
 // 3D Viewer URL (separate service)
 export const VIEWER_URL = 

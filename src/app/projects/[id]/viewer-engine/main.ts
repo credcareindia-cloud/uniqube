@@ -4,11 +4,19 @@ import * as BUI from "@thatopen/ui";
 import Stats from "stats.js";
 import * as FRAGS from "@thatopen/fragments";
 import QRCode from 'qrcode';
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { Views2DManager } from './views2d';
 import { localId } from "three/src/nodes/TSL.js";
 
+/** Stainless steel albedo used for BIMSF Structure selection (darker so it reads on white bg) */
+const BIMSF_STAINLESS_COLOR = "#7A848E";
+const BIMSF_STAINLESS_ID = "bimsf-stainless";
+
 // API Configuration - must be defined before any functions that use it
-const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL;
+const API_BASE_URL = (() => {
+  if (typeof window !== 'undefined') return `${window.location.origin}/api`;
+  return (import.meta as any).env?.VITE_API_BASE_URL || '/api';
+})();
 
 // Custom Error Types for better error handling
 export class ProjectNotFoundError extends Error {
@@ -76,6 +84,20 @@ export async function initializeViewer(containerId: string = "container") {
   // Memory optimization: Configure renderer for lower memory usage
   const renderer = world.renderer.three;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // Limit pixel ratio
+  // Needed for MeshStandardMaterial metals to show specular highlights
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.15;
+
+  // Studio environment so stainless steel can reflect (flat materials can't shine)
+  try {
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    world.scene.three.environment = envTex;
+    pmrem.dispose();
+    console.log("✅ Studio environment map ready (metal reflections)");
+  } catch (envErr) {
+    console.warn("⚠️ Could not create RoomEnvironment for metals:", envErr);
+  }
 
   world.camera = new OBC.OrthoPerspectiveCamera(components);
   await world.camera.controls.setLookAt(50, 30, 50, 0, 0, 0);
@@ -99,6 +121,58 @@ export async function initializeViewer(containerId: string = "container") {
   });
   const workerUrl = URL.createObjectURL(workerFile);
   const fragments = new FRAGS.FragmentsModels(workerUrl);
+
+  // Keep thin MEP (pipes/conduits) visible farther out.
+  // ThatOpen LOD: graphicQuality = -1.5 * graphicsQuality + 2
+  // Higher graphicsQuality → lower screen-size cull threshold for small objects.
+  // 0.75 is a good balance for large models; MEP models bump to ~1.0 below.
+  fragments.settings.graphicsQuality = 0.75;
+  // Slightly more frequent visual refresh so zoom does not leave stale culled tiles
+  fragments.settings.maxUpdateRate = 32;
+
+  // Upgrade BIMSF Structure highlight materials to realistic stainless steel (PBR)
+  fragments.models.materials.list.onItemSet.add(({ key: id, value: material }: any) => {
+    try {
+      if (!material || material.isLodMaterial) return;
+      if (material.userData?.isBimsfStainless) return;
+
+      const custom =
+        material.userData?.customId ||
+        material.customId ||
+        material.userData?.originalCustomId;
+      const target = new THREE.Color(BIMSF_STAINLESS_COLOR);
+      const c = material.color as THREE.Color | undefined;
+      const colorMatch =
+        !!c &&
+        Math.abs(c.r - target.r) < 0.03 &&
+        Math.abs(c.g - target.g) < 0.03 &&
+        Math.abs(c.b - target.b) < 0.03;
+
+      if (custom !== BIMSF_STAINLESS_ID && !colorMatch) return;
+
+      const stainless = new THREE.MeshStandardMaterial({
+        color: target.clone(),
+        metalness: 1.0,
+        roughness: 0.28,
+        envMapIntensity: 1.35,
+        side: THREE.DoubleSide,
+        transparent: !!material.transparent,
+        opacity: typeof material.opacity === "number" ? material.opacity : 1,
+        depthTest: material.depthTest !== false,
+      }) as any;
+      stainless.userData = {
+        ...(material.userData || {}),
+        isBimsfStainless: true,
+        customId: BIMSF_STAINLESS_ID,
+      };
+      stainless.polygonOffset = true;
+      stainless.polygonOffsetFactor = 1;
+      stainless.polygonOffsetUnits = 1;
+      fragments.models.materials.list.set(id, stainless);
+    } catch {
+      /* ignore material upgrade failures */
+    }
+  });
 
   // Initialize OBC FragmentsManager for 2D Views (IFC storey detection)
   const obcFragments = components.get(OBC.FragmentsManager);
@@ -137,21 +211,53 @@ export async function initializeViewer(containerId: string = "container") {
     console.warn('⚠️ Could not initialize OBC.FragmentsManager. 2D Views from storeys may be unavailable.', e);
   }
 
-  // Memory optimization: Throttle fragment updates
-  let updateTimeout: NodeJS.Timeout | null = null;
-  world.camera.controls.addEventListener("rest", () => {
+  // Memory optimization: Throttle fragment updates during camera motion.
+  // Updating only on "rest" made small MEP members stay culled until zoom stopped.
+  let updateTimeout: ReturnType<typeof setTimeout> | null = null;
+  let lastLiveUpdate = 0;
+  const LIVE_UPDATE_MS = 80;
+
+  const scheduleFragmentsUpdate = (force = false) => {
+    const now = performance.now();
+    if (force || now - lastLiveUpdate >= LIVE_UPDATE_MS) {
+      lastLiveUpdate = now;
+      fragments.update(force);
+      return;
+    }
     if (updateTimeout) clearTimeout(updateTimeout);
     updateTimeout = setTimeout(() => {
+      lastLiveUpdate = performance.now();
       fragments.update(true);
       updateTimeout = null;
-    }, 100); // Debounce updates
+    }, LIVE_UPDATE_MS);
+  };
+
+  world.camera.controls.addEventListener("update", () => {
+    scheduleFragmentsUpdate(false);
   });
+  world.camera.controls.addEventListener("rest", () => {
+    scheduleFragmentsUpdate(true);
+  });
+
+  /** Raise LOD quality for a model; MEP gets max so pipes survive zoom-out. */
+  const applyLodVisibilityTuning = (model: FRAGS.FragmentsModel, categoryHint?: string) => {
+    const cat = (categoryHint || '').toLowerCase();
+    const isMep =
+      cat.includes('mep') ||
+      cat.includes('electr') ||
+      cat.includes('plumb') ||
+      cat.includes('hvac') ||
+      cat.includes('pipe');
+    // 1.0 → graphicQuality factor 0.5 (pipes culled only when ~2px); default 0 was ~8px
+    model.graphicsQuality = isMep ? 1 : 0.75;
+  };
 
   // Once a model is available in the list, we can tell what camera to use
   // in order to perform the culling and LOD operations.
   // Also, we add the model to the 3D scene.
   fragments.models.list.onItemSet.add(({ value: model }) => {
     model.useCamera(world.camera.three);
+    applyLodVisibilityTuning(model);
 
     // Performance optimization: Simplify materials for large models
     model.object.traverse((child) => {
@@ -207,7 +313,38 @@ export async function initializeViewer(containerId: string = "container") {
   console.log('📍 Model ID from URL:', modelIdFromUrl);
 
   const models: Map<string, FRAGS.FragmentsModel> = new Map();
+  /** modelId → discipline (from publish category / filename) */
+  type DisciplineKey = 'mep' | 'structure' | 'architecture';
+  const modelDisciplineById = new Map<string, DisciplineKey>();
+  /** modelId → Map(localId → hex color) for re-applying after selection resets */
+  const revitColorByModel = new Map<string, Map<number, string>>();
+  const disciplineVisible: Record<DisciplineKey, boolean> = {
+    mep: true,
+    structure: true,
+    architecture: true,
+  };
   let allModelsLoaded = false;
+  /** Hide layers by discipline — reset on model dispose / view reset */
+  let hideLayerState = {
+    sheathing: false,
+    walls: false,
+    floors: false,
+    acp: false,
+    doorsWindows: false,
+  };
+  const hideLayerIds: {
+    sheathing: Map<string, number[]> | null;
+    walls: Map<string, number[]> | null;
+    floors: Map<string, number[]> | null;
+    acp: Map<string, number[]> | null;
+    doorsWindows: Map<string, number[]> | null;
+  } = {
+    sheathing: null,
+    walls: null,
+    floors: null,
+    acp: null,
+    doorsWindows: null,
+  };
 
   type PanelSelectionEntry = {
     modelId: string;
@@ -220,7 +357,12 @@ export async function initializeViewer(containerId: string = "container") {
   let selectedPanels: PanelSelectionEntry[] = [];
 
   /** Snapshot of fragment highlights for 2D view re-sync */
-  let lastFragmentHighlight: { modelId: string; ids: number[] }[] = [];
+  let lastFragmentHighlight: {
+    modelId: string;
+    ids: number[];
+    /** BIMSF: structure=steel, mep=Revit colours, neighbor=yellow, connector=amber */
+    style?: 'structure' | 'mep' | 'default' | 'neighbor' | 'connector';
+  }[] = [];
 
   const getModelMapId = (m: FRAGS.FragmentsModel): string | null => {
     for (const [id, ref] of models.entries()) {
@@ -229,13 +371,55 @@ export async function initializeViewer(containerId: string = "container") {
     return null;
   };
 
-  const saveFragmentHighlightSnapshot = (entries: { modelId: string; ids: number[] }[]) => {
+  const saveFragmentHighlightSnapshot = (
+    entries: {
+      modelId: string;
+      ids: number[];
+      style?: 'structure' | 'mep' | 'default' | 'neighbor' | 'connector';
+    }[]
+  ) => {
     lastFragmentHighlight = entries
       .filter((e) => e.modelId && e.ids.length)
-      .map((e) => ({ modelId: e.modelId, ids: [...e.ids] }));
+      .map((e) => ({
+        modelId: e.modelId,
+        ids: [...e.ids],
+        style: e.style || 'default',
+      }));
   };
 
-  const applyGhostAndHighlights = async (highlights: { modelId: string; ids: number[] }[]) => {
+  /** Structure framing highlight on BIMSF select (stainless steel) */
+  const STEEL_SELECT_COLOR = BIMSF_STAINLESS_COLOR;
+  /** Fallback when an MEP element has no Revit colour map entry */
+  const MEP_SELECT_FALLBACK = '#EA580C';
+  const DEFAULT_SELECT_COLOR = '#0047AB';
+  /** Adjacent Structure panels for installation (light yellow — easy on white bg) */
+  const BIMSF_NEIGHBOR_COLOR = '#FDE68A';
+  /** Connectors / anchor bolts linked to a panel (warm amber) */
+  const BIMSF_CONNECTOR_COLOR = '#E8A04A';
+
+  /** BIMSF marks that are fasteners/connectors — not install panels. */
+  const isBimsfConnectorKey = (key: string): boolean => {
+    const name = (bimsfDisplayByKey.get(key) || key || '')
+      .toLowerCase()
+      .replace(/^\*/, '')
+      .trim();
+    if (!name) return false;
+    // Panel marks like CD-1001 / LB1001 stay as panels
+    if (/^[a-z]{1,4}[-_]?\d{2,8}$/i.test(name)) return false;
+    if (/foundation/i.test(name)) return false;
+    if (/\banchor\s*bolts?\b/i.test(name)) return true;
+    if (/^connectors?$/i.test(name)) return true;
+    if (/\bconnectors?\b/i.test(name)) return true;
+    return false;
+  };
+
+  const applyGhostAndHighlights = async (
+    highlights: {
+      modelId: string;
+      ids: number[];
+      style?: 'structure' | 'mep' | 'default' | 'neighbor' | 'connector';
+    }[]
+  ) => {
     const tasks: Promise<any>[] = [];
     for (const [, m] of models.entries()) tasks.push(m.resetHighlight(undefined));
     await Promise.all(tasks);
@@ -252,15 +436,91 @@ export async function initializeViewer(containerId: string = "container") {
     }
     await Promise.all(tasks);
 
+    const highlightWithOwnColors = async (
+      targetModel: FRAGS.FragmentsModel,
+      modelId: string,
+      ids: number[],
+      fallbackHex: string
+    ) => {
+      const revitColors = revitColorByModel.get(modelId);
+      const byColor = new Map<string, number[]>();
+      const unmapped: number[] = [];
+      for (const localId of ids) {
+        const hex = revitColors?.get(localId);
+        if (hex) {
+          const list = byColor.get(hex) || [];
+          list.push(localId);
+          byColor.set(hex, list);
+        } else {
+          unmapped.push(localId);
+        }
+      }
+      for (const [hex, colorIds] of byColor) {
+        await targetModel.highlight(colorIds, {
+          color: new THREE.Color(hex),
+          opacity: 1,
+          transparent: false,
+          renderedFaces: FRAGS.RenderedFaces.TWO,
+        });
+      }
+      if (unmapped.length) {
+        await targetModel.highlight(unmapped, {
+          color: new THREE.Color(fallbackHex),
+          opacity: 1,
+          transparent: false,
+          renderedFaces: FRAGS.RenderedFaces.TWO,
+        });
+      }
+    };
+
     for (const entry of highlights) {
       const targetModel = models.get(entry.modelId);
       if (!targetModel || !entry.ids.length) continue;
-      await targetModel.highlight(entry.ids, {
-        color: new THREE.Color('#0047AB'),
-        opacity: 1,
-        transparent: false,
-        renderedFaces: FRAGS.RenderedFaces.TWO,
-      });
+
+      const disc = modelDisciplineById.get(entry.modelId);
+      const style =
+        entry.style ||
+        (disc === 'mep' ? 'mep' : disc === 'structure' ? 'structure' : 'default');
+
+      if (style === 'neighbor') {
+        await targetModel.highlight(entry.ids, {
+          color: new THREE.Color(BIMSF_NEIGHBOR_COLOR),
+          opacity: 1,
+          transparent: false,
+          renderedFaces: FRAGS.RenderedFaces.TWO,
+        });
+      } else if (style === 'connector') {
+        await targetModel.highlight(entry.ids, {
+          color: new THREE.Color(BIMSF_CONNECTOR_COLOR),
+          opacity: 1,
+          transparent: false,
+          renderedFaces: FRAGS.RenderedFaces.TWO,
+        });
+      } else if (style === 'structure') {
+        // Stainless steel — materials.list hook upgrades this to PBR metal
+        await targetModel.highlight(entry.ids, {
+          color: new THREE.Color(STEEL_SELECT_COLOR),
+          opacity: 1,
+          transparent: false,
+          renderedFaces: FRAGS.RenderedFaces.TWO,
+          customId: BIMSF_STAINLESS_ID,
+        } as any);
+      } else if (style === 'mep') {
+        // Keep Revit system colours (DCW / DHW / sanitary, etc.)
+        await highlightWithOwnColors(
+          targetModel,
+          entry.modelId,
+          entry.ids,
+          MEP_SELECT_FALLBACK
+        );
+      } else {
+        await targetModel.highlight(entry.ids, {
+          color: new THREE.Color(DEFAULT_SELECT_COLOR),
+          opacity: 1,
+          transparent: false,
+          renderedFaces: FRAGS.RenderedFaces.TWO,
+        });
+      }
     }
     await fragments.update(true);
   };
@@ -291,6 +551,1782 @@ export async function initializeViewer(containerId: string = "container") {
   } catch (e) {
     console.warn('⚠️ Could not initialize 2D Views Manager:', e);
   }
+
+  // Fetch .frag bytes via API (not MinIO presign) so tunnel / LAN work when MinIO is localhost-only
+  const fetchModelArrayBuffer = async (modelId: string): Promise<ArrayBuffer> => {
+    const token = localStorage.getItem('auth_token');
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch(`${API_BASE_URL}/models/${modelId}/download`, {
+      headers,
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to download model: ${res.status} ${res.statusText}`);
+    }
+    return res.arrayBuffer();
+  };
+
+  /**
+   * Build GlobalId / Tag → localId maps from Fragments item data, then apply
+   * Revit publish colour map so MEP system colours match Revit (DCW blue, etc.).
+   */
+  const applyRevitColorMap = async (modelId: string, model: FRAGS.FragmentsModel) => {
+    const token = localStorage.getItem('auth_token');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch(`${API_BASE_URL}/models/${modelId}/color-map`, {
+      headers,
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      console.warn(`color-map HTTP ${res.status} for model ${modelId}`);
+      return;
+    }
+    const payload = await res.json();
+    const byGlobalId: Record<string, string> = payload.byGlobalId || {};
+    const byElementId: Record<string, string> = payload.byElementId || {};
+    if (!Object.keys(byGlobalId).length && !Object.keys(byElementId).length) {
+      console.log(`🎨 No Revit color map for model ${modelId}`);
+      return;
+    }
+
+    let geomIds: number[] = [];
+    try {
+      if (typeof (model as any).getItemsIdsWithGeometry === 'function') {
+        geomIds = await (model as any).getItemsIdsWithGeometry();
+      } else {
+        const items = await model.getItemsWithGeometry();
+        geomIds = (items || []).map((g: any) => (typeof g === 'number' ? g : g?.localId)).filter((id: any) => Number.isFinite(Number(id))).map(Number);
+      }
+    } catch (e) {
+      console.warn('getItemsWithGeometry failed while applying colors:', e);
+      return;
+    }
+
+    const localColor = new Map<number, string>();
+    const BATCH = 250;
+    for (let i = 0; i < geomIds.length; i += BATCH) {
+      const batch = geomIds.slice(i, i + BATCH);
+      let rows: any[] = [];
+      try {
+        rows = await model.getItemsData(batch, {
+          attributesDefault: false,
+          attributes: ['GlobalId', 'Tag', 'Name'],
+        });
+      } catch {
+        continue;
+      }
+      for (let j = 0; j < rows.length; j++) {
+        const row = rows[j];
+        if (!row) continue;
+        const gid = row.GlobalId && 'value' in row.GlobalId ? String(row.GlobalId.value) : '';
+        const tag = row.Tag && 'value' in row.Tag ? String(row.Tag.value) : '';
+        const name = row.Name && 'value' in row.Name ? String(row.Name.value) : '';
+        const idFromName = name.match(/:(\d+)\s*$/)?.[1] || '';
+        const color =
+          (gid && byGlobalId[gid]) ||
+          (tag && byElementId[tag]) ||
+          (idFromName && byElementId[idFromName]) ||
+          null;
+        if (color) localColor.set(batch[j], color);
+      }
+    }
+
+    if (localColor.size === 0) {
+      console.warn(`🎨 Color map present but 0 localIds matched for model ${modelId}`);
+      return;
+    }
+
+    revitColorByModel.set(modelId, localColor);
+
+    // Group localIds by colour for fewer highlight calls
+    const byColor = new Map<string, number[]>();
+    localColor.forEach((hex, localId) => {
+      const list = byColor.get(hex) || [];
+      list.push(localId);
+      byColor.set(hex, list);
+    });
+
+    for (const [hex, ids] of byColor) {
+      try {
+        await model.highlight(ids, {
+          color: new THREE.Color(hex),
+          renderedFaces: 1,
+          opacity: 1,
+          transparent: false,
+        });
+      } catch (e) {
+        console.warn(`Failed to apply color ${hex} to ${ids.length} items:`, e);
+      }
+    }
+
+    console.log(`🎨 Applied Revit colors to ${localColor.size} elements in model ${modelId}`);
+    fragments.update(true);
+  };
+
+  /** Normalize BIMSF id for matching (strip leading *). */
+  const normalizeBimsfId = (raw: string): string =>
+    String(raw || '')
+      .replace(/^\*/, '')
+      .trim();
+
+  /**
+   * panelKey (lowercased display id) → Map(modelId → localIds[])
+   * Built from GET /models/:id/bimsf-map after each FRAG load.
+   */
+  const bimsfIndex = new Map<string, Map<string, number[]>>();
+  const bimsfDisplayByKey = new Map<string, string>();
+  /** panelKey → checked disciplines (M/S/A) for cross-model highlight */
+  const bimsfChecked = new Map<string, Set<DisciplineKey>>();
+  /** Cached world AABB per BIMSF panel (for adjacency) */
+  const bimsfBoundsCache = new Map<string, THREE.Box3>();
+  /** Panel whose connected neighbors are shown in yellow (toggle) */
+  let bimsfNeighborFocusKey: string | null = null;
+  /** Panel keys with C (connectors) focus on */
+  const bimsfConnectorFocusKeys = new Set<string>();
+
+  /** Installation sequencing mode — progressive panel reveal (fast, no ghost) */
+  let installSequenceActive = false;
+  let installSequenceKeys: string[] = [];
+  let installSequenceIndex = 0;
+  /** BIMSF localIds in the sequence (modelId → ids) */
+  const installAllIdsByModel = new Map<string, number[]>();
+  /** Non-sequence geometry hidden while in install mode (restored on exit) */
+  const installOtherIdsByModel = new Map<string, number[]>();
+  /** Per-panel attached connectors (built once on enter) */
+  const installConnectorCache = new Map<
+    string,
+    { byModel: Map<string, number[]>; byMark: Record<string, number>; count: number }
+  >();
+  let installProjectConnectorTotals: Array<{ mark: string; count: number }> = [];
+  let installLevelConnectorTotals: Array<{
+    floor: number;
+    label: string;
+    total: number;
+    byMark: Record<string, number>;
+  }> = [];
+  /** All connector localIds (to hide/show during sequence) */
+  const installAllConnectorIdsByModel = new Map<string, number[]>();
+
+  const indexBimsfMapForModel = async (modelId: string, model: FRAGS.FragmentsModel) => {
+    const token = localStorage.getItem('auth_token');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch(`${API_BASE_URL}/models/${modelId}/bimsf-map`, {
+      headers,
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      console.warn(`bimsf-map HTTP ${res.status} for model ${modelId}`);
+      return;
+    }
+    const payload = await res.json();
+    const byGlobalId: Record<string, string> = payload.byGlobalId || {};
+    const byElementId: Record<string, string> = payload.byElementId || {};
+    if (!Object.keys(byGlobalId).length && !Object.keys(byElementId).length) {
+      console.log(`🧩 No BIMSF map for model ${modelId}`);
+      return;
+    }
+
+    // Reverse index: panel mark (FT-1001) → canonical BIMSF string
+    // Used when IFC Tag/Name carries the container name instead of Revit ElementId
+    const byMark = new Map<string, string>();
+    const addMark = (raw: string) => {
+      const display = normalizeBimsfId(raw) || raw;
+      if (!display) return;
+      byMark.set(display.toLowerCase(), display);
+      byMark.set(String(raw).toLowerCase(), display);
+    };
+    for (const raw of Object.values(byElementId)) addMark(String(raw));
+    for (const raw of Object.values(byGlobalId)) addMark(String(raw));
+    const panelsList = Array.isArray(payload.panels) ? payload.panels : [];
+    for (const p of panelsList) {
+      if (p?.displayName) addMark(String(p.displayName));
+      if (p?.bimsf) addMark(String(p.bimsf));
+      if (p?.id) addMark(String(p.id));
+    }
+    const byPanel = payload.bimsfMap?.byPanel;
+    if (byPanel && typeof byPanel === 'object') {
+      for (const [pid, info] of Object.entries(byPanel as Record<string, any>)) {
+        addMark(pid);
+        if ((info as any)?.displayName) addMark(String((info as any).displayName));
+        if ((info as any)?.bimsf) addMark(String((info as any).bimsf));
+      }
+    }
+
+    let geomIds: number[] = [];
+    try {
+      if (typeof (model as any).getItemsIdsWithGeometry === 'function') {
+        geomIds = await (model as any).getItemsIdsWithGeometry();
+      } else {
+        const items = await model.getItemsWithGeometry();
+        geomIds = (items || [])
+          .map((g: any) => (typeof g === 'number' ? g : g?.localId))
+          .filter((id: any) => Number.isFinite(Number(id)))
+          .map(Number);
+      }
+    } catch (e) {
+      console.warn('getItemsWithGeometry failed while indexing BIMSF:', e);
+      return;
+    }
+
+    let matched = 0;
+    const BATCH = 250;
+    for (let i = 0; i < geomIds.length; i += BATCH) {
+      const batch = geomIds.slice(i, i + BATCH);
+      let rows: any[] = [];
+      try {
+        rows = await model.getItemsData(batch, {
+          attributesDefault: false,
+          attributes: ['GlobalId', 'Tag', 'Name', 'ObjectType'],
+        });
+      } catch {
+        continue;
+      }
+      for (let j = 0; j < rows.length; j++) {
+        const row = rows[j];
+        if (!row) continue;
+        const gid = row.GlobalId && 'value' in row.GlobalId ? String(row.GlobalId.value) : '';
+        const tag = row.Tag && 'value' in row.Tag ? String(row.Tag.value) : '';
+        const name = row.Name && 'value' in row.Name ? String(row.Name.value) : '';
+        const objectType =
+          row.ObjectType && 'value' in row.ObjectType ? String(row.ObjectType.value) : '';
+        const idFromName = name.match(/:(\d+)\s*$/)?.[1] || '';
+
+        // Prefer ElementId / GlobalId remap; also match Tag/Name when they hold FT-1001 etc.
+        let raw: string | null =
+          (gid && byGlobalId[gid]) ||
+          (tag && byElementId[tag]) ||
+          (idFromName && byElementId[idFromName]) ||
+          null;
+
+        if (!raw && tag) {
+          const hit = byMark.get(tag.replace(/^\*/, '').trim().toLowerCase());
+          if (hit) raw = hit;
+        }
+        if (!raw && name) {
+          // Name may be "Family:Type:FT-1001" or contain the mark
+          const cleaned = name.replace(/^\*/, '').trim();
+          const direct = byMark.get(cleaned.toLowerCase());
+          if (direct) raw = direct;
+          else {
+            for (const [mark, display] of byMark) {
+              if (mark.length < 3) continue;
+              if (cleaned.toLowerCase().includes(mark)) {
+                raw = display;
+                break;
+              }
+            }
+          }
+        }
+        if (!raw && objectType) {
+          const hit = byMark.get(objectType.replace(/^\*/, '').trim().toLowerCase());
+          if (hit) raw = hit;
+        }
+
+        if (!raw) continue;
+        const display = normalizeBimsfId(raw) || raw;
+        const key = display.toLowerCase();
+        bimsfDisplayByKey.set(key, display);
+        let byModel = bimsfIndex.get(key);
+        if (!byModel) {
+          byModel = new Map();
+          bimsfIndex.set(key, byModel);
+        }
+        const list = byModel.get(modelId) || [];
+        list.push(batch[j]);
+        byModel.set(modelId, list);
+        matched += 1;
+      }
+    }
+
+    console.log(`🧩 Indexed BIMSF for ${matched} localIds in model ${modelId}`);
+  };
+
+  const mergeHighlightEntries = (
+    entries: {
+      modelId: string;
+      ids: number[];
+      style?: 'structure' | 'mep' | 'default' | 'neighbor' | 'connector';
+    }[]
+  ): {
+    modelId: string;
+    ids: number[];
+    style?: 'structure' | 'mep' | 'default' | 'neighbor' | 'connector';
+  }[] => {
+    const map = new Map<
+      string,
+      {
+        modelId: string;
+        ids: Set<number>;
+        style?: 'structure' | 'mep' | 'default' | 'neighbor' | 'connector';
+      }
+    >();
+    for (const e of entries) {
+      if (!e.modelId || !e.ids?.length) continue;
+      // Keep neighbor yellow separate from selection styles on the same model
+      const mapKey = `${e.modelId}::${e.style || 'default'}`;
+      let row = map.get(mapKey);
+      if (!row) {
+        row = { modelId: e.modelId, ids: new Set(), style: e.style };
+        map.set(mapKey, row);
+      }
+      for (const id of e.ids) row.ids.add(id);
+      if (e.style) row.style = e.style;
+    }
+    return [...map.values()].map((row) => ({
+      modelId: row.modelId,
+      ids: [...row.ids],
+      style: row.style,
+    }));
+  };
+
+  const getDisciplinesForPanel = (panelKey: string): Set<DisciplineKey> => {
+    const found = new Set<DisciplineKey>();
+    const byModel = bimsfIndex.get(panelKey);
+    if (!byModel) return found;
+    for (const modelId of byModel.keys()) {
+      const disc = modelDisciplineById.get(modelId);
+      if (disc) found.add(disc);
+    }
+    return found;
+  };
+
+  const styleForDiscipline = (disc: DisciplineKey): 'structure' | 'mep' | 'default' => {
+    if (disc === 'mep') return 'mep';
+    if (disc === 'structure') return 'structure';
+    return 'default';
+  };
+
+  /** Highlight checked M/S/A panels, yellow neighbors, and amber connectors (C). */
+  const applyBimsfCheckedSelection = async (focus = true) => {
+    const highlights: {
+      modelId: string;
+      ids: number[];
+      style: 'structure' | 'mep' | 'default' | 'neighbor' | 'connector';
+    }[] = [];
+    const allLocalIds: number[] = [];
+
+    for (const [panelKey, checked] of bimsfChecked.entries()) {
+      if (!checked.size) continue;
+      const byModel = bimsfIndex.get(panelKey);
+      if (!byModel) continue;
+      for (const [modelId, ids] of byModel) {
+        const disc = modelDisciplineById.get(modelId);
+        if (!disc || !checked.has(disc)) continue;
+        highlights.push({ modelId, ids, style: styleForDiscipline(disc) });
+        allLocalIds.push(...ids);
+      }
+    }
+
+    // Neighbors: Structure = light yellow; MEP keeps system colours (skip connector marks)
+    if (bimsfNeighborFocusKey) {
+      const neighborKeys = await findAdjacentBimsfPanels(bimsfNeighborFocusKey);
+      for (const nKey of neighborKeys) {
+        if (isBimsfConnectorKey(nKey)) continue;
+        const byModel = bimsfIndex.get(nKey);
+        if (!byModel) continue;
+        for (const [modelId, ids] of byModel) {
+          const disc = modelDisciplineById.get(modelId);
+          if (disc === 'mep') {
+            highlights.push({ modelId, ids, style: 'mep' });
+          } else {
+            highlights.push({ modelId, ids, style: 'neighbor' });
+          }
+          allLocalIds.push(...ids);
+        }
+      }
+    }
+
+    // C toggle: only connector/bolt elements attached to this panel's structure
+    for (const panelKey of bimsfConnectorFocusKeys) {
+      const linked = await findConnectedConnectorLocalIds(panelKey);
+      for (const [modelId, ids] of linked.byModel) {
+        if (!ids.length) continue;
+        highlights.push({ modelId, ids, style: 'connector' });
+        allLocalIds.push(...ids);
+      }
+    }
+
+    const merged = mergeHighlightEntries(highlights);
+    saveFragmentHighlightSnapshot(merged);
+    selectedPanels = [];
+    try {
+      updateSelectionStatusBar();
+    } catch {
+      /* status bar may not be ready */
+    }
+
+    if (!merged.length) {
+      const tasks: Promise<any>[] = [];
+      for (const [, m] of models.entries()) tasks.push(m.resetHighlight(undefined));
+      await Promise.all(tasks);
+      try {
+        await reapplyRevitColors();
+      } catch {
+        /* optional */
+      }
+      await fragments.update(true);
+      return;
+    }
+
+    await applyGhostAndHighlights(merged);
+    if (focus && allLocalIds.length) {
+      await focusCameraOnLocalIds(allLocalIds, { closer: 0.9 });
+    }
+  };
+
+  const ensureBimsfPanelBounds = async (panelKey: string): Promise<THREE.Box3 | null> => {
+    const cached = bimsfBoundsCache.get(panelKey);
+    if (cached) return cached;
+    const byModel = bimsfIndex.get(panelKey);
+    if (!byModel) return null;
+    const union = new THREE.Box3();
+    let any = false;
+    for (const [modelId, ids] of byModel) {
+      const model = models.get(modelId);
+      if (!model || !ids.length) continue;
+      // Prefer structure bounds for adjacency (framing defines the panel box)
+      const disc = modelDisciplineById.get(modelId);
+      if (disc === 'mep' && byModel.size > 1) continue;
+      try {
+        const boxes = await model.getBoxes(ids);
+        for (const b of boxes || []) {
+          if (b && !b.isEmpty()) {
+            union.union(b);
+            any = true;
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    // If structure skipped everything, fall back to all models
+    if (!any) {
+      for (const [modelId, ids] of byModel) {
+        const model = models.get(modelId);
+        if (!model || !ids.length) continue;
+        try {
+          const boxes = await model.getBoxes(ids);
+          for (const b of boxes || []) {
+            if (b && !b.isEmpty()) {
+              union.union(b);
+              any = true;
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    if (!any) return null;
+    bimsfBoundsCache.set(panelKey, union);
+    return union;
+  };
+
+  /** True when AABBs touch or nearly touch on a face (left/right/top/bottom/end). */
+  const boxesAdjacent = (a: THREE.Box3, b: THREE.Box3, gap = 0.12): boolean => {
+    const ax0 = a.min.x;
+    const ax1 = a.max.x;
+    const ay0 = a.min.y;
+    const ay1 = a.max.y;
+    const az0 = a.min.z;
+    const az1 = a.max.z;
+    const bx0 = b.min.x;
+    const bx1 = b.max.x;
+    const by0 = b.min.y;
+    const by1 = b.max.y;
+    const bz0 = b.min.z;
+    const bz1 = b.max.z;
+
+    // Separated beyond gap on any axis → not neighbors
+    if (ax1 + gap < bx0 || bx1 + gap < ax0) return false;
+    if (ay1 + gap < by0 || by1 + gap < ay0) return false;
+    if (az1 + gap < bz0 || bz1 + gap < az0) return false;
+
+    const touchX = Math.abs(ax1 - bx0) <= gap || Math.abs(bx1 - ax0) <= gap;
+    const touchY = Math.abs(ay1 - by0) <= gap || Math.abs(by1 - ay0) <= gap;
+    const touchZ = Math.abs(az1 - bz0) <= gap || Math.abs(bz1 - az0) <= gap;
+
+    // Must share/near-touch at least one face (not just coarse overlap)
+    if (!(touchX || touchY || touchZ)) return false;
+
+    // Overlap on the other axes (with gap tolerance)
+    const overlapX = ax1 >= bx0 - gap && bx1 >= ax0 - gap;
+    const overlapY = ay1 >= by0 - gap && by1 >= ay0 - gap;
+    const overlapZ = az1 >= bz0 - gap && bz1 >= az0 - gap;
+    return overlapX && overlapY && overlapZ;
+  };
+
+  const findAdjacentBimsfPanels = async (panelKey: string): Promise<string[]> => {
+    const self = await ensureBimsfPanelBounds(panelKey);
+    if (!self) return [];
+    const neighbors: string[] = [];
+    for (const key of bimsfIndex.keys()) {
+      if (key === panelKey) continue;
+      if (isBimsfConnectorKey(key)) continue; // connectors use C toggle, not branch
+      const box = await ensureBimsfPanelBounds(key);
+      if (box && boxesAdjacent(self, box)) neighbors.push(key);
+    }
+    return neighbors;
+  };
+
+  /** Loose spatial link: face-adjacent OR overlapping/embedded (bolts inside panel). */
+  const boxesLinkedForConnector = (a: THREE.Box3, b: THREE.Box3, gap = 0.08): boolean => {
+    if (boxesAdjacent(a, b, gap)) return true;
+    const ae = a.clone().expandByScalar(gap);
+    return ae.intersectsBox(b) || a.containsBox(b) || b.clone().expandByScalar(gap).intersectsBox(a);
+  };
+
+  /** Structure-only AABB for a panel (connectors attach to framing, not MEP). */
+  const ensureBimsfStructureBounds = async (panelKey: string): Promise<THREE.Box3 | null> => {
+    const byModel = bimsfIndex.get(panelKey);
+    if (!byModel) return null;
+    const union = new THREE.Box3();
+    let any = false;
+    for (const [modelId, ids] of byModel) {
+      if (modelDisciplineById.get(modelId) !== 'structure') continue;
+      const model = models.get(modelId);
+      if (!model || !ids.length) continue;
+      try {
+        const boxes = await model.getBoxes(ids);
+        for (const b of boxes || []) {
+          if (b && !b.isEmpty()) {
+            union.union(b);
+            any = true;
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    if (any) return union;
+    // Fallback: full panel bounds if no structure geometry
+    return ensureBimsfPanelBounds(panelKey);
+  };
+
+  /**
+   * Individual connector / anchor-bolt elements attached to a panel's structure.
+   * (BIMSF marks like "Connector" group ALL fasteners — we must filter by localId.)
+   */
+  const findConnectedConnectorLocalIds = async (
+    panelKey: string
+  ): Promise<{
+    byModel: Map<string, number[]>;
+    count: number;
+    marks: string[];
+    byMark: Record<string, number>;
+  }> => {
+    const self = await ensureBimsfStructureBounds(panelKey);
+    if (!self || self.isEmpty()) {
+      return { byModel: new Map(), count: 0, marks: [], byMark: {} };
+    }
+
+    const byModel = new Map<string, number[]>();
+    const byMark: Record<string, number> = {};
+    let count = 0;
+
+    for (const [cKey, cByModel] of bimsfIndex.entries()) {
+      if (!isBimsfConnectorKey(cKey)) continue;
+      const markLabel = bimsfDisplayByKey.get(cKey) || cKey;
+      for (const [modelId, ids] of cByModel) {
+        if (modelDisciplineById.get(modelId) !== 'structure') continue;
+        const model = models.get(modelId);
+        if (!model || !ids.length) continue;
+
+        const attached: number[] = [];
+        try {
+          const CHUNK = 80;
+          for (let i = 0; i < ids.length; i += CHUNK) {
+            const slice = ids.slice(i, i + CHUNK);
+            const boxes = await model.getBoxes(slice);
+            const boxList = boxes || [];
+            for (let j = 0; j < slice.length; j++) {
+              const box = boxList[j];
+              if (!box || box.isEmpty()) continue;
+              if (boxesLinkedForConnector(self, box, 0.1)) {
+                attached.push(slice[j]);
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('connector attach test failed:', e);
+          continue;
+        }
+
+        if (!attached.length) continue;
+        byMark[markLabel] = (byMark[markLabel] || 0) + attached.length;
+        const list = byModel.get(modelId) || [];
+        list.push(...attached);
+        byModel.set(modelId, list);
+        count += attached.length;
+      }
+    }
+
+    for (const [modelId, ids] of byModel) {
+      byModel.set(modelId, [...new Set(ids)]);
+    }
+
+    return {
+      byModel,
+      count,
+      marks: Object.keys(byMark),
+      byMark,
+    };
+  };
+
+  /** Project-wide connector element counts by BIMSF mark (Connector, Anchor Bolt, …). */
+  const getProjectConnectorTotals = (): Array<{ mark: string; count: number }> => {
+    const totals = new Map<string, number>();
+    for (const [cKey, cByModel] of bimsfIndex.entries()) {
+      if (!isBimsfConnectorKey(cKey)) continue;
+      const mark = bimsfDisplayByKey.get(cKey) || cKey;
+      let n = 0;
+      for (const [modelId, ids] of cByModel) {
+        if (modelDisciplineById.get(modelId) !== 'structure') continue;
+        n += ids.length;
+      }
+      if (n > 0) totals.set(mark, (totals.get(mark) || 0) + n);
+    }
+    return [...totals.entries()]
+      .map(([mark, count]) => ({ mark, count }))
+      .sort((a, b) => a.mark.localeCompare(b.mark, undefined, { sensitivity: 'base' }));
+  };
+
+  const toggleBimsfConnectors = async (panelKey: string, enabled: boolean, focus = true) => {
+    const key = String(panelKey || '')
+      .replace(/^\*/, '')
+      .trim()
+      .toLowerCase();
+    if (!key) return { ok: false, connectors: [] as string[], count: 0 };
+    if (enabled) bimsfConnectorFocusKeys.add(key);
+    else bimsfConnectorFocusKeys.delete(key);
+
+    // Ensure the panel itself is selected (structure preferred) so installers see panel + connectors
+    if (enabled && (!bimsfChecked.has(key) || !bimsfChecked.get(key)!.size)) {
+      const available = getDisciplinesForPanel(key);
+      // Prefer Structure when C is used — connectors attach to framing
+      if (available.has('structure')) {
+        bimsfChecked.set(key, new Set<DisciplineKey>(['structure']));
+      } else {
+        bimsfChecked.set(key, new Set(available));
+      }
+      syncBimsfCheckboxUi();
+    }
+
+    const linked = enabled
+      ? await findConnectedConnectorLocalIds(key)
+      : { byModel: new Map(), count: 0, marks: [] as string[] };
+    await applyBimsfCheckedSelection(focus);
+    console.log(
+      `🔗 Connectors attached to ${key}: ${linked.count} element(s) from`,
+      linked.marks
+    );
+    return {
+      ok: true,
+      connectors: linked.marks,
+      count: linked.count,
+    };
+  };
+
+  /**
+   * Toggle yellow highlight of panels connected beside this one (L/R/Top/…).
+   * Installation team view: focal panel stays M/S/A colours; neighbors = yellow.
+   */
+  const highlightBimsfNeighbors = async (panelKey: string) => {
+    const key = String(panelKey || '')
+      .replace(/^\*/, '')
+      .trim()
+      .toLowerCase();
+    if (!key || !bimsfIndex.has(key)) {
+      return { focus: null as string | null, neighbors: [] as string[] };
+    }
+
+    if (bimsfNeighborFocusKey === key) {
+      bimsfNeighborFocusKey = null;
+      await applyBimsfCheckedSelection(false);
+      return { focus: null, neighbors: [] };
+    }
+
+    bimsfNeighborFocusKey = key;
+    // Ensure the focal panel itself is selected so installers see the hub + yellow neighbors
+    if (!bimsfChecked.has(key) || !bimsfChecked.get(key)!.size) {
+      const available = getDisciplinesForPanel(key);
+      bimsfChecked.clear();
+      bimsfChecked.set(key, new Set(available));
+      syncBimsfCheckboxUi();
+    }
+
+    const neighbors = await findAdjacentBimsfPanels(key);
+    await applyBimsfCheckedSelection(true);
+    console.log(
+      `🌿 BIMSF neighbors of ${key}:`,
+      neighbors.map((k) => bimsfDisplayByKey.get(k) || k)
+    );
+    return {
+      focus: key,
+      neighbors: neighbors.map((k) => bimsfDisplayByKey.get(k) || k),
+    };
+  };
+
+  const toggleBimsfDiscipline = async (
+    panelKey: string,
+    disc: DisciplineKey,
+    enabled: boolean,
+    focus = true
+  ) => {
+    let set = bimsfChecked.get(panelKey);
+    if (!set) {
+      set = new Set();
+      bimsfChecked.set(panelKey, set);
+    }
+    if (enabled) set.add(disc);
+    else set.delete(disc);
+    if (!set.size) bimsfChecked.delete(panelKey);
+    syncBimsfCheckboxUi();
+    await applyBimsfCheckedSelection(focus);
+  };
+
+  /** Clicking panel name selects all available disciplines for that panel. */
+  const selectBimsfPanelAllDisciplines = async (panelKey: string, exclusive = true) => {
+    if (exclusive) {
+      bimsfChecked.clear();
+      bimsfNeighborFocusKey = null;
+      bimsfConnectorFocusKeys.clear();
+    }
+    const available = getDisciplinesForPanel(panelKey);
+    bimsfChecked.set(panelKey, new Set(available));
+    syncBimsfCheckboxUi();
+    await applyBimsfCheckedSelection(true);
+  };
+
+  /** Foundation → per floor: LB/NLB → CD → FT → … */
+  const isFoundationPanelKey = (key: string): boolean => {
+    const name = (bimsfDisplayByKey.get(key) || key || '').toLowerCase().trim();
+    return (
+      name === 'foundation' ||
+      /^foundation\b/i.test(name) ||
+      /\bfoundation\b/i.test(name) ||
+      /uq[_-]?foundation/i.test(name)
+    );
+  };
+
+  const isFloorTrussPanelKey = (key: string): boolean => {
+    const name = (bimsfDisplayByKey.get(key) || key || '').toLowerCase().trim();
+    return /^ft[-_]?\d/i.test(name) || /^ft[-_]/i.test(name);
+  };
+
+  const isInstallPanelMarkKey = (key: string): boolean => {
+    if (isFoundationPanelKey(key) || isFloorTrussPanelKey(key)) return true;
+    const name = (bimsfDisplayByKey.get(key) || key || '').toLowerCase().trim();
+    return /^[a-z]{1,4}[-_]?\d{1,8}$/i.test(name);
+  };
+
+  /**
+   * Install sort key from BIMSF mark:
+   *   LB1001 / NLB1002 → floor 1, kind LB
+   *   CD-1001          → floor 1, kind CD
+   *   FT-2001          → floor 2, kind FT
+   * Floor = thousands digit of the number (1001→1, 2001→2).
+   */
+  const parseInstallSortKey = (
+    key: string
+  ): { floor: number; kind: number; seq: number; name: string } => {
+    const name = (bimsfDisplayByKey.get(key) || key || '').toLowerCase().trim();
+    if (isFoundationPanelKey(key)) {
+      return { floor: 0, kind: -1, seq: 0, name };
+    }
+
+    // kind: 0 = LB/NLB/ELB (walls), 1 = CD, 2 = FT (trusses), 3 = other
+    let kind = 3;
+    let rest = name;
+    if (/^nlb[-_]?/i.test(name)) {
+      kind = 0;
+      rest = name.replace(/^nlb[-_]?/i, '');
+    } else if (/^elb[-_]?/i.test(name)) {
+      kind = 0;
+      rest = name.replace(/^elb[-_]?/i, '');
+    } else if (/^lb[-_]?/i.test(name)) {
+      kind = 0;
+      rest = name.replace(/^lb[-_]?/i, '');
+    } else if (/^cd[-_]?/i.test(name)) {
+      kind = 1;
+      rest = name.replace(/^cd[-_]?/i, '');
+    } else if (/^ft[-_]?/i.test(name)) {
+      kind = 2;
+      rest = name.replace(/^ft[-_]?/i, '');
+    } else {
+      const levelWord = name.match(/level\s*(\d+)/i);
+      if (levelWord) {
+        return {
+          floor: parseInt(levelWord[1], 10),
+          kind: 3,
+          seq: 0,
+          name,
+        };
+      }
+    }
+
+    const digits = rest.replace(/\D/g, '');
+    const seq = digits ? parseInt(digits, 10) : 0;
+    let floor = 0;
+    if (seq >= 1000) floor = Math.floor(seq / 1000);
+    else if (seq >= 100) floor = Math.floor(seq / 100);
+    else if (seq > 0 && seq < 100) floor = 1; // bare small ids → treat as floor 1
+
+    return { floor: floor || 1, kind, seq, name };
+  };
+
+  const compareInstallPanelOrder = (aKey: string, bKey: string): number => {
+    const a = parseInstallSortKey(aKey);
+    const b = parseInstallSortKey(bKey);
+    if (a.floor !== b.floor) return a.floor - b.floor;
+    if (a.kind !== b.kind) return a.kind - b.kind;
+    if (a.seq !== b.seq) return a.seq - b.seq;
+    return a.name.localeCompare(b.name, undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    });
+  };
+
+  const buildInstallSequenceKeys = (): string[] => {
+    const all = [...bimsfIndex.keys()].filter((k) => {
+      const byModel = bimsfIndex.get(k);
+      if (!byModel?.size) return false;
+      for (const ids of byModel.values()) {
+        if (ids.length) return true;
+      }
+      return false;
+    });
+
+    const keys = all.filter((k) => {
+      if (isBimsfConnectorKey(k)) return false;
+      if (isFoundationPanelKey(k) || isFloorTrussPanelKey(k) || isInstallPanelMarkKey(k)) {
+        return true;
+      }
+      return getDisciplinesForPanel(k).has('structure');
+    });
+
+    const finalKeys = keys.length ? keys : all.filter((k) => !isBimsfConnectorKey(k));
+    finalKeys.sort(compareInstallPanelOrder);
+    return finalKeys;
+  };
+
+  const collectInstallIdsByModel = () => {
+    installAllIdsByModel.clear();
+    for (const [panelKey, byModel] of bimsfIndex.entries()) {
+      // Connectors are revealed per-step via syncInstallConnectorsUpTo
+      if (isBimsfConnectorKey(panelKey)) continue;
+      for (const [modelId, ids] of byModel) {
+        const list = installAllIdsByModel.get(modelId) || [];
+        list.push(...ids);
+        installAllIdsByModel.set(modelId, list);
+      }
+    }
+    for (const [modelId, ids] of installAllIdsByModel) {
+      installAllIdsByModel.set(modelId, [...new Set(ids)]);
+    }
+  };
+
+  const setBimsfPanelVisible = async (panelKey: string, visible: boolean) => {
+    const byModel = bimsfIndex.get(panelKey);
+    if (!byModel) return;
+    for (const [modelId, ids] of byModel) {
+      const model = models.get(modelId);
+      if (!model || !ids.length) continue;
+      const CHUNK = 400;
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        await model.setVisible(ids.slice(i, i + CHUNK), visible);
+      }
+    }
+  };
+
+  const setAllInstallPanelsVisible = async (visible: boolean) => {
+    for (const [modelId, ids] of installAllIdsByModel) {
+      const model = models.get(modelId);
+      if (!model || !ids.length) continue;
+      const CHUNK = 400;
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        await model.setVisible(ids.slice(i, i + CHUNK), visible);
+      }
+    }
+  };
+
+  const gatherLocalIdsForPanels = (keys: string[]): number[] => {
+    const out: number[] = [];
+    for (const key of keys) {
+      const byModel = bimsfIndex.get(key);
+      if (!byModel) continue;
+      for (const ids of byModel.values()) out.push(...ids);
+    }
+    return out;
+  };
+
+  let installCurrentDetails: {
+    key: string;
+    display: string;
+    container: string;
+    elementCount: number;
+    structureCount: number;
+    mepCount: number;
+    architectureCount: number;
+    disciplines: string[];
+    sizeLabel: string | null;
+    adjacentCount: number;
+    adjacentNames: string[];
+    pallet: string | null;
+    material: string | null;
+    weight: string | null;
+    location: string | null;
+    objectType: string | null;
+    floor: number;
+    connectors: { total: number; byMark: Record<string, number> };
+  } | null = null;
+
+  const buildInstallConnectorCaches = async () => {
+    installConnectorCache.clear();
+    installAllConnectorIdsByModel.clear();
+    installProjectConnectorTotals = getProjectConnectorTotals();
+
+    // Collect every connector localId (structure) for hide/show
+    for (const [cKey, cByModel] of bimsfIndex.entries()) {
+      if (!isBimsfConnectorKey(cKey)) continue;
+      for (const [modelId, ids] of cByModel) {
+        if (modelDisciplineById.get(modelId) !== 'structure') continue;
+        const list = installAllConnectorIdsByModel.get(modelId) || [];
+        list.push(...ids);
+        installAllConnectorIdsByModel.set(modelId, list);
+      }
+    }
+    for (const [modelId, ids] of installAllConnectorIdsByModel) {
+      installAllConnectorIdsByModel.set(modelId, [...new Set(ids)]);
+    }
+
+    for (const panelKey of installSequenceKeys) {
+      try {
+        const linked = await findConnectedConnectorLocalIds(panelKey);
+        installConnectorCache.set(panelKey, {
+          byModel: linked.byModel,
+          byMark: linked.byMark,
+          count: linked.count,
+        });
+      } catch (e) {
+        console.warn('connector cache for', panelKey, e);
+        installConnectorCache.set(panelKey, {
+          byModel: new Map(),
+          byMark: {},
+          count: 0,
+        });
+      }
+    }
+
+    // Aggregate connectors per floor (foundation = 0)
+    const levelMap = new Map<number, Record<string, number>>();
+    for (const panelKey of installSequenceKeys) {
+      const floor = isFoundationPanelKey(panelKey) ? 0 : parseInstallSortKey(panelKey).floor;
+      const cached = installConnectorCache.get(panelKey);
+      if (!cached?.count) continue;
+      let bag = levelMap.get(floor);
+      if (!bag) {
+        bag = {};
+        levelMap.set(floor, bag);
+      }
+      for (const [mark, n] of Object.entries(cached.byMark)) {
+        bag[mark] = (bag[mark] || 0) + n;
+      }
+    }
+    installLevelConnectorTotals = [...levelMap.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([floor, byMark]) => ({
+        floor,
+        label: floor <= 0 ? 'Foundation' : `Level ${floor}`,
+        total: Object.values(byMark).reduce((s, n) => s + n, 0),
+        byMark,
+      }));
+  };
+
+  const setAllConnectorsVisible = async (visible: boolean) => {
+    for (const [modelId, ids] of installAllConnectorIdsByModel) {
+      await setModelIdsVisible(modelId, ids, visible);
+    }
+  };
+
+  const syncInstallConnectorsUpTo = async (index: number) => {
+    // Hide all connectors, then reveal those attached to panels 0..index
+    await setAllConnectorsVisible(false);
+    const shown = new Map<string, Set<number>>();
+    for (let i = 0; i <= index && i < installSequenceKeys.length; i++) {
+      const cached = installConnectorCache.get(installSequenceKeys[i]);
+      if (!cached) continue;
+      for (const [modelId, ids] of cached.byModel) {
+        let set = shown.get(modelId);
+        if (!set) {
+          set = new Set();
+          shown.set(modelId, set);
+        }
+        for (const id of ids) set.add(id);
+      }
+    }
+    for (const [modelId, set] of shown) {
+      await setModelIdsVisible(modelId, [...set], true);
+    }
+  };
+
+  const buildInstallPanelDetails = async (panelKey: string) => {
+    const display = bimsfDisplayByKey.get(panelKey) || panelKey;
+    const byModel = bimsfIndex.get(panelKey);
+    let structureCount = 0;
+    let mepCount = 0;
+    let architectureCount = 0;
+    let elementCount = 0;
+    if (byModel) {
+      for (const [modelId, ids] of byModel) {
+        const n = ids.length;
+        elementCount += n;
+        const disc = modelDisciplineById.get(modelId);
+        if (disc === 'structure') structureCount += n;
+        else if (disc === 'mep') mepCount += n;
+        else if (disc === 'architecture') architectureCount += n;
+      }
+    }
+
+    const disciplines = [...getDisciplinesForPanel(panelKey)];
+    let sizeLabel: string | null = null;
+    try {
+      const box = await ensureBimsfPanelBounds(panelKey);
+      if (box && !box.isEmpty()) {
+        const s = new THREE.Vector3();
+        box.getSize(s);
+        sizeLabel = `${s.x.toFixed(2)} × ${s.y.toFixed(2)} × ${s.z.toFixed(2)} m`;
+      }
+    } catch {
+      /* ignore */
+    }
+
+    let adjacentNames: string[] = [];
+    let adjacentCount = 0;
+    try {
+      const neighbors = await findAdjacentBimsfPanels(panelKey);
+      adjacentCount = neighbors.length;
+      adjacentNames = neighbors
+        .slice(0, 6)
+        .map((k) => bimsfDisplayByKey.get(k) || k);
+    } catch {
+      /* ignore */
+    }
+
+    let pallet: string | null = null;
+    let material: string | null = null;
+    let weight: string | null = null;
+    let location: string | null = null;
+    let objectType: string | null = null;
+    try {
+      const cache: Map<string, any> | undefined = (globalThis as any).__uqPanelDataCache;
+      const want = panelKey.toLowerCase();
+      if (cache) {
+        for (const p of cache.values()) {
+          if (!p) continue;
+          const meta =
+            p.metadata && typeof p.metadata === 'object' ? (p.metadata as Record<string, any>) : {};
+          const candidates = [
+            meta.BIMSF_Container,
+            meta.bimsf,
+            meta.mark,
+            meta.Mark,
+            p.tag,
+            p.name,
+          ]
+            .filter(Boolean)
+            .map((x) => normalizeBimsfId(String(x)).toLowerCase());
+          if (!candidates.includes(want)) continue;
+          pallet = meta.pallet || meta.Pallet || meta.palletId || meta.PalletId || null;
+          if (pallet) pallet = String(pallet);
+          material = p.material ? String(p.material) : meta.material ? String(meta.material) : null;
+          const w =
+            typeof p.weight === 'number' ? p.weight : typeof meta.weight === 'number' ? meta.weight : null;
+          weight = w != null ? `${w} kg` : null;
+          location = p.location
+            ? String(p.location)
+            : meta.storeyName
+              ? String(meta.storeyName)
+              : null;
+          objectType = p.objectType
+            ? String(p.objectType)
+            : meta.objectType
+              ? String(meta.objectType)
+              : null;
+          break;
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+
+    const conn = installConnectorCache.get(panelKey);
+    const sort = parseInstallSortKey(panelKey);
+
+    return {
+      key: panelKey,
+      display,
+      container: display,
+      elementCount,
+      structureCount,
+      mepCount,
+      architectureCount,
+      disciplines,
+      sizeLabel,
+      adjacentCount,
+      adjacentNames,
+      pallet,
+      material,
+      weight,
+      location,
+      objectType,
+      floor: isFoundationPanelKey(panelKey) ? 0 : sort.floor,
+      connectors: {
+        total: conn?.count || 0,
+        byMark: conn?.byMark || {},
+      },
+    };
+  };
+
+  const getInstallSequenceState = () => {
+    const total = installSequenceKeys.length;
+    const index = installSequenceIndex;
+    const key = installSequenceKeys[index] || '';
+    const steps = installSequenceKeys.map((k) => ({
+      key: k,
+      display: bimsfDisplayByKey.get(k) || k,
+    }));
+    const previous = steps.slice(Math.max(0, index - 3), index);
+    const upcoming = steps.slice(index + 1, index + 4);
+    const currentFloor = key
+      ? isFoundationPanelKey(key)
+        ? 0
+        : parseInstallSortKey(key).floor
+      : 0;
+    const levelConnectors =
+      installLevelConnectorTotals.find((l) => l.floor === currentFloor) || null;
+
+    return {
+      active: installSequenceActive,
+      index,
+      total,
+      key,
+      display: key ? bimsfDisplayByKey.get(key) || key : '',
+      isFirst: index <= 0,
+      isLast: total === 0 || index >= total - 1,
+      steps,
+      previous,
+      upcoming,
+      current: installCurrentDetails,
+      connectorsProject: installProjectConnectorTotals,
+      connectorsLevel: levelConnectors,
+      connectorsLevels: installLevelConnectorTotals,
+    };
+  };
+
+  /** Instant camera framing — no transition. */
+  const quickFocusInstallPanel = async (localIds: number[]) => {
+    if (!localIds.length) return;
+    let hasAny = false;
+    const union = new THREE.Box3();
+    for (const [, m] of models.entries()) {
+      try {
+        const boxes = await m.getBoxes(localIds);
+        for (const b of boxes || []) {
+          if (b && !b.isEmpty()) {
+            union.union(b);
+            hasAny = true;
+          }
+        }
+      } catch {
+        /* id may not belong to this model */
+      }
+    }
+    if (!hasAny) return;
+
+    const center = new THREE.Vector3();
+    union.getCenter(center);
+    const controls: any = world.camera.controls as any;
+    const closer = 0.85;
+    const minDistance = 2;
+
+    if (controls && typeof controls.fitToBox === 'function') {
+      await controls.fitToBox(union, false, {
+        paddingLeft: 0.06,
+        paddingRight: 0.06,
+        paddingTop: 0.06,
+        paddingBottom: 0.06,
+      });
+      const cam = world.camera.three as THREE.PerspectiveCamera;
+      const curDist = cam.position.distanceTo(center);
+      const diagDir = new THREE.Vector3(0.7, 0.45, 0.7).normalize();
+      const newPos = center.clone().add(diagDir.multiplyScalar(Math.max(curDist * closer, minDistance)));
+      controls.setLookAt(newPos.x, newPos.y, newPos.z, center.x, center.y, center.z, false);
+    } else {
+      const size = new THREE.Vector3();
+      union.getSize(size);
+      const cam = world.camera.three as THREE.PerspectiveCamera;
+      const vfov = THREE.MathUtils.degToRad(cam.fov);
+      const aspect = cam.aspect || window.innerWidth / window.innerHeight;
+      const distanceForHeight = (size.y * 0.5) / Math.tan(vfov / 2);
+      const hfov = 2 * Math.atan(Math.tan(vfov / 2) * aspect);
+      const distanceForWidth = (size.x * 0.5) / Math.tan(hfov / 2);
+      const fitDistance = Math.max(distanceForHeight, distanceForWidth, size.z) * 1.15;
+      const dir = cam.position.clone().sub(center).normalize();
+      const newPos = center.clone().add(dir.multiplyScalar(Math.max(fitDistance * closer, minDistance)));
+      world.camera.controls.setLookAt(newPos.x, newPos.y, newPos.z, center.x, center.y, center.z, false);
+    }
+  };
+
+  const setModelIdsVisible = async (modelId: string, ids: number[], visible: boolean) => {
+    const model = models.get(modelId);
+    if (!model || !ids.length) return;
+    const CHUNK = 500;
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      await model.setVisible(ids.slice(i, i + CHUNK), visible);
+    }
+  };
+
+  /** Hide everything that is not part of the install sequence (site context, etc.). */
+  const hideNonSequenceGeometry = async () => {
+    installOtherIdsByModel.clear();
+    for (const [modelId, model] of models.entries()) {
+      let geomIds: number[] = [];
+      try {
+        if (typeof (model as any).getItemsIdsWithGeometry === 'function') {
+          geomIds = await (model as any).getItemsIdsWithGeometry();
+        } else {
+          const items = await model.getItemsWithGeometry();
+          geomIds = (items || [])
+            .map((g: any) => (typeof g === 'number' ? g : g?.localId))
+            .filter((id: any) => Number.isFinite(Number(id)))
+            .map(Number);
+        }
+      } catch {
+        continue;
+      }
+      const installSet = new Set(installAllIdsByModel.get(modelId) || []);
+      const other = geomIds.filter((id) => !installSet.has(id));
+      if (!other.length) continue;
+      installOtherIdsByModel.set(modelId, other);
+      await setModelIdsVisible(modelId, other, false);
+    }
+  };
+
+  const restoreNonSequenceGeometry = async () => {
+    for (const [modelId, ids] of installOtherIdsByModel) {
+      await setModelIdsVisible(modelId, ids, true);
+    }
+    installOtherIdsByModel.clear();
+  };
+
+  const syncInstallVisibilityUpTo = async (index: number) => {
+    for (let i = 0; i < installSequenceKeys.length; i++) {
+      await setBimsfPanelVisible(installSequenceKeys[i], i <= index);
+    }
+  };
+
+  /** Fast step: show panels up to index with metallic / MEP colours, instant camera. */
+  const applyInstallStep = async (index: number) => {
+    await syncInstallVisibilityUpTo(index);
+    await syncInstallConnectorsUpTo(index);
+
+    const highlights: {
+      modelId: string;
+      ids: number[];
+      style: 'structure' | 'mep' | 'default' | 'neighbor' | 'connector';
+    }[] = [];
+
+    for (let i = 0; i <= index && i < installSequenceKeys.length; i++) {
+      const panelKey = installSequenceKeys[i];
+      const byModel = bimsfIndex.get(panelKey);
+      if (!byModel) continue;
+      for (const [modelId, ids] of byModel) {
+        const disc = modelDisciplineById.get(modelId);
+        highlights.push({
+          modelId,
+          ids,
+          style: disc ? styleForDiscipline(disc) : 'default',
+        });
+      }
+      const conn = installConnectorCache.get(panelKey);
+      if (conn?.byModel) {
+        for (const [modelId, ids] of conn.byModel) {
+          if (ids.length) highlights.push({ modelId, ids, style: 'connector' });
+        }
+      }
+    }
+
+    // Apply colours only on visible panels — no ghosting (other geometry is hidden)
+    const resetTasks: Promise<any>[] = [];
+    for (const [, m] of models.entries()) resetTasks.push(m.resetHighlight(undefined));
+    await Promise.all(resetTasks);
+
+    const merged = mergeHighlightEntries(highlights);
+    for (const entry of merged) {
+      const targetModel = models.get(entry.modelId);
+      if (!targetModel || !entry.ids.length) continue;
+      const style = entry.style || 'default';
+
+      if (style === 'connector') {
+        await targetModel.highlight(entry.ids, {
+          color: new THREE.Color(BIMSF_CONNECTOR_COLOR),
+          opacity: 1,
+          transparent: false,
+          renderedFaces: FRAGS.RenderedFaces.TWO,
+        });
+      } else if (style === 'structure') {
+        await targetModel.highlight(entry.ids, {
+          color: new THREE.Color(STEEL_SELECT_COLOR),
+          opacity: 1,
+          transparent: false,
+          renderedFaces: FRAGS.RenderedFaces.TWO,
+          customId: BIMSF_STAINLESS_ID,
+        } as any);
+      } else if (style === 'mep') {
+        const revitColors = revitColorByModel.get(entry.modelId);
+        const byColor = new Map<string, number[]>();
+        const unmapped: number[] = [];
+        for (const localId of entry.ids) {
+          const hex = revitColors?.get(localId);
+          if (hex) {
+            const list = byColor.get(hex) || [];
+            list.push(localId);
+            byColor.set(hex, list);
+          } else {
+            unmapped.push(localId);
+          }
+        }
+        for (const [hex, colorIds] of byColor) {
+          await targetModel.highlight(colorIds, {
+            color: new THREE.Color(hex),
+            opacity: 1,
+            transparent: false,
+            renderedFaces: FRAGS.RenderedFaces.TWO,
+          });
+        }
+        if (unmapped.length) {
+          await targetModel.highlight(unmapped, {
+            color: new THREE.Color(MEP_SELECT_FALLBACK),
+            opacity: 1,
+            transparent: false,
+            renderedFaces: FRAGS.RenderedFaces.TWO,
+          });
+        }
+      } else {
+        await targetModel.highlight(entry.ids, {
+          color: new THREE.Color(DEFAULT_SELECT_COLOR),
+          opacity: 1,
+          transparent: false,
+          renderedFaces: FRAGS.RenderedFaces.TWO,
+        });
+      }
+    }
+
+    await fragments.update(true);
+
+    const key = installSequenceKeys[index];
+    if (key) {
+      try {
+        installCurrentDetails = await buildInstallPanelDetails(key);
+      } catch (e) {
+        console.warn('buildInstallPanelDetails:', e);
+        const conn = installConnectorCache.get(key);
+        installCurrentDetails = {
+          key,
+          display: bimsfDisplayByKey.get(key) || key,
+          container: bimsfDisplayByKey.get(key) || key,
+          elementCount: 0,
+          structureCount: 0,
+          mepCount: 0,
+          architectureCount: 0,
+          disciplines: [...getDisciplinesForPanel(key)],
+          sizeLabel: null,
+          adjacentCount: 0,
+          adjacentNames: [],
+          pallet: null,
+          material: null,
+          weight: null,
+          location: null,
+          objectType: null,
+          floor: isFoundationPanelKey(key) ? 0 : parseInstallSortKey(key).floor,
+          connectors: {
+            total: conn?.count || 0,
+            byMark: conn?.byMark || {},
+          },
+        };
+      }
+      await quickFocusInstallPanel(gatherLocalIdsForPanels([key]));
+    } else {
+      installCurrentDetails = null;
+    }
+  };
+
+  const enterInstallSequence = async () => {
+    const keys = buildInstallSequenceKeys();
+    if (!keys.length) {
+      return { ok: false as const, error: 'No BIMSF panels found to sequence', ...getInstallSequenceState() };
+    }
+
+    installSequenceKeys = keys;
+    installSequenceIndex = 0;
+    installSequenceActive = true;
+    bimsfChecked.clear();
+    bimsfNeighborFocusKey = null;
+    lastFragmentHighlight = [];
+    collectInstallIdsByModel();
+
+    // Hide all non-sequence geometry + all sequence panels, then show step 0 only
+    await hideNonSequenceGeometry();
+    await setAllInstallPanelsVisible(false);
+    await buildInstallConnectorCaches();
+    await applyInstallStep(0);
+
+    const state = getInstallSequenceState();
+    try {
+      window.dispatchEvent(new CustomEvent('uniqube-install-sequence', { detail: state }));
+    } catch {
+      /* ignore */
+    }
+    return { ok: true as const, ...state };
+  };
+
+  const goInstallSequence = async (direction: 'next' | 'prev' | 'goto', target?: number) => {
+    if (!installSequenceActive || !installSequenceKeys.length) {
+      return { ok: false as const, error: 'Install sequence not active', ...getInstallSequenceState() };
+    }
+
+    let nextIndex = installSequenceIndex;
+    if (direction === 'next') nextIndex = Math.min(installSequenceIndex + 1, installSequenceKeys.length - 1);
+    else if (direction === 'prev') nextIndex = Math.max(installSequenceIndex - 1, 0);
+    else if (direction === 'goto' && typeof target === 'number') {
+      nextIndex = Math.max(0, Math.min(target, installSequenceKeys.length - 1));
+    }
+
+    if (nextIndex === installSequenceIndex && direction !== 'goto') {
+      return { ok: true as const, ...getInstallSequenceState() };
+    }
+
+    installSequenceIndex = nextIndex;
+    await applyInstallStep(nextIndex);
+
+    const state = getInstallSequenceState();
+    try {
+      window.dispatchEvent(new CustomEvent('uniqube-install-sequence', { detail: state }));
+    } catch {
+      /* ignore */
+    }
+    return { ok: true as const, ...state };
+  };
+
+  const exitInstallSequence = async () => {
+    installSequenceActive = false;
+    installSequenceIndex = 0;
+    installCurrentDetails = null;
+
+    await setAllInstallPanelsVisible(true);
+    await setAllConnectorsVisible(true);
+    await restoreNonSequenceGeometry();
+    installAllIdsByModel.clear();
+    installAllConnectorIdsByModel.clear();
+    installConnectorCache.clear();
+    installProjectConnectorTotals = [];
+    installLevelConnectorTotals = [];
+    installSequenceKeys = [];
+
+    const tasks: Promise<any>[] = [];
+    for (const [, m] of models.entries()) tasks.push(m.resetHighlight(undefined));
+    await Promise.all(tasks);
+    try {
+      await reapplyRevitColors();
+    } catch {
+      /* optional */
+    }
+    lastFragmentHighlight = [];
+    bimsfChecked.clear();
+    bimsfNeighborFocusKey = null;
+    await fragments.update(true);
+
+    const state = getInstallSequenceState();
+    try {
+      window.dispatchEvent(new CustomEvent('uniqube-install-sequence', { detail: state }));
+    } catch {
+      /* ignore */
+    }
+    return { ok: true as const, ...state };
+  };
+
+  const syncBimsfCheckboxUi = () => {
+    document.querySelectorAll<HTMLElement>('.bimsf-panel-row[data-bimsf-key]').forEach((row) => {
+      const key = row.dataset.bimsfKey || '';
+      const checked = bimsfChecked.get(key) || new Set();
+      row.classList.toggle('is-active', checked.size > 0);
+      row.querySelectorAll<HTMLButtonElement>('.bimsf-msa-btn').forEach((btn) => {
+        const disc = btn.dataset.disc as DisciplineKey | undefined;
+        if (!disc) return;
+        btn.classList.toggle('is-on', checked.has(disc));
+        btn.setAttribute('aria-pressed', checked.has(disc) ? 'true' : 'false');
+      });
+    });
+  };
+
+  const createBimsfMsaControls = (panelKey: string, available: Set<DisciplineKey>) => {
+    const wrap = document.createElement('span');
+    wrap.className = 'bimsf-msa';
+    wrap.title = 'M = MEP · S = Structure · A = Architecture';
+
+    const defs: Array<{ disc: DisciplineKey; letter: string }> = [
+      { disc: 'mep', letter: 'M' },
+      { disc: 'structure', letter: 'S' },
+      { disc: 'architecture', letter: 'A' },
+    ];
+
+    for (const { disc, letter } of defs) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'bimsf-msa-btn';
+      btn.dataset.disc = disc;
+      btn.textContent = letter;
+      const has = available.has(disc);
+      btn.disabled = !has;
+      btn.title = has
+        ? `Toggle ${disc} for this panel`
+        : `No ${disc} model has this panel`;
+      if (has) {
+        btn.onclick = async (e) => {
+          e.stopPropagation();
+          const checked = bimsfChecked.get(panelKey);
+          const on = !(checked && checked.has(disc));
+          await toggleBimsfDiscipline(panelKey, disc, on, true);
+        };
+      }
+      wrap.appendChild(btn);
+    }
+    return wrap;
+  };
+
+  /**
+   * Inject a "3D Panels" folder under each discipline model in the tree.
+   * Panel rows show M / S / A toggles when that panel exists across disciplines.
+   */
+  const injectBimsfPanelsIntoTree = () => {
+    const treeContainer = document.getElementById('tree-container');
+    if (!treeContainer || !bimsfIndex.size) return;
+
+    treeContainer.querySelectorAll('.bimsf-folder-root').forEach((el) => el.remove());
+
+    const modelRoots = treeContainer.querySelectorAll<HTMLElement>('.tree-node-container.model-root');
+    modelRoots.forEach((modelRoot) => {
+      const modelNode = modelRoot.querySelector('.model-node') as HTMLElement | null;
+      const childrenContainer = modelRoot.querySelector('.model-children') as HTMLElement | null;
+      if (!modelNode || !childrenContainer) return;
+
+      let modelId =
+        (modelRoot as any)._modelId ||
+        modelNode.dataset.modelId ||
+        '';
+
+      if (!modelId) {
+        const storeyNode = childrenContainer.querySelector('.storey-node') as any;
+        const storeyData = storeyNode?._storeyData;
+        if (storeyData?._modelId) modelId = storeyData._modelId;
+      }
+      if (!modelId) return;
+
+      (modelRoot as any)._modelId = modelId;
+      modelNode.dataset.modelId = modelId;
+
+      const homeDisc =
+        modelDisciplineById.get(modelId) ||
+        resolveDiscipline(null, modelNode.querySelector('.tree-label')?.textContent || '');
+      if (!homeDisc) return;
+
+      const panelKeys: string[] = [];
+      for (const [key, byModel] of bimsfIndex.entries()) {
+        if (byModel.has(modelId)) panelKeys.push(key);
+      }
+      if (!panelKeys.length) return;
+      panelKeys.sort((a, b) =>
+        (bimsfDisplayByKey.get(a) || a).localeCompare(bimsfDisplayByKey.get(b) || b)
+      );
+
+      const folderRoot = document.createElement('div');
+      folderRoot.className = 'tree-node-container bimsf-folder-root';
+
+      const folderNode = document.createElement('div');
+      folderNode.className = 'tree-node bimsf-folder-node';
+      folderNode.style.paddingLeft = '30px';
+      folderNode.style.cursor = 'pointer';
+
+      const toggleIcon = document.createElement('span');
+      toggleIcon.className = 'tree-toggle-icon';
+      toggleIcon.textContent = '▶';
+      folderNode.appendChild(toggleIcon);
+
+      const icon = document.createElement('span');
+      icon.className = 'tree-icon';
+      icon.textContent = '▦';
+      folderNode.appendChild(icon);
+
+      const label = document.createElement('span');
+      label.className = 'tree-label';
+      label.textContent = '3D Panels';
+      folderNode.appendChild(label);
+
+      const count = document.createElement('span');
+      count.className = 'tree-count';
+      count.textContent = String(panelKeys.length);
+      folderNode.appendChild(count);
+
+      const panelChildren = document.createElement('div');
+      panelChildren.className = 'bimsf-panel-children collapsed tree-children';
+
+      folderNode.onclick = (e) => {
+        e.stopPropagation();
+        const isCollapsed = panelChildren.classList.contains('collapsed');
+        panelChildren.classList.toggle('collapsed', !isCollapsed);
+        toggleIcon.classList.toggle('expanded', isCollapsed);
+      };
+
+      for (const panelKey of panelKeys) {
+        const display = bimsfDisplayByKey.get(panelKey) || panelKey;
+        const available = getDisciplinesForPanel(panelKey);
+
+        const row = document.createElement('div');
+        row.className = 'tree-node bimsf-panel-row';
+        row.style.paddingLeft = '50px';
+        row.dataset.bimsfKey = panelKey;
+
+        const spacer = document.createElement('span');
+        spacer.style.width = '16px';
+        spacer.style.display = 'inline-block';
+        row.appendChild(spacer);
+
+        const idSpan = document.createElement('span');
+        idSpan.className = 'bimsf-panel-id tree-label';
+        idSpan.textContent = display;
+        idSpan.title = `${display} — click selects all available M/S/A`;
+        idSpan.onclick = async (e) => {
+          e.stopPropagation();
+          await selectBimsfPanelAllDisciplines(panelKey, !(e.ctrlKey || e.metaKey));
+        };
+        row.appendChild(idSpan);
+        row.appendChild(createBimsfMsaControls(panelKey, available));
+        panelChildren.appendChild(row);
+      }
+
+      folderRoot.appendChild(folderNode);
+      folderRoot.appendChild(panelChildren);
+      childrenContainer.insertBefore(folderRoot, childrenContainer.firstChild);
+    });
+
+    syncBimsfCheckboxUi();
+    console.log('✅ BIMSF 3D Panels injected into tree');
+  };
+
+  // Back-compat alias used after model load
+  const renderBimsfPanelList = () => {
+    // Project Browser Tree owns the BIMSF UI; keep selection API ready.
+    try {
+      (window as any).__uniqubeViewer = {
+        ...((window as any).__uniqubeViewer || {}),
+        toggleBimsfDiscipline,
+        selectBimsfPanelAllDisciplines,
+        applyBimsfCheckedSelection,
+        highlightBimsfNeighbors,
+        toggleBimsfConnectors,
+        isBimsfConnectorKey: (k: string) => isBimsfConnectorKey(String(k || '').toLowerCase()),
+        getBimsfNeighborFocus: () => bimsfNeighborFocusKey,
+        getBimsfConnectorFocus: () => [...bimsfConnectorFocusKeys],
+        getBimsfChecked: () => {
+          const out: Record<string, string[]> = {};
+          for (const [k, set] of bimsfChecked) out[k] = [...set];
+          return out;
+        },
+        getBimsfAvailableDisciplines: (panelKey: string) =>
+          [...getDisciplinesForPanel(String(panelKey || '').toLowerCase())],
+        getBimsfPanelKeys: () =>
+          [...bimsfIndex.keys()].map((k) => ({
+            key: k,
+            display: bimsfDisplayByKey.get(k) || k,
+            disciplines: [...getDisciplinesForPanel(k)],
+            isConnector: isBimsfConnectorKey(k),
+          })),
+        enterInstallSequence,
+        goInstallSequence,
+        exitInstallSequence,
+        getInstallSequenceState,
+      };
+    } catch {
+      /* ignore */
+    }
+  };
+
+  /** Re-apply stored Revit colours (call after clearing selection highlights). */
+  const reapplyRevitColors = async () => {
+    for (const [modelId, localColor] of revitColorByModel) {
+      const model = models.get(modelId);
+      if (!model || localColor.size === 0) continue;
+      const byColor = new Map<string, number[]>();
+      localColor.forEach((hex, localId) => {
+        const list = byColor.get(hex) || [];
+        list.push(localId);
+        byColor.set(hex, list);
+      });
+      for (const [hex, ids] of byColor) {
+        try {
+          await model.highlight(ids, {
+            color: new THREE.Color(hex),
+            renderedFaces: 1,
+            opacity: 1,
+            transparent: false,
+          });
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    // Structure BIMSF always uses stainless metallic in normal view
+    try {
+      await applyStructureBimsfMetallic();
+    } catch (e) {
+      console.warn('applyStructureBimsfMetallic:', e);
+      fragments.update(true);
+    }
+  };
+
+  /** Apply stainless metallic to all Structure BIMSF elements (normal view default). */
+  const applyStructureBimsfMetallic = async () => {
+    if (!bimsfIndex.size) {
+      await fragments.update(true);
+      return;
+    }
+    for (const [, byModel] of bimsfIndex) {
+      for (const [modelId, ids] of byModel) {
+        if (modelDisciplineById.get(modelId) !== 'structure') continue;
+        const model = models.get(modelId);
+        if (!model || !ids.length) continue;
+        const unique = [...new Set(ids)];
+        const CHUNK = 400;
+        for (let i = 0; i < unique.length; i += CHUNK) {
+          await model.highlight(unique.slice(i, i + CHUNK), {
+            color: new THREE.Color(STEEL_SELECT_COLOR),
+            opacity: 1,
+            transparent: false,
+            renderedFaces: FRAGS.RenderedFaces.TWO,
+            customId: BIMSF_STAINLESS_ID,
+          } as any);
+        }
+      }
+    }
+    await fragments.update(true);
+  };
 
   // Fetch project models from backend API
   const fetchProjectModels = async (projectId: string) => {
@@ -454,7 +2490,7 @@ export async function initializeViewer(containerId: string = "container") {
         if (response.status === 404) {
           throw new ProjectNotFoundError(`Project with ID ${projectId} not found. Please check the project ID or return to the dashboard.`);
         } else if (response.status === 403) {
-          throw new ProjectNotFoundError(`Access denied to project ${projectId}. You may not have permission to view this project.`);
+          throw new ProjectNotFoundError(`Access denied to project ${projectId}. Log in as admin@uniqube.com or ask an admin to add you to this project.`);
         } else if (response.status >= 500) {
           throw new NetworkError(`Server error (${response.status}). The server may be experiencing issues. Please try again later.`);
         } else {
@@ -465,36 +2501,52 @@ export async function initializeViewer(containerId: string = "container") {
       const projectData = await response.json();
       console.log('✅ Project data received:', projectData);
 
-      // Extract models from project data
+      // Extract models from project data — only ACTIVE versions for the 3D viewer.
+      // modelHistory includes replaced versions (isActive=false); loading those shows the old model.
       const modelsList = [];
+      const seen = new Set();
 
-      // Check both modelHistory and currentModel
-      if (projectData.currentModel) {
+      const pushIfActive = (model) => {
+        if (!model || !model.id || seen.has(model.id)) return;
+        if (model.isActive === false) return;
+        // If isActive is missing, keep READY models (older API payloads)
+        if (model.isActive !== true && model.status && String(model.status).toUpperCase() !== 'READY') {
+          return;
+        }
+        seen.add(model.id);
         modelsList.push({
-          id: projectData.currentModel.id,
-          name: projectData.currentModel.originalFilename,
-          status: projectData.currentModel.status,
-          category: projectData.currentModel.category || 'OTHER'
+          id: model.id,
+          name: model.originalFilename || model.name,
+          status: model.status,
+          category: model.category || 'OTHER',
+          version: model.version,
+          isActive: model.isActive !== false,
         });
+      };
+
+      if (projectData.currentModel) {
+        pushIfActive(projectData.currentModel);
       }
 
-      // Also add from modelHistory if available
       if (projectData.modelHistory && projectData.modelHistory.length > 0) {
         for (const model of projectData.modelHistory) {
-          // Avoid duplicates
-          if (!modelsList.find(m => m.id === model.id)) {
-            modelsList.push({
-              id: model.id,
-              name: model.originalFilename,
-              status: model.status,
-              category: model.category || 'OTHER'
-            });
-          }
+          pushIfActive(model);
         }
       }
 
-      console.log(`📦 Found ${modelsList.length} models for project`);
-      return modelsList;
+      // Prefer one active model per category (highest version if duplicates slip through)
+      const byCategory = new Map();
+      for (const m of modelsList) {
+        const key = m.category || 'OTHER';
+        const prev = byCategory.get(key);
+        if (!prev || (m.version || 0) > (prev.version || 0)) {
+          byCategory.set(key, m);
+        }
+      }
+      const activeModels = Array.from(byCategory.values());
+
+      console.log(`📦 Found ${activeModels.length} active model(s) for project (filtered from history)`);
+      return activeModels;
 
     } catch (error) {
       console.error('❌ Failed to fetch project models:', error);
@@ -514,18 +2566,99 @@ export async function initializeViewer(containerId: string = "container") {
     }
   };
 
+  const resolveDiscipline = (
+    category?: string | null,
+    name?: string | null
+  ): DisciplineKey | null => {
+    const c = (category || '').toLowerCase();
+    if (c === 'mep' || c === 'electrical') return 'mep';
+    if (c === 'structure' || c === 'structural') return 'structure';
+    if (c === 'architecture' || c === 'architectural' || c === 'arch') return 'architecture';
+    const n = (name || '').toLowerCase();
+    if (n.includes('mep')) return 'mep';
+    if (n.includes('struct')) return 'structure';
+    if (n.includes('arch')) return 'architecture';
+    return null;
+  };
+
+  const registerModelDiscipline = (
+    modelId: string,
+    category?: string | null,
+    name?: string | null
+  ) => {
+    const disc = resolveDiscipline(category, name);
+    if (disc) modelDisciplineById.set(modelId, disc);
+    else modelDisciplineById.delete(modelId);
+  };
+
+  const updateDisciplineButtonsUi = () => {
+    // UI order is alphabetical: Architecture → MEP → Structure
+    const map: Array<[DisciplineKey, string]> = [
+      ['architecture', 'discipline-arch-btn'],
+      ['mep', 'discipline-mep-btn'],
+      ['structure', 'discipline-str-btn'],
+    ];
+    map.forEach(([disc, id]) => {
+      const btn = document.getElementById(id);
+      if (!btn) return;
+      const hasModel = [...modelDisciplineById.values()].some((d) => d === disc);
+      btn.toggleAttribute('disabled', !hasModel);
+      btn.classList.toggle('active', hasModel && disciplineVisible[disc]);
+      btn.setAttribute(
+        'aria-pressed',
+        hasModel && disciplineVisible[disc] ? 'true' : 'false'
+      );
+    });
+  };
+
+  const setDisciplineVisible = async (disc: DisciplineKey, visible: boolean) => {
+    disciplineVisible[disc] = visible;
+    for (const [id, d] of modelDisciplineById.entries()) {
+      if (d !== disc) continue;
+      const model = models.get(id);
+      if (model?.object) model.object.visible = visible;
+    }
+    try {
+      await fragments.update(true);
+    } catch { /* ignore */ }
+    updateDisciplineButtonsUi();
+    console.log(`${visible ? '👁️ Show' : '🙈 Hide'} ${disc} model(s)`);
+  };
+
+  /** Skip models hidden via ARCH/MEP/STR (or object.visible=false) for picking */
+  const isModelVisibleForPick = (
+    modelKey: string,
+    model: FRAGS.FragmentsModel
+  ): boolean => {
+    try {
+      if (model?.object && model.object.visible === false) return false;
+    } catch { /* ignore */ }
+    const disc = modelDisciplineById.get(modelKey);
+    if (disc && !disciplineVisible[disc]) return false;
+    return true;
+  };
+
   const emitProgress = (progress: number, status: string) => {
     window.dispatchEvent(new CustomEvent('viewer-progress', {
       detail: { progress, status }
     }));
   };
 
-  const loadModels = async () => {
+  const loadModels = async (explicitModels?: Array<{ id: string; name: string; category?: string }>) => {
     console.log("=== LOADING MODELS ===");
     emitProgress(10, 'Fetching model list...');
+    bimsfBoundsCache.clear();
+    bimsfNeighborFocusKey = null;
 
-    // Fetch models from database
-    let projectModels = await fetchProjectModels(projectIdFromUrl);
+    // Fetch models from database (or use explicit revision selection)
+    let projectModels = explicitModels && explicitModels.length
+      ? explicitModels.map((m) => ({
+          id: m.id,
+          name: m.name,
+          status: 'READY',
+          category: m.category || 'OTHER',
+        }))
+      : await fetchProjectModels(projectIdFromUrl);
 
     // Check if models exist in database
     if (projectModels.length === 0) {
@@ -565,30 +2698,7 @@ export async function initializeViewer(containerId: string = "container") {
 
         console.log(`📥 Loading model: ${modelInfo.name} (${modelInfo.id})`);
 
-        // Request a pre-signed URL from the backend (auth required)
-        const token = localStorage.getItem('auth_token');
-        const presignHeaders: Record<string, string> = {};
-        if (token) {
-          presignHeaders['Authorization'] = `Bearer ${token}`;
-        }
-
-        const presignRes = await fetch(`${API_BASE_URL}/models/${modelInfo.id}/download-url`, {
-          headers: presignHeaders
-        });
-
-        if (!presignRes.ok) {
-          throw new Error(`Failed to get download URL: ${presignRes.status} ${presignRes.statusText}`);
-        }
-
-        const { url: signedUrl } = await presignRes.json();
-
-        // Download the model file directly from S3/CloudFront (no auth header needed)
-        const file = await fetch(signedUrl);
-        if (!file.ok) {
-          throw new Error(`Failed to download model from storage: ${file.status} ${file.statusText}`);
-        }
-
-        const buffer = await file.arrayBuffer();
+        const buffer = await fetchModelArrayBuffer(modelInfo.id);
 
         currentProgress += progressPerModel * 0.5;
         emitProgress(currentProgress, `Processing: ${cleanName}`);
@@ -603,7 +2713,21 @@ export async function initializeViewer(containerId: string = "container") {
         const model = await fragments.load(buffer, { modelId: modelInfo.id });
 
         models.set(modelInfo.id, model);
+        registerModelDiscipline(modelInfo.id, modelInfo.category, modelInfo.name);
+        applyLodVisibilityTuning(model, `${modelInfo.category || ''} ${modelInfo.name || ''}`);
         console.log(`✅ Loaded: ${modelInfo.name} (ID: ${modelInfo.id})`);
+
+        // Restore Revit system / material colours (e.g. DCW blue #0000FF)
+        try {
+          await applyRevitColorMap(modelInfo.id, model);
+        } catch (colorErr) {
+          console.warn(`⚠️ Could not apply Revit colors for ${modelInfo.name}:`, colorErr);
+        }
+        try {
+          await indexBimsfMapForModel(modelInfo.id, model);
+        } catch (bimsfErr) {
+          console.warn(`⚠️ Could not index BIMSF for ${modelInfo.name}:`, bimsfErr);
+        }
 
         currentProgress += progressPerModel * 0.5;
         emitProgress(currentProgress, `Ready`);
@@ -617,6 +2741,18 @@ export async function initializeViewer(containerId: string = "container") {
 
     allModelsLoaded = true;
     console.log(`=== ALL MODELS LOADED: ${models.size} ===`);
+    updateDisciplineButtonsUi();
+    try {
+      renderBimsfPanelList();
+    } catch (e) {
+      console.warn('renderBimsfPanelList:', e);
+    }
+    try {
+      await applyStructureBimsfMetallic();
+      console.log('✨ Structure BIMSF stainless applied (normal view)');
+    } catch (e) {
+      console.warn('applyStructureBimsfMetallic after load:', e);
+    }
     emitProgress(80, 'Setting up camera...');
 
     // Auto-fit camera and position grid after all models loaded
@@ -665,6 +2801,205 @@ export async function initializeViewer(containerId: string = "container") {
     throw error; // Re-throw to trigger ViewerPage error state
   }
 
+  const withTimeout = async <T,>(promise: Promise<T>, ms: number, label: string): Promise<T | void> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        promise,
+        new Promise<void>((resolve) => {
+          timer = setTimeout(() => {
+            console.warn(`⏱️ ${label} timed out after ${ms}ms — continuing`);
+            resolve();
+          }, ms);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
+
+  const emitSwitchProgress = (progress: number, status: string) => {
+    window.dispatchEvent(new CustomEvent('viewer-loading', {
+      detail: { isLoading: true, progress, status, title: 'Switching Version', subtitle: status }
+    }));
+    emitProgress(progress, status);
+  };
+
+  const disposeLoadedModels = async () => {
+    const ids = Array.from(models.keys());
+    for (const id of ids) {
+      try {
+        const model = models.get(id);
+        try {
+          const obj = (model as any)?.object;
+          if (obj?.parent) obj.parent.remove(obj);
+        } catch { /* ignore */ }
+        // disposeModel can hang in ThatOpen — never block the UI forever
+        await withTimeout(fragments.disposeModel(id), 4000, `disposeModel(${id})`);
+      } catch (e) {
+        console.warn('disposeModel failed for', id, e);
+      }
+      try {
+        if ((obcFragments as any).core?.disposeModel) {
+          await withTimeout(
+            Promise.resolve((obcFragments as any).core.disposeModel(id)),
+            2000,
+            `obc.disposeModel(${id})`
+          );
+        } else if ((obcFragments as any).list?.has?.(id)) {
+          (obcFragments as any).list.delete(id);
+        }
+      } catch { /* ignore */ }
+      models.delete(id);
+    }
+    modelDisciplineById.clear();
+    disciplineVisible.mep = true;
+    disciplineVisible.structure = true;
+    disciplineVisible.architecture = true;
+    updateDisciplineButtonsUi();
+    hideLayerState = {
+      sheathing: false,
+      walls: false,
+      floors: false,
+      acp: false,
+      doorsWindows: false,
+    };
+    hideLayerIds.sheathing = null;
+    hideLayerIds.walls = null;
+    hideLayerIds.floors = null;
+    hideLayerIds.acp = null;
+    hideLayerIds.doorsWindows = null;
+    document.getElementById('hide-layers-btn')?.classList.remove('active');
+    const hideSheathCb = document.getElementById('hide-layer-sheathing') as HTMLInputElement | null;
+    const hideWallsCb = document.getElementById('hide-layer-walls') as HTMLInputElement | null;
+    const hideFloorsCb = document.getElementById('hide-layer-floors') as HTMLInputElement | null;
+    const hideAcpCb = document.getElementById('hide-layer-acp') as HTMLInputElement | null;
+    const hideDwCb = document.getElementById('hide-layer-doors-windows') as HTMLInputElement | null;
+    if (hideSheathCb) hideSheathCb.checked = true;
+    if (hideWallsCb) hideWallsCb.checked = true;
+    if (hideFloorsCb) hideFloorsCb.checked = true;
+    if (hideAcpCb) hideAcpCb.checked = true;
+    if (hideDwCb) hideDwCb.checked = true;
+    try {
+      window.dispatchEvent(new CustomEvent('uniqube-hide-layers-reset'));
+    } catch { /* ignore */ }
+    try {
+      await withTimeout(fragments.update(true), 2000, 'fragments.update');
+    } catch { /* ignore */ }
+    allModelsLoaded = false;
+  };
+
+  const loadRevisionModels = async (
+    revisionModels: Array<{ id: string; name: string; category?: string }>
+  ) => {
+    emitSwitchProgress(5, 'Clearing current model...');
+    try {
+      await disposeLoadedModels();
+      emitSwitchProgress(15, 'Loading selected version...');
+
+      const stamped = revisionModels.map((m, idx) => ({
+        ...m,
+        fragmentKey: `${m.id}__rev_${Date.now()}_${idx}`,
+      }));
+
+      console.log('=== LOADING REVISION MODELS ===', stamped.map((s) => s.id));
+
+      if (stamped.length === 0) {
+        allModelsLoaded = true;
+        window.dispatchEvent(new CustomEvent('viewer-loading', {
+          detail: { isLoading: false, progress: 100, status: 'No models in this version' }
+        }));
+        return;
+      }
+
+      const progressPerModel = 70 / stamped.length;
+      let currentProgress = 15;
+
+      for (let i = 0; i < stamped.length; i++) {
+        const modelInfo = stamped[i];
+        try {
+          emitSwitchProgress(
+            currentProgress,
+            `Downloading ${i + 1}/${stamped.length}: ${modelInfo.name.replace(/\.frag$/i, '')}`
+          );
+
+          const buffer = await fetchModelArrayBuffer(modelInfo.id);
+
+          emitSwitchProgress(currentProgress + progressPerModel * 0.4, `Processing model ${i + 1}...`);
+
+          const fragId = modelInfo.fragmentKey;
+          // Skip OBC dual-load on revision switch — it often hangs and isn't needed for 3D view
+          const model = await withTimeout(
+            fragments.load(buffer, { modelId: fragId }),
+            120000,
+            `fragments.load(${fragId})`
+          );
+          if (model) {
+            models.set(fragId, model as FRAGS.FragmentsModel);
+            registerModelDiscipline(fragId, modelInfo.category, modelInfo.name);
+            applyLodVisibilityTuning(model as FRAGS.FragmentsModel, `${modelInfo.category || ''} ${modelInfo.name || ''}`);
+            console.log(`✅ Revision loaded: ${modelInfo.name} as ${fragId}`);
+          } else {
+            throw new Error('fragments.load timed out or returned empty');
+          }
+          currentProgress += progressPerModel;
+          emitSwitchProgress(Math.min(currentProgress, 90), `Loaded ${i + 1}/${stamped.length}`);
+        } catch (error) {
+          console.warn(`❌ Could not load revision model ${modelInfo.name}:`, error);
+          currentProgress += progressPerModel;
+          emitSwitchProgress(Math.min(currentProgress, 90), `Skipped failed model ${i + 1}`);
+        }
+      }
+
+      allModelsLoaded = true;
+      updateDisciplineButtonsUi();
+      try {
+        await withTimeout(fragments.update(true), 3000, 'fragments.update after load');
+      } catch { /* ignore */ }
+
+      setTimeout(() => {
+        const combinedBbox = new THREE.Box3();
+        models.forEach((model) => {
+          const bbox = new THREE.Box3().setFromObject(model.object);
+          if (!bbox.isEmpty()) combinedBbox.union(bbox);
+        });
+        if (!combinedBbox.isEmpty()) {
+          const center = combinedBbox.getCenter(new THREE.Vector3());
+          const size = combinedBbox.getSize(new THREE.Vector3());
+          const maxDim = Math.max(size.x, size.y, size.z);
+          const distance = maxDim * 1.8;
+          world.camera.controls.setLookAt(
+            center.x + distance * 0.7,
+            center.y + distance * 0.5,
+            center.z + distance * 0.7,
+            center.x, center.y, center.z,
+            true
+          );
+        }
+      }, 200);
+
+      window.dispatchEvent(new CustomEvent('viewer-loading', {
+        detail: { isLoading: false, progress: 100, status: 'Ready', title: 'Loading Viewer' }
+      }));
+      window.dispatchEvent(new CustomEvent('viewer-revision-loaded', {
+        detail: { modelIds: revisionModels.map((m) => m.id) }
+      }));
+    } catch (e) {
+      console.error('Failed to load revision:', e);
+      window.dispatchEvent(new CustomEvent('viewer-loading', {
+        detail: { isLoading: false, progress: 100, status: 'Failed to load version' }
+      }));
+      throw e;
+    }
+  };
+
+  (window as any).__uniqubeViewer = {
+    ...(window as any).__uniqubeViewer,
+    projectId: projectIdFromUrl,
+    loadRevisionModels,
+    getLoadedModelIds: () => Array.from(models.keys()),
+  };
+
   // Warm up 2D storey views in the background (non-blocking)
   try {
     if (views2d) {
@@ -703,6 +3038,11 @@ export async function initializeViewer(containerId: string = "container") {
 
   // Global cache for panel data (keyed by panel ID)
   const panelDataCache = new Map<string, any>();
+  try {
+    (globalThis as any).__uqPanelDataCache = panelDataCache;
+  } catch {
+    /* ignore */
+  }
   // Map localId -> panel data (for quick lookup from selection)
   const localIdPanelMap = new Map<number, any>();
   // Toggle: synchronize tree selection when selecting in canvas
@@ -1660,6 +4000,79 @@ export async function initializeViewer(containerId: string = "container") {
     openTreeNextSelection = false;
   };
 
+  // Project Browser Tree → 3D panel click (must be after selectPanels exists)
+  (window as any).__uniqubeViewer = {
+    ...(window as any).__uniqubeViewer,
+    selectPanelByExpressId: async (
+      expressId: number,
+      modelId?: string,
+      panelData?: any
+    ) => {
+      const id = Number(expressId);
+      if (!Number.isFinite(id)) {
+        console.warn('selectPanelByExpressId: invalid expressId', expressId);
+        return;
+      }
+      if (panelData) {
+        panelDataCache.set(panelData.id || String(id), panelData);
+        localIdPanelMap.set(id, panelData);
+      }
+      console.log(`🎯 Browser tree select expressId=${id} modelHint=${modelId || '(none)'}`);
+
+      // Try hinted model first, then search all loaded models (map keys may differ from DB ids)
+      let resolved = await resolvePanelHighlightIds(id, modelId);
+      if (!resolved) {
+        resolved = await resolvePanelHighlightIds(id, undefined);
+      }
+      if (!resolved) {
+        console.warn(`⚠️ Panel expressId ${id} not found in loaded 3D models — cannot highlight`);
+        return;
+      }
+
+      await selectPanels(id, resolved.modelId, { mode: 'replace' });
+    },
+    toggleBimsfDiscipline: async (
+      panelKey: string,
+      disc: DisciplineKey,
+      enabled: boolean
+    ) => {
+      await toggleBimsfDiscipline(
+        String(panelKey || '').toLowerCase(),
+        disc,
+        enabled,
+        true
+      );
+    },
+    selectBimsfPanelAllDisciplines: async (panelKey: string, exclusive = true) => {
+      await selectBimsfPanelAllDisciplines(String(panelKey || '').toLowerCase(), exclusive);
+    },
+    highlightBimsfNeighbors: async (panelKey: string) =>
+      highlightBimsfNeighbors(String(panelKey || '').toLowerCase()),
+    toggleBimsfConnectors: async (panelKey: string, enabled: boolean) =>
+      toggleBimsfConnectors(String(panelKey || '').toLowerCase(), enabled, true),
+    isBimsfConnectorKey: (k: string) => isBimsfConnectorKey(String(k || '').toLowerCase()),
+    getBimsfNeighborFocus: () => bimsfNeighborFocusKey,
+    getBimsfConnectorFocus: () => [...bimsfConnectorFocusKeys],
+    getBimsfAvailableDisciplines: (panelKey: string) =>
+      [...getDisciplinesForPanel(String(panelKey || '').toLowerCase())],
+    getBimsfPanelKeys: () =>
+      [...bimsfIndex.keys()].map((k) => ({
+        key: k,
+        display: bimsfDisplayByKey.get(k) || k,
+        disciplines: [...getDisciplinesForPanel(k)],
+        isConnector: isBimsfConnectorKey(k),
+      })),
+    getBimsfChecked: () => {
+      const out: Record<string, string[]> = {};
+      for (const [k, set] of bimsfChecked) out[k] = [...set];
+      return out;
+    },
+    enterInstallSequence,
+    goInstallSequence,
+    exitInstallSequence,
+    getInstallSequenceState,
+  };
+
   // Duplicate helper block removed; hoisted function declarations above are used
 
   // Focus the camera on a set of localIds (across all loaded models)
@@ -2591,6 +5004,8 @@ export async function initializeViewer(containerId: string = "container") {
       const treeStructure = hierarchy.map((model: any) => ({
         modelId: model.modelId,
         modelName: model.modelName || 'Unknown Model',
+        category: model.category || null,
+        displayName: model.displayName || null,
         storeys: model.storeys.map((storey: any) => ({
           name: storey.name,
           type: 'IfcBuildingStorey',
@@ -2660,12 +5075,21 @@ export async function initializeViewer(containerId: string = "container") {
             // Create model root node
             const modelContainer = document.createElement("div");
             modelContainer.className = "tree-node-container model-root";
+            (modelContainer as any)._modelId = modelData.modelId;
 
             const modelNode = document.createElement("div");
             modelNode.className = "tree-node model-node";
+            modelNode.dataset.modelId = modelData.modelId;
             modelNode.style.paddingLeft = "10px";
             modelNode.style.fontWeight = "600";
             modelNode.style.cursor = "pointer";
+
+            // Keep discipline map in sync for BIMSF M/S/A controls
+            registerModelDiscipline(
+              modelData.modelId,
+              modelData.category,
+              modelData.modelName || modelData.displayName
+            );
 
             // Toggle icon
             const toggleIcon = document.createElement("span");
@@ -3494,23 +5918,39 @@ export async function initializeViewer(containerId: string = "container") {
           );
           console.log('📐 NDC:', ndc.x.toFixed(3), ndc.y.toFixed(3), ' PX:', Math.round(px.x), Math.round(px.y));
 
-          // Try caster first (if it works, great)
+          // Try caster first — only accept hits on visible models
           try {
             const result = await caster.castRay();
             if (result && typeof (result as any).localId === 'number') {
-              console.log('Raycasters hit:', (result as any).localId);
-              await selectElementByLocalId((result as any).localId, undefined, {
-                mode: additive ? 'toggle' : 'replace',
-              });
-              return;
+              const hitLocalId = (result as any).localId as number;
+              let ownerKey: string | undefined;
+              for (const [key, m] of models.entries()) {
+                if (!isModelVisibleForPick(key, m)) continue;
+                try {
+                  const boxes = await m.getBoxes([hitLocalId]);
+                  if (boxes && boxes.length > 0 && !boxes[0].isEmpty()) {
+                    ownerKey = key;
+                    break;
+                  }
+                } catch { /* ignore */ }
+              }
+              if (ownerKey) {
+                console.log('Raycasters hit (visible model):', hitLocalId, ownerKey);
+                await selectElementByLocalId(hitLocalId, ownerKey, {
+                  mode: additive ? 'toggle' : 'replace',
+                });
+                return;
+              }
+              console.log('Raycasters hit hidden/invisible model — falling back to manual pick');
             }
           } catch (e) {
             // ignore and fall back to manual model.raycast
           }
 
-          // Manual raycast against each loaded model; pick closest
-          let best: { localId: number; distance: number } | null = null;
-          for (const [, m] of models.entries()) {
+          // Manual raycast against each VISIBLE loaded model; pick closest
+          let best: { localId: number; distance: number; modelId: string } | null = null;
+          for (const [modelKey, m] of models.entries()) {
+            if (!isModelVisibleForPick(modelKey, m)) continue;
             try {
               let hit = await m.raycast({
                 camera: world.camera.three,
@@ -3528,7 +5968,11 @@ export async function initializeViewer(containerId: string = "container") {
               if (hit && typeof (hit as any).localId === 'number') {
                 const dist = (hit as any).distance ?? (hit as any).rayDistance ?? 0;
                 if (!best || dist < best.distance) {
-                  best = { localId: (hit as any).localId, distance: dist };
+                  best = {
+                    localId: (hit as any).localId,
+                    distance: dist,
+                    modelId: modelKey,
+                  };
                 }
               }
             } catch (e) {
@@ -3536,8 +5980,8 @@ export async function initializeViewer(containerId: string = "container") {
             }
           }
           if (best) {
-            console.log('Manual raycast hit:', best.localId, 'dist:', best.distance);
-            await selectElementByLocalId(best.localId, undefined, {
+            console.log('Manual raycast hit:', best.localId, 'dist:', best.distance, best.modelId);
+            await selectElementByLocalId(best.localId, best.modelId, {
               mode: additive ? 'toggle' : 'replace',
             });
           } else {
@@ -3565,6 +6009,456 @@ export async function initializeViewer(containerId: string = "container") {
     }
   });
 
+  // Hide layers: UI may group under Architecture, but geometry often lives
+  // on the Structure model (e.g. SheathingPanel) — allow both where needed.
+  type HideLayer = 'sheathing' | 'walls' | 'floors' | 'acp' | 'doorsWindows';
+
+  const LAYER_DISCIPLINES: Record<HideLayer, DisciplineKey[]> = {
+    sheathing: ['structure', 'architecture'],
+    walls: ['structure', 'architecture'],
+    floors: ['structure', 'architecture'],
+    acp: ['architecture'],
+    doorsWindows: ['architecture'],
+  };
+
+  const isSheathingMark = (value: unknown): boolean => {
+    const s = String(value || '').trim();
+    if (!s) return false;
+    if (/sheathingpanel/i.test(s)) return true;
+    if (/^SH[\d_-]/i.test(s)) return true;
+    return false;
+  };
+
+  const isWallMark = (value: unknown): boolean => {
+    const s = String(value || '').trim();
+    if (!s) return false;
+    if (/^basic\s*wall/i.test(s)) return true;
+    if (/\bwallstandardcase\b/i.test(s)) return true;
+    if (/^ifcwall/i.test(s)) return true;
+    if (/^basic wall:/i.test(s)) return true;
+    return false;
+  };
+
+  const isFloorMark = (value: unknown): boolean => {
+    const s = String(value || '').trim();
+    if (!s) return false;
+    // Floor:Generic - 16":… / IfcSlab / Slab
+    if (/^floor:/i.test(s)) return true;
+    if (/^floor\b/i.test(s) && !/floorpanel/i.test(s) && !/floorparams/i.test(s)) return true;
+    if (/^ifcslab/i.test(s)) return true;
+    if (/\bslabstandardcase\b/i.test(s)) return true;
+    if (/^slab$/i.test(s)) return true;
+    return false;
+  };
+
+  const isAcpMark = (value: unknown): boolean => {
+    const s = String(value || '').trim();
+    if (!s) return false;
+    if (/\bacp\b/i.test(s)) return true;
+    if (/^ifcmember/i.test(s)) return true;
+    if (/elementassembly/i.test(s)) return true;
+    if (/^member:/i.test(s)) return true;
+    return false;
+  };
+
+  const isDoorsWindowsMark = (value: unknown): boolean => {
+    const s = String(value || '').trim();
+    if (!s) return false;
+    if (/^ifcdoor/i.test(s)) return true;
+    if (/^ifcwindow/i.test(s)) return true;
+    if (/doorstandardcase/i.test(s)) return true;
+    if (/windowstandardcase/i.test(s)) return true;
+    if (/^door:/i.test(s)) return true;
+    if (/^window:/i.test(s)) return true;
+    return false;
+  };
+
+  const layerMatchers: Record<HideLayer, (v: unknown) => boolean> = {
+    sheathing: isSheathingMark,
+    walls: isWallMark,
+    floors: isFloorMark,
+    acp: isAcpMark,
+    doorsWindows: isDoorsWindowsMark,
+  };
+
+  const matchLayer = (layer: HideLayer, values: unknown[]): boolean =>
+    values.some(layerMatchers[layer]);
+
+  const modelMatchesLayerDiscipline = (modelKey: string, layer: HideLayer): boolean => {
+    const want = LAYER_DISCIPLINES[layer];
+    const got = modelDisciplineById.get(modelKey);
+    // Unknown category (legacy / untagged): still allow scan
+    if (!got) return true;
+    return want.includes(got);
+  };
+
+  const panelCategoryMatchesLayer = (category: string, layer: HideLayer): boolean => {
+    const want = LAYER_DISCIPLINES[layer];
+    const c = (category || '').toUpperCase();
+    if (!c) return true;
+    let disc: DisciplineKey | null = null;
+    if (c === 'STRUCTURE' || c === 'STRUCTURAL') disc = 'structure';
+    else if (c === 'ARCHITECTURE' || c === 'ARCHITECTURAL' || c === 'ARCH') disc = 'architecture';
+    else if (c === 'MEP' || c === 'ELECTRICAL') disc = 'mep';
+    if (!disc) return true;
+    return want.includes(disc);
+  };
+
+  const attrValue = (node: any): string => {
+    if (node == null) return '';
+    if (typeof node === 'string' || typeof node === 'number') return String(node);
+    if (typeof node === 'object' && 'value' in node) return String((node as any).value ?? '');
+    return '';
+  };
+
+  const resolvePanelLocalId = (panel: any): number | null => {
+    const raw =
+      panel?.metadata?.ifcElementId ??
+      panel?.element?.expressId ??
+      panel?.localId ??
+      null;
+    if (raw === null || raw === undefined || raw === '') return null;
+    const id = typeof raw === 'number' ? raw : parseInt(String(raw), 10);
+    return Number.isFinite(id) ? id : null;
+  };
+
+  const findLoadedModelForPanel = (
+    modelId: string
+  ): { key: string; model: FRAGS.FragmentsModel } | null => {
+    if (!modelId) return null;
+    const direct = models.get(modelId);
+    if (direct) return { key: modelId, model: direct };
+    for (const [key, model] of models.entries()) {
+      if (key.startsWith(`${modelId}__rev_`)) return { key, model };
+    }
+    return null;
+  };
+
+  const expandIdsForVisibility = async (
+    model: FRAGS.FragmentsModel,
+    modelKey: string,
+    seedIds: number[]
+  ): Promise<number[]> => {
+    const out = new Set<number>(seedIds.filter((id) => Number.isFinite(id)));
+    try {
+      const children = await model.getItemsChildren([...out]);
+      for (const id of children || []) out.add(id);
+    } catch { /* optional */ }
+    try {
+      const cacheKey = (model as any).modelId || modelKey || 'default';
+      let spatialStructure = spatialStructureCache.get(cacheKey);
+      if (!spatialStructure) {
+        spatialStructure = await model.getSpatialStructure();
+        spatialStructureCache.set(cacheKey, spatialStructure);
+      }
+      if (spatialStructure) {
+        for (const id of [...out]) {
+          for (const related of collectParentAndChildIds(spatialStructure, id)) {
+            out.add(related);
+          }
+        }
+      }
+    } catch { /* optional */ }
+    return [...out];
+  };
+
+  const collectLayerIdsFromModel = async (
+    model: FRAGS.FragmentsModel,
+    layer: HideLayer
+  ): Promise<number[]> => {
+    const found = new Set<number>();
+    const queries: Array<{ name: RegExp; value: RegExp }> =
+      layer === 'sheathing'
+        ? [
+            { name: /^Name$/i, value: /SheathingPanel/i },
+            { name: /^ObjectType$/i, value: /SheathingPanel/i },
+            { name: /^Label$/i, value: /^SH[\d_-]/i },
+            { name: /^Mark$/i, value: /^SH[\d_-]/i },
+            { name: /^Tag$/i, value: /^SH[\d_-]/i },
+          ]
+        : layer === 'walls'
+          ? [
+              { name: /^Name$/i, value: /Basic\s*Wall/i },
+              { name: /^ObjectType$/i, value: /Wall/i },
+              { name: /^Name$/i, value: /^IfcWall/i },
+            ]
+          : layer === 'floors'
+            ? [
+                { name: /^Name$/i, value: /^Floor:/i },
+                { name: /^Name$/i, value: /^Floor\b/i },
+                { name: /^Name$/i, value: /^IfcSlab/i },
+                { name: /^ObjectType$/i, value: /Slab/i },
+              ]
+            : layer === 'acp'
+              ? [
+                  { name: /^Name$/i, value: /\bACP\b/i },
+                  { name: /^ObjectType$/i, value: /\bACP\b/i },
+                  { name: /^Name$/i, value: /^Member:/i },
+                  { name: /^Name$/i, value: /ElementAssembly/i },
+                ]
+              : [
+                  { name: /^Name$/i, value: /^Door:/i },
+                  { name: /^Name$/i, value: /^Window:/i },
+                  { name: /^Name$/i, value: /^IfcDoor/i },
+                  { name: /^Name$/i, value: /^IfcWindow/i },
+                  { name: /^ObjectType$/i, value: /Door|Window/i },
+                ];
+
+    for (const q of queries) {
+      try {
+        const ids = await model.getItemsByQuery({
+          attributes: { aggregation: 'inclusive', queries: [q] },
+        });
+        for (const id of ids || []) found.add(Number(id));
+      } catch { /* attr missing */ }
+    }
+
+    if (layer === 'walls') {
+      try {
+        const byCat = await model.getItemsOfCategories([/IFCWALL/i, /WALLSTANDARDCASE/i]);
+        for (const ids of Object.values(byCat || {})) {
+          for (const id of ids || []) found.add(Number(id));
+        }
+      } catch { /* optional */ }
+    }
+
+    if (layer === 'floors') {
+      try {
+        const byCat = await model.getItemsOfCategories([/IFCSLAB/i, /SLABSTANDARDCASE/i]);
+        for (const ids of Object.values(byCat || {})) {
+          for (const id of ids || []) found.add(Number(id));
+        }
+      } catch { /* optional */ }
+    }
+
+    if (layer === 'acp') {
+      try {
+        const byCat = await model.getItemsOfCategories([
+          /IFCMEMBER/i,
+          /IFCELEMENTASSEMBLY/i,
+        ]);
+        for (const ids of Object.values(byCat || {})) {
+          for (const id of ids || []) found.add(Number(id));
+        }
+      } catch { /* optional */ }
+    }
+
+    if (layer === 'doorsWindows') {
+      try {
+        const byCat = await model.getItemsOfCategories([
+          /IFCDOOR/i,
+          /IFCWINDOW/i,
+          /DOORSTANDARDCASE/i,
+          /WINDOWSTANDARDCASE/i,
+        ]);
+        for (const ids of Object.values(byCat || {})) {
+          for (const id of ids || []) found.add(Number(id));
+        }
+      } catch { /* optional */ }
+    }
+
+    try {
+      const geomIds =
+        typeof (model as any).getItemsIdsWithGeometry === 'function'
+          ? await (model as any).getItemsIdsWithGeometry()
+          : ((await model.getItemsWithGeometry()) as any[]).map((g) =>
+              typeof g === 'number' ? g : g?.localId
+            );
+      const localIds = (geomIds || []).filter((id: any) => Number.isFinite(Number(id))).map(Number);
+      const BATCH = 300;
+      for (let i = 0; i < localIds.length; i += BATCH) {
+        const batch = localIds.slice(i, i + BATCH);
+        const rows = await model.getItemsData(batch, {
+          attributesDefault: false,
+          attributes: ['Name', 'Tag', 'ObjectType', 'Label', 'Mark'],
+        });
+        for (let j = 0; j < rows.length; j++) {
+          const row = rows[j] as any;
+          if (!row) continue;
+          if (
+            matchLayer(layer, [
+              attrValue(row.Name),
+              attrValue(row.Tag),
+              attrValue(row.ObjectType),
+              attrValue(row.Label),
+              attrValue(row.Mark),
+            ])
+          ) {
+            found.add(batch[j]);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn(`Hide-layer geometry scan (${layer}) failed:`, e);
+    }
+
+    return [...found].filter((id) => Number.isFinite(id));
+  };
+
+  const fetchLayerIdsByModel = async (layer: HideLayer): Promise<Map<string, number[]>> => {
+    const byModel = new Map<string, number[]>();
+
+    for (const [modelKey, model] of models.entries()) {
+      if (!modelMatchesLayerDiscipline(modelKey, layer)) continue;
+      try {
+        const ids = await collectLayerIdsFromModel(model, layer);
+        if (ids.length) byModel.set(modelKey, ids);
+      } catch (e) {
+        console.warn(`Hide-layer scan failed (${layer}) for ${modelKey}:`, e);
+      }
+    }
+
+    if (projectIdFromUrl) {
+      try {
+        const token = localStorage.getItem('auth_token');
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const response = await fetch(`/api/panels/${projectIdFromUrl}/filter-data`, { headers });
+        if (response.ok) {
+          const data = await response.json();
+          for (const panel of data.panels || []) {
+            const category = String(panel.model?.category || '');
+            if (!panelCategoryMatchesLayer(category, layer)) continue;
+            const meta = panel.metadata || {};
+            const ifcType = panel.element?.ifcType || panel.objectType || '';
+            if (
+              !matchLayer(layer, [
+                meta.Label,
+                meta.label,
+                meta.Mark,
+                panel.tag,
+                panel.name,
+                panel.objectType,
+                ifcType,
+              ])
+            ) {
+              continue;
+            }
+            const localId = resolvePanelLocalId(panel);
+            const modelId = panel.modelId || panel.model?.id;
+            if (localId === null || !modelId) continue;
+            const loaded = findLoadedModelForPanel(String(modelId));
+            if (!loaded) continue;
+            if (!modelMatchesLayerDiscipline(loaded.key, layer)) continue;
+            const list = byModel.get(loaded.key) || [];
+            list.push(localId);
+            byModel.set(loaded.key, list);
+          }
+        }
+      } catch (e) {
+        console.warn(`Hide-layer DB merge (${layer}) failed:`, e);
+      }
+    }
+
+    for (const [key, seedIds] of [...byModel.entries()]) {
+      const model = models.get(key);
+      if (!model) continue;
+      byModel.set(key, await expandIdsForVisibility(model, key, [...new Set(seedIds)]));
+    }
+
+    console.log(
+      `🧱 Hide ${layer}:`,
+      [...byModel.entries()].map(([k, v]) => `${k.slice(0, 8)}…:${v.length}`).join(' | ') ||
+        '(none)'
+    );
+    return byModel;
+  };
+
+  const updateHideLayersButtonUi = () => {
+    const btn = document.getElementById('hide-layers-btn');
+    if (!btn) return;
+    const anyHidden =
+      hideLayerState.sheathing ||
+      hideLayerState.walls ||
+      hideLayerState.floors ||
+      hideLayerState.acp ||
+      hideLayerState.doorsWindows;
+    btn.classList.toggle('active', anyHidden);
+    btn.setAttribute('aria-pressed', anyHidden ? 'true' : 'false');
+    const sheathCb = document.getElementById('hide-layer-sheathing') as HTMLInputElement | null;
+    const wallsCb = document.getElementById('hide-layer-walls') as HTMLInputElement | null;
+    const floorsCb = document.getElementById('hide-layer-floors') as HTMLInputElement | null;
+    const acpCb = document.getElementById('hide-layer-acp') as HTMLInputElement | null;
+    const dwCb = document.getElementById('hide-layer-doors-windows') as HTMLInputElement | null;
+    if (sheathCb) sheathCb.checked = !hideLayerState.sheathing;
+    if (wallsCb) wallsCb.checked = !hideLayerState.walls;
+    if (floorsCb) floorsCb.checked = !hideLayerState.floors;
+    if (acpCb) acpCb.checked = !hideLayerState.acp;
+    if (dwCb) dwCb.checked = !hideLayerState.doorsWindows;
+  };
+
+  const clearCategoryFiltersLight = async () => {
+    for (const [_, model] of models.entries()) {
+      try {
+        await model.resetHighlight(undefined);
+      } catch { /* ignore */ }
+    }
+  };
+
+  const applyLayerVisibility = async (layer: HideLayer, hidden: boolean) => {
+    if (hidden || !hideLayerIds[layer] || hideLayerIds[layer]!.size === 0) {
+      hideLayerIds[layer] = await fetchLayerIdsByModel(layer);
+    }
+    const byModel = hideLayerIds[layer]!;
+    let total = 0;
+    for (const [modelId, ids] of byModel.entries()) {
+      const model = models.get(modelId);
+      if (!model || ids.length === 0) continue;
+      const unique = [...new Set(ids)];
+      const CHUNK = 400;
+      for (let i = 0; i < unique.length; i += CHUNK) {
+        await model.setVisible(unique.slice(i, i + CHUNK), !hidden);
+      }
+      total += unique.length;
+    }
+    try {
+      await fragments.update(true);
+    } catch { /* ignore */ }
+    console.log(`${hidden ? '🙈 Hide' : '👁️ Show'} ${layer}: ${total} item(s)`);
+    return total;
+  };
+
+  const setHideLayer = async (layer: HideLayer, hidden: boolean) => {
+    if (hidden) await clearCategoryFiltersLight();
+    const count = await applyLayerVisibility(layer, hidden);
+    hideLayerState[layer] = hidden;
+    if (hidden && count === 0) {
+      hideLayerState[layer] = false;
+      hideLayerIds[layer] = null;
+      updateHideLayersButtonUi();
+      return { ok: false, count: 0 };
+    }
+    updateHideLayersButtonUi();
+    return { ok: true, count };
+  };
+
+  (window as any).__uniqubeViewer = {
+    ...(window as any).__uniqubeViewer,
+    setHideLayer,
+    getHideLayerState: () => ({ ...hideLayerState }),
+    // back-compat
+    toggleSheathingVisibility: async () => {
+      await setHideLayer('sheathing', !hideLayerState.sheathing);
+    },
+    isSheathingHidden: () => hideLayerState.sheathing,
+  };
+
+  window.addEventListener('uniqube-hide-layers-reset', () => {
+    hideLayerState = {
+      sheathing: false,
+      walls: false,
+      floors: false,
+      acp: false,
+      doorsWindows: false,
+    };
+    hideLayerIds.sheathing = null;
+    hideLayerIds.walls = null;
+    hideLayerIds.floors = null;
+    hideLayerIds.acp = null;
+    hideLayerIds.doorsWindows = null;
+    updateHideLayersButtonUi();
+  });
+
   // Reset button - clears all highlights and shows everything normally
   if (treeResetBtn) {
     treeResetBtn.addEventListener("click", async () => {
@@ -3575,6 +6469,38 @@ export async function initializeViewer(containerId: string = "container") {
           await model.resetHighlight(undefined);
           await model.setVisible(undefined, true);
         }
+        // Restore Revit system colours after clearing selection highlights
+        try {
+          await reapplyRevitColors();
+        } catch (e) {
+          console.warn('reapplyRevitColors after reset:', e);
+        }
+        hideLayerState = {
+          sheathing: false,
+          walls: false,
+          floors: false,
+          acp: false,
+          doorsWindows: false,
+        };
+        hideLayerIds.sheathing = null;
+        hideLayerIds.walls = null;
+        hideLayerIds.floors = null;
+        hideLayerIds.acp = null;
+        hideLayerIds.doorsWindows = null;
+        updateHideLayersButtonUi();
+        try {
+          window.dispatchEvent(new CustomEvent('uniqube-hide-layers-reset'));
+        } catch { /* ignore */ }
+
+        // Restore all discipline models (MEP / STR / ARCH)
+        disciplineVisible.mep = true;
+        disciplineVisible.structure = true;
+        disciplineVisible.architecture = true;
+        for (const [id] of models.entries()) {
+          const model = models.get(id);
+          if (model?.object) model.object.visible = true;
+        }
+        updateDisciplineButtonsUi();
 
         // Calculate combined bounding box and fit camera
         const combinedBbox = new THREE.Box3();
@@ -7300,945 +10226,29 @@ export async function initializeViewer(containerId: string = "container") {
     fetchStatusesFromDatabase(projectIdFromUrl);
   }
 
-  /* MD
-    ### 🎨 Element Category Filtering
-    Filter and highlight elements by category (MEP, Doors & Windows, Frames)
-  */
-
-  // Element category filtering state
-  let activeElementFilters = new Set<string>();
-
-  // IFC Element type categorization
-  const IFC_ELEMENT_CATEGORIES: Record<string, string[]> = {
-    MEP: [
-      // Distribution Flow Elements
-      'IFCDUCTFITTING', 'IFCDUCTSEGMENT', 'IFCPIPEFITTING', 'IFCPIPESEGMENT',
-      'IFCFLOWSEGMENT', 'IFCFLOWFITTING', 'IFCCABLECARRIERFITTING', 'IFCCABLECARRIERSEGMENT',
-      'IFCCABLESEGMENT',
-
-      // Flow Control and Terminals
-      'IFCFLOWCONTROLLER', 'IFCFLOWTERMINAL', 'IFCVALVE', 'IFCDAMPER',
-      'IFCAIRTERMINAL', 'IFCAIRTOAIRHEATRECOVERY', 'IFCFIRESUPPRESSIONTERMINAL',
-      'IFCSANITARYTERMINAL', 'IFCSTACKTERMINAL', 'IFCWASTETERMINAL',
-
-      // Electrical
-      'IFCELECTRICALELEMENT', 'IFCELECTRICDISTRIBUTIONBOARD', 'IFCELECTRICFLOWSTORAGEDEVICE',
-      'IFCELECTRICGENERATOR', 'IFCELECTRICMOTOR', 'IFCJUNCTIONBOX', 'IFCLIGHTFIXTURE',
-      'IFCOUTLET', 'IFCSWITCHINGDEVICE', 'IFCTRANSFORMER', 'IFCPROTECTIVEDEVICE',
-
-      // HVAC Equipment
-      'IFCFAN', 'IFCPUMP', 'IFCBOILER', 'IFCCHILLER', 'IFCCOIL', 'IFCHEATEXCHANGER',
-      'IFCHUMIDIFIER', 'IFCUNITARYEQUIPMENT', 'IFCAIRCONDITIONER', 'IFCCOMPRESSOR',
-      'IFCCONDENSER', 'IFCCOOLEDBEAM', 'IFCCOOLINGTOWER', 'IFCEVAPORATIVECOOLER',
-      'IFCFILTER', 'IFCTANK'
-    ],
-    DOORS_WINDOWS: [
-      'IFCDOOR', 'IFCWINDOW', 'IFCDOORSTANDARDCASE', 'IFCWINDOWSTANDARDCASE'
-    ],
-    FRAMES: [
-      'IFCMEMBER',
-      'IFCELEMENTASSEMBLY'
-    ],
-    STRUCTURAL: [
-      'IFCWALL', 'IFCWALLSTANDARDCASE', 'IFCSLAB', 'IFCSLABSTANDARDCASE',
-      'IFCBEAM', 'IFCCOLUMN', 'IFCFOOTING', 'IFCPILE', 'IFCPLATE', 'IFCCURTAINWALL',
-      'IFCROOF', 'IFCSTAIR', 'IFCSTAIRFLIGHT', 'IFCRAILING', 'IFCRAMP', 'IFCRAMPFLIGHT',
-      'IFCCOVERING', 'IFCBUILDINGELEMENTPART'
-    ]
-  };
-
-  // Check if an IFC type matches any active filters
-  const matchesElementFilter = (ifcType: string): boolean => {
-    if (activeElementFilters.size === 0) return true; // No filters = show all
-
-    if (!ifcType) return false;
-
-    const typeUpper = ifcType.toUpperCase();
-    console.log(`🔍 matchesElementFilter checking: "${ifcType}" (uppercase: "${typeUpper}") against filters:`, Array.from(activeElementFilters));
-
-    for (const filter of activeElementFilters) {
-      const categoryTypes = IFC_ELEMENT_CATEGORIES[filter];
-      if (categoryTypes) {
-        // Check if any category type is contained in the IFC type
-        const match = categoryTypes.some(t => {
-          const isMatch = typeUpper.includes(t);
-          if (isMatch) {
-            console.log(`  ✓ Match found: "${typeUpper}" contains "${t}" (filter: ${filter})`);
-          }
-          return isMatch;
-        });
-        if (match) return true;
-      }
-    }
-
-    console.log(`  ✗ No match for "${typeUpper}"`);
-    return false;
-  };
-
-  // Get the category for a specific IFC type (returns the first matching category)
-  const getCategoryForType = (ifcType: string): string | null => {
-    if (!ifcType) return null;
-
-    const typeUpper = ifcType.toUpperCase();
-
-    for (const [category, types] of Object.entries(IFC_ELEMENT_CATEGORIES)) {
-      if (types.some(t => typeUpper.includes(t))) {
-        return category;
-      }
-    }
-
-    return null;
-  };
-
-  // Get color for a specific category
-  const getCategoryColor = (category: string): THREE.Color => {
-    const colorMap: Record<string, string> = {
-      'MEP': '#ec3b3b',              // Red
-      'DOORS_WINDOWS': '#00cc66',    // Green(Teal)
-      'FRAMES': '#ffb300',           // yellow/orange
-      'STRUCTURAL': '#D773FF'        // purple(Heliotrope)
-    };
-
-    return new THREE.Color(colorMap[category] || '#0047AB'); // Default to cobalt blue if unknown
-  };
-
-  // Render filtered tree view (replaces tree content with filtered panels)
-  const renderFilteredTree = async (filterTypes: Set<string>, page: number = 1) => {
-    const treeContainer = document.getElementById('tree-container');
-    if (!treeContainer) return;
-
-    // Show loading on first page
-    if (page === 1) {
-      treeContainer.innerHTML = `
-        <div style="padding: 20px; text-align: center; color: var(--slate-500);">
-          <i class="fas fa-spinner fa-spin" style="font-size: 20px;"></i>
-          <div style="margin-top: 10px;">Filtering elements...</div>
-        </div>
-      `;
-    }
-
-    try {
-      // Convert filter types to IFC types
-      const ifcTypes: string[] = [];
-      filterTypes.forEach(filter => {
-        const categoryTypes = IFC_ELEMENT_CATEGORIES[filter];
-        if (categoryTypes) {
-          ifcTypes.push(...categoryTypes);
-        }
+  /* Discipline model visibility (MEP / STR / ARCH toolbar buttons) */
+  const wireDisciplineButtons = () => {
+    const buttons = document.querySelectorAll('.discipline-btn');
+    buttons.forEach((btn) => {
+      if ((btn as any).__disciplineWired) return;
+      (btn as any).__disciplineWired = true;
+      btn.addEventListener('click', async () => {
+        if (btn.hasAttribute('disabled')) return;
+        const disc = btn.getAttribute('data-discipline') as DisciplineKey | null;
+        if (!disc || !(disc in disciplineVisible)) return;
+        await setDisciplineVisible(disc, !disciplineVisible[disc]);
       });
-
-      if (ifcTypes.length === 0) {
-        treeContainer.innerHTML = `
-          <div style="padding: 20px; text-align: center; color: var(--slate-500);">
-            No filter types configured
-          </div>
-        `;
-        return;
-      }
-
-      // Fetch filtered panels from backend
-      const token = localStorage.getItem('auth_token');
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      const response = await fetch(
-        `/api/panels/${projectIdFromUrl}/filter-by-type?ifcTypes=${ifcTypes.join(',')}&page=${page}&limit=50`,
-        { headers }
-      );
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch filtered panels: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      console.log(`📊 Fetched ${data.panels.length} of ${data.total} filtered panels (page ${page})`);
-
-      // Map backend data to frontend model (same as search)
-      if (data.panels) {
-        data.panels = data.panels.map((p: any) => ({
-          ...p,
-          type: p.element?.ifcType || p.objectType || p.type || 'Unknown',
-          localId: p.element?.expressId || (p.metadata?.ifcElementId ? parseInt(p.metadata.ifcElementId) : (p.element?.id || null))
-        }));
-      }
-
-      // Clear tree on first page
-      if (page === 1) {
-        treeContainer.innerHTML = '';
-
-        // Clear tree node map to remove stale references from previous view
-        treeNodeMap.clear();
-        console.log('🧹 Cleared tree node map for filtered view');
-
-        // Add header with filter names and count
-        const header = document.createElement('div');
-        header.className = 'filtered-tree-header';
-        const filterNames = Array.from(filterTypes).join(', ');
-        header.innerHTML = `
-          <div style="padding: 12px; background: var(--slate-100); border-bottom: 1px solid var(--slate-200); font-size: 14px;">
-            <div style="font-weight: 600; color: var(--slate-900);">Filtered Results</div>
-            <div id="filtered-results-count" style="color: var(--slate-600); margin-top: 4px; font-size: 12px;">
-              ${data.panels.length} of ${data.total} ${filterNames} elements
-            </div>
-          </div>
-        `;
-        treeContainer.appendChild(header);
-      }
-
-      // Render panel nodes
-      data.panels.forEach((panel: any) => {
-        renderFilteredPanelNode(panel, treeContainer);
-      });
-
-      // Update count if not first page
-      if (page > 1) {
-        const countDisplay = document.getElementById('filtered-results-count');
-        if (countDisplay) {
-          const currentCount = treeContainer.querySelectorAll('.filtered-panel').length;
-          const filterNames = Array.from(filterTypes).join(', ');
-          countDisplay.textContent = `${currentCount} of ${data.total} ${filterNames} elements`;
-        }
-      }
-
-      // Add or update "Load More" button
-      const existingLoadMore = treeContainer.querySelector('.filtered-load-more');
-      if (existingLoadMore) {
-        existingLoadMore.remove();
-      }
-
-      const currentLoadedCount = treeContainer.querySelectorAll('.filtered-panel').length;
-      if (currentLoadedCount < data.total) {
-        const loadMoreBtn = document.createElement('button');
-        loadMoreBtn.className = 'filtered-load-more';
-        loadMoreBtn.textContent = `Load More (${data.total - currentLoadedCount} remaining)`;
-        loadMoreBtn.style.cssText = `
-          width: 100%;
-          padding: 12px;
-          background: var(--slate-100);
-          border: none;
-          border-top: 1px solid var(--slate-200);
-          color: var(--primary);
-          cursor: pointer;
-          font-weight: 500;
-          transition: background 0.2s;
-        `;
-        loadMoreBtn.onmouseenter = () => {
-          loadMoreBtn.style.background = 'var(--slate-200)';
-        };
-        loadMoreBtn.onmouseleave = () => {
-          loadMoreBtn.style.background = 'var(--slate-100)';
-        };
-        loadMoreBtn.onclick = async () => {
-          loadMoreBtn.textContent = 'Loading...';
-          loadMoreBtn.disabled = true;
-          await renderFilteredTree(filterTypes, page + 1);
-        };
-        treeContainer.appendChild(loadMoreBtn);
-      }
-
-      // Initialize Lucide icons for the new nodes
-      if ((window as any).lucide) {
-        (window as any).lucide.createIcons();
-      }
-    } catch (error) {
-      console.error('Error rendering filtered tree:', error);
-      treeContainer.innerHTML = `
-        <div style="padding: 20px; text-align: center; color: var(--danger);">
-          Failed to load filtered elements
-        </div>
-      `;
-    }
-  };
-
-  // Render a single filtered panel node
-  const renderFilteredPanelNode = (panel: any, container: HTMLElement) => {
-    const node = document.createElement('div');
-    node.className = 'tree-node panel-node filtered-panel';
-    node.style.paddingLeft = '20px';
-    node.style.cursor = 'pointer';
-    node.style.transition = 'background 0.2s';
-
-    // Extract localId from metadata
-    const localId = panel.metadata?.ifcElementId;
-    if (localId) {
-      const numericId = typeof localId === 'number' ? localId : parseInt(localId);
-      if (!isNaN(numericId)) {
-        node.dataset.localId = numericId.toString();
-        treeNodeMap.set(numericId, node);
-      }
-    }
-
-    // Get category and color for this element
-    const ifcType = panel.element?.ifcType || panel.type || panel.objectType || '';
-    const category = getCategoryForType(ifcType);
-    const categoryColor = category ? getCategoryColor(category) : null;
-
-    // Color indicator dot
-    if (categoryColor) {
-      const colorDot = document.createElement('div');
-      colorDot.style.cssText = `
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: ${categoryColor.getStyle()};
-        margin-right: 8px;
-        flex-shrink: 0;
-      `;
-      node.appendChild(colorDot);
-    }
-
-    // Icon
-    const icon = document.createElement('i');
-    icon.setAttribute('data-lucide', 'box');
-    icon.style.marginRight = '8px';
-    icon.style.color = 'var(--primary)';
-    node.appendChild(icon);
-
-    // Name
-    const label = document.createElement('span');
-    label.className = 'tree-label';
-    label.textContent = panel.name || panel.tag || 'Unnamed Element';
-    label.style.flex = '1';
-    node.appendChild(label);
-
-    // Type badge
-    const badge = document.createElement('span');
-    badge.className = 'tree-type-badge';
-    badge.textContent = ifcType.replace('IFC', '').replace('Ifc', '');
-    badge.style.cssText = `
-      font-size: 10px;
-      color: var(--slate-500);
-      background: var(--slate-100);
-      padding: 2px 6px;
-      border-radius: 4px;
-      margin-left: 8px;
-    `;
-    node.appendChild(badge);
-
-    // Hover effect
-    node.onmouseenter = () => {
-      node.style.background = 'var(--slate-100)';
-    };
-    node.onmouseleave = () => {
-      if (!node.classList.contains('selected')) {
-        node.style.background = '';
-      }
-    };
-
-    // Click handler - highlight and focus on element
-    node.onclick = async () => {
-      if (localId) {
-        const numericId = typeof localId === 'number' ? localId : parseInt(localId);
-
-        // Update selection in tree
-        container.querySelectorAll('.selected').forEach(n => {
-          n.classList.remove('selected');
-          (n as HTMLElement).style.background = '';
-        });
-        node.classList.add('selected');
-        node.style.background = 'var(--slate-200)';
-
-        // Populate localIdPanelMap for other functions to use
-        if (!localIdPanelMap.has(numericId)) {
-          localIdPanelMap.set(numericId, panel);
-        }
-
-        // Highlight and focus in 3D viewer
-        try {
-          // Reset all highlights
-          const resetPromises = [];
-          for (const [_, m] of models.entries()) {
-            resetPromises.push(m.resetHighlight(undefined));
-          }
-          await Promise.all(resetPromises);
-
-          // Ghost mode for all elements
-          const ghostPromises = [];
-          for (const [_, m] of models.entries()) {
-            ghostPromises.push(
-              m.highlight(undefined, {
-                color: new THREE.Color(0xcccccc),
-                opacity: 0.2,
-                transparent: true,
-                renderedFaces: FRAGS.RenderedFaces.TWO,
-              })
-            );
-          }
-          await Promise.all(ghostPromises);
-
-          // Collect parent and children for highlighting
-          let idsToHighlight: number[] = [numericId];
-
-          for (const [_, model] of models.entries()) {
-            try {
-              // Find parent panel
-              const parentId = await findParentPanelId(model, numericId);
-              const targetId = parentId || numericId;
-
-              // Get spatial structure
-              const cacheKey = (model as any).modelId || (model as any).threads?.modelId || 'default';
-              let spatialStructure = spatialStructureCache.get(cacheKey);
-              if (!spatialStructure) {
-                spatialStructure = await model.getSpatialStructure();
-                spatialStructureCache.set(cacheKey, spatialStructure);
-              }
-
-              if (spatialStructure) {
-                // Collect parent and all children
-                const relatedIds = collectParentAndChildIds(spatialStructure, targetId);
-                if (relatedIds.length > 0) {
-                  idsToHighlight = relatedIds;
-                  console.log(`📦 Highlighting ${relatedIds.length} related elements for ${panel.name || panel.tag}`);
-                  break; // Found in this model
-                }
-              }
-            } catch (err) {
-              console.warn('Could not resolve parent/children:', err);
-            }
-          }
-
-          // Highlight all related elements with category color
-          const highlightColor = categoryColor || new THREE.Color('#0047AB');
-          for (const [_, model] of models.entries()) {
-            try {
-              await model.highlight(idsToHighlight, {
-                color: highlightColor,
-                opacity: 1,
-                transparent: false,
-                renderedFaces: FRAGS.RenderedFaces.TWO,
-              });
-            } catch (err) {
-              console.warn('Could not highlight in this model:', err);
-            }
-          }
-
-          // Focus camera on all related elements
-          await focusCameraOnLocalIds(idsToHighlight, { closer: 0.9 });
-
-          // Update fragments
-          await fragments.update(true);
-
-          console.log(`✅ Focused on element: ${panel.name || panel.tag} (localId: ${numericId}, total highlighted: ${idsToHighlight.length})`);
-
-          // Show element information panel
-          const nodeData = {
-            localId: numericId,
-            name: panel.name || panel.tag || 'Unnamed',
-            type: panel.element?.ifcType || 'Unknown',
-            tag: panel.tag,
-            id: panel.id,
-            elementId: panel.elementId,
-            metadata: panel.metadata,
-            category: 'element',
-            children: [],
-            panelData: panel,
-          } as any;
-
-          // Show info panel and update with element data
-          const infoPanel = document.getElementById("infoPanel");
-          const statusPanel = document.getElementById("statusPanel");
-          const groupsPanel = document.getElementById("groupsPanel");
-
-          if (statusPanel) statusPanel.classList.add("panel-hidden");
-          if (groupsPanel) groupsPanel.classList.add("panel-hidden");
-          if (infoPanel) {
-            infoPanel.classList.remove("panel-hidden");
-
-            // Update basic info
-            const infoSection = infoPanel.querySelector(".info-section");
-            if (infoSection) {
-              infoSection.innerHTML = `
-                <div class="info-row">
-                  <div class="info-label">Name</div>
-                  <div class="info-value">${nodeData.name}</div>
-                </div>
-                <div class="info-row">
-                  <div class="info-label">ID</div>
-                  <div class="info-value">${nodeData.localId}</div>
-                </div>
-                <div class="info-row">
-                  <div class="info-label">Type</div>
-                  <div class="info-value">${nodeData.type}</div>
-                </div>
-                <div class="info-actions">
-                  <button id="show-qr-btn" class="info-action-btn" title="Show QR Code">
-                    <i class="fas fa-qrcode"></i>
-                  </button>
-                  <button id="show-submissions-btn" class="info-action-btn" title="View Submissions">
-                    <i class="fas fa-bell"></i>
-                    <span id="submission-count" class="notification-badge">0</span>
-                  </button>
-                </div>
-              `;
-            }
-
-            // Update groups and status sections
-            if (typeof updateElementInfoPanel === 'function') {
-              updateElementInfoPanel(nodeData);
-            }
-
-            // Attach QR code button event listener
-            const showQrBtnInPanel = infoPanel.querySelector("#show-qr-btn");
-            if (showQrBtnInPanel) {
-              showQrBtnInPanel.addEventListener("click", () => {
-                if (nodeData.localId) {
-                  showQRCode(nodeData.localId);
-                }
-              });
-            }
-
-            // Attach submissions button event listener
-            const showSubmissionsBtnInPanel = infoPanel.querySelector("#show-submissions-btn");
-            if (showSubmissionsBtnInPanel) {
-              showSubmissionsBtnInPanel.addEventListener("click", () => {
-                if (nodeData.localId) {
-                  showSubmissionsModal(nodeData.localId);
-                }
-              });
-
-              // Fetch and show badge for unread submissions
-              if (panel.id) {
-                fetchAndDisplaySubmissionBadge(nodeData.localId, panel.id);
-              }
-            }
-          }
-
-        } catch (error) {
-          console.error('Error focusing on element:', error);
-        }
-      }
-    };
-
-    container.appendChild(node);
-  };
-
-  // Restore normal tree view (when filters are cleared)
-  const restoreNormalTree = async () => {
-    const treeContainer = document.getElementById('tree-container');
-    if (!treeContainer) return;
-
-    // Clear filtered tree
-    treeContainer.innerHTML = `
-      <div style="padding: 20px; text-align: center; color: var(--slate-500);">
-        <i class="fas fa-spinner fa-spin" style="font-size: 20px;"></i>
-        <div style="margin-top: 10px;">Restoring tree view...</div>
-      </div>
-    `;
-
-    // Clear tree node map to remove stale references
-    treeNodeMap.clear();
-    console.log('🧹 Cleared tree node map');
-
-    // Re-initialize the tree (uses cache if available)
-    await initializeObjectTree();
-
-    // Ensure tree panel is visible
-    const treePanel = document.getElementById('tree-panel');
-    if (treePanel && treePanel.classList.contains('panel-hidden')) {
-      treePanel.classList.remove('panel-hidden');
-    }
-  };
-
-
-  // Apply element category filter (highlight matching, dim others)
-  const applyElementFilter = async (loadingTitle = 'Filtering Elements', loadingSubtitle = 'Applying filters to 3D model...') => {
-    // Start loading
-    window.dispatchEvent(new CustomEvent('viewer-loading', {
-      detail: {
-        isLoading: true,
-        title: loadingTitle,
-        subtitle: loadingSubtitle,
-        status: 'Preparing...',
-        progress: 0
-      }
-    }));
-
-    // Disable all filter buttons during operation
-    const filterButtons = document.querySelectorAll('.filter-btn');
-    const clearFiltersBtn = document.getElementById('filter-clear-btn');
-
-    filterButtons.forEach(btn => btn.setAttribute('disabled', 'true'));
-    if (clearFiltersBtn) clearFiltersBtn.setAttribute('disabled', 'true');
-
-    try {
-      console.log(`🎨 Applying element filters:`, Array.from(activeElementFilters));
-
-      // If no filters active, reset all highlights and restore normal tree
-      if (activeElementFilters.size === 0) {
-        console.log('✨ No filters active, resetting highlights');
-        for (const [_, model] of models.entries()) {
-          await model.resetHighlight(undefined);
-        }
-
-        // Restore normal tree view
-        restoreNormalTree();
-
-        await fragments.update(true);
-        return;
-      }
-
-      // Render filtered tree view (replaces tree content with filtered panels)
-      await renderFilteredTree(activeElementFilters);
-
-      // Automatically open tree panel to show results
-      const treePanel = document.getElementById('tree-panel');
-      if (treePanel && treePanel.classList.contains('panel-hidden')) {
-        treePanel.classList.remove('panel-hidden');
-        console.log('📂 Automatically opened tree panel for filtered results');
-      }
-
-      // Fetch all panels from database with their IFC types
-      const pathParts = window.location.pathname.split('/');
-      const projectsIndex = pathParts.indexOf('projects');
-      const projectId = projectsIndex >= 0 ? pathParts[projectsIndex + 1] : null;
-
-      if (!projectId) {
-        console.error('❌ Project ID not found');
-        return;
-      }
-
-      console.log(`📡 Fetching panel filter data from database for project ${projectId}...`);
-
-      // Fetch minimal panel data for filtering (only id, elementId, ifcType)
-      // This is much lighter than fetching all panel data
-      const token = localStorage.getItem('auth_token');
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      // Use lightweight filter-data endpoint that only returns essential fields
-      const response = await fetch(`/api/panels/${projectId}/filter-data`, {
-        headers
-      });
-
-      if (!response.ok) {
-        console.error('❌ Failed to fetch panel filter data:', response.statusText);
-        return;
-      }
-
-      // The /filter-data endpoint returns {panels, total}
-      const data = await response.json();
-      const allPanels = data.panels || [];
-      console.log(`📊 Fetched ${allPanels.length} panels (lightweight filter data) from database`);
-
-      // Debug: Log sample panel data to see structure
-      if (allPanels.length > 0) {
-        console.log('🔍 Sample panel data:', {
-          panel: allPanels[0],
-          ifcType: allPanels[0].element?.ifcType,
-          type: allPanels[0].type,
-          objectType: allPanels[0].objectType
-        });
-
-        // Log all unique IFC types in the dataset
-        const uniqueTypes = new Set<string>();
-        allPanels.forEach((p: any) => {
-          const ifcType = p.element?.ifcType || p.type || p.objectType || '';
-          if (ifcType) uniqueTypes.add(ifcType);
-        });
-        console.log('📋 All unique IFC types in database:', Array.from(uniqueTypes));
-      }
-
-      // Filter panels by IFC type matching active filters
-      const matchingPanels = allPanels.filter((panel: any) => {
-        const ifcType = panel.element?.ifcType || panel.type || panel.objectType || '';
-        console.log(`🔎 Checking panel "${panel.name || panel.tag}" - IFC Type: "${ifcType}"`);
-        const matches = matchesElementFilter(ifcType);
-        if (matches) {
-          console.log(`✓ Matched panel: ${panel.name || panel.tag} - Type: ${ifcType}`);
-        }
-        return matches;
-      });
-
-      console.log(`📊 Found ${matchingPanels.length} panels matching filters`);
-
-      if (matchingPanels.length === 0) {
-        console.warn('⚠️ No panels found matching the selected filters');
-        // Still dim all elements to show filter is active
-        for (const [_, model] of models.entries()) {
-          await model.resetHighlight(undefined);
-          await model.highlight(undefined, {
-            color: new THREE.Color(0xcccccc),
-            opacity: 0.2,
-            transparent: true,
-            renderedFaces: FRAGS.RenderedFaces.TWO,
-          });
-        }
-        await fragments.update(true);
-        return;
-      }
-
-      // Extract localIds from matching panels
-      // metadata.ifcElementId contains the numeric localId from the IFC model
-      const localIds: number[] = [];
-      matchingPanels.forEach((panel: any) => {
-        // Only use metadata.ifcElementId - this is the numeric localId from the model
-        if (panel.metadata?.ifcElementId) {
-          const id = typeof panel.metadata.ifcElementId === 'number'
-            ? panel.metadata.ifcElementId
-            : parseInt(panel.metadata.ifcElementId);
-
-          if (!isNaN(id)) {
-            localIds.push(id);
-          } else {
-            console.warn(`⚠️ Invalid ifcElementId for panel ${panel.id}:`, panel.metadata.ifcElementId);
-          }
-        } else {
-          console.warn(`⚠️ Panel ${panel.id} missing metadata.ifcElementId, skipping`);
-        }
-      });
-
-      console.log(`🔑 Extracted ${localIds.length} localIds from ${matchingPanels.length} matching panels`);
-
-      if (localIds.length === 0) {
-        console.error('❌ Could not parse any element IDs as numbers');
-        return;
-      }
-
-      console.log(`🎯 Converted to ${localIds.length} local IDs for highlighting`);
-
-      // Reset all highlights first (batch operation)
-      const resetPromises = [];
-      for (const [_, m] of models.entries()) {
-        resetPromises.push(m.resetHighlight(undefined));
-      }
-      await Promise.all(resetPromises);
-
-      // Make all elements semi-transparent (ghost mode) - batch operation
-      const ghostPromises = [];
-      for (const [_, m] of models.entries()) {
-        ghostPromises.push(
-          m.highlight(undefined, {
-            color: new THREE.Color(0xcccccc),
-            opacity: 0.2,
-            transparent: true,
-            renderedFaces: FRAGS.RenderedFaces.TWO,
-          })
-        );
-      }
-      await Promise.all(ghostPromises);
-
-      // Highlight matching elements with parent-child relationships
-      // Process in batches to avoid memory issues with very large datasets
-      const BATCH_SIZE = 1000; // Process 1000 elements at a time
-
-      for (const [_, model] of models.entries()) {
-        try {
-          // Use all localIds for each model (robust against model ID mismatches)
-          // We'll just skip IDs that aren't found in the spatial structure
-          const targetLocalIds = localIds;
-
-          if (targetLocalIds.length === 0) continue;
-
-          let allIdsToHighlight: number[] = [];
-          // Map each ID to its category (so children inherit parent's category)
-          const idToCategoryMap = new Map<number, string>();
-
-          try {
-            const cacheKey = (model as any).modelId || (model as any).threads?.modelId || 'default';
-            let spatialStructure = spatialStructureCache.get(cacheKey);
-            if (!spatialStructure) {
-              spatialStructure = await model.getSpatialStructure();
-              spatialStructureCache.set(cacheKey, spatialStructure);
-            }
-
-            if (spatialStructure) {
-              // For each panel ID, collect parent + children (in batches)
-              for (let i = 0; i < targetLocalIds.length; i += BATCH_SIZE) {
-                const batch = targetLocalIds.slice(i, i + BATCH_SIZE);
-
-                for (const localId of batch) {
-                  // Find the panel in matchingPanels to get its category
-                  const panel = matchingPanels.find((p: any) => {
-                    const panelLocalId = p.metadata?.ifcElementId;
-                    const id = typeof panelLocalId === 'number' ? panelLocalId : parseInt(panelLocalId);
-                    return id === localId;
-                  });
-
-                  let category = 'OTHER';
-                  if (panel) {
-                    const ifcType = panel.element?.ifcType || panel.type || panel.objectType || '';
-                    category = getCategoryForType(ifcType) || 'OTHER';
-                  }
-
-                  // 1. First find the topmost parent panel (to handle assemblies)
-                  const parentId = await findParentPanelId(model, localId);
-                  const targetId = parentId || localId;
-
-                  // 2. Then collect all children of that parent
-                  const relatedIds = collectParentAndChildIds(spatialStructure, targetId);
-
-                  if (relatedIds.length > 0) {
-                    allIdsToHighlight.push(...relatedIds);
-                    // Assign the parent's category to all collected IDs
-                    relatedIds.forEach(id => idToCategoryMap.set(id, category));
-                  } else {
-                    // Only add if we actually found something or if it's a direct match in this model
-                    // We can check if the ID exists in the model using findPathToLocalId or similar
-                    // But for now, let's just add it. If it's not in the model, highlight() will ignore it.
-                    allIdsToHighlight.push(targetId);
-                    idToCategoryMap.set(targetId, category);
-                  }
-                }
-
-                // Log progress for large datasets
-                if (targetLocalIds.length > BATCH_SIZE) {
-                  const progress = Math.min(100, Math.round(((i + batch.length) / targetLocalIds.length) * 100));
-                  console.log(`📦 Processing elements: ${progress}% (${i + batch.length}/${targetLocalIds.length})`);
-
-                  // Update loading progress
-                  window.dispatchEvent(new CustomEvent('viewer-loading', {
-                    detail: {
-                      isLoading: true,
-                      status: `Processing elements... ${progress}%`,
-                      progress: progress
-                    }
-                  }));
-                }
-              }
-
-              // Remove duplicates
-              allIdsToHighlight = [...new Set(allIdsToHighlight)];
-              console.log(`📦 Expanded ${targetLocalIds.length} panels to ${allIdsToHighlight.length} elements (with parent-child relationships)`);
-            } else {
-              allIdsToHighlight = targetLocalIds;
-            }
-          } catch (structureError) {
-            console.error(`⚠️ Could not get spatial structure for model, using original IDs:`, structureError);
-            allIdsToHighlight = targetLocalIds;
-          }
-
-          // Group elements by category for color-coded highlighting
-          const elementsByCategory: Record<string, number[]> = {};
-
-          // Group all IDs by their category using our tracked map
-          for (const localId of allIdsToHighlight) {
-            const category = idToCategoryMap.get(localId) || 'OTHER';
-
-            if (!elementsByCategory[category]) {
-              elementsByCategory[category] = [];
-            }
-            elementsByCategory[category].push(localId);
-          }
-
-          console.log('📊 Elements grouped by category:', Object.keys(elementsByCategory).map(cat => `${cat}: ${elementsByCategory[cat].length}`));
-
-          // Highlight each category with its specific color
-          for (const [category, categoryIds] of Object.entries(elementsByCategory)) {
-            const color = getCategoryColor(category);
-            console.log(`🎨 Highlighting ${categoryIds.length} ${category} elements with color:`, color);
-
-            // Highlight in batches for better performance
-            if (categoryIds.length > BATCH_SIZE) {
-              console.log(`🎨 Highlighting ${categoryIds.length} ${category} elements in batches...`);
-              for (let i = 0; i < categoryIds.length; i += BATCH_SIZE) {
-                const batch = categoryIds.slice(i, i + BATCH_SIZE);
-                await model.highlight(batch, {
-                  color: color,
-                  opacity: 1,
-                  transparent: false,
-                  renderedFaces: FRAGS.RenderedFaces.TWO,
-                });
-
-                // Update fragments periodically for visual feedback
-                if (i % (BATCH_SIZE * 5) === 0) {
-                  await fragments.update(true);
-                }
-              }
-            } else {
-              await model.highlight(categoryIds, {
-                color: color,
-                opacity: 1,
-                transparent: false,
-                renderedFaces: FRAGS.RenderedFaces.TWO,
-              });
-            }
-          }
-
-          console.log(`✅ Highlighted ${allIdsToHighlight.length} elements in model with category-specific colors`);
-        } catch (error) {
-          console.warn('⚠️ Could not highlight elements in this model:', error);
-        }
-      }
-
-      await fragments.update(true);
-      console.log('✅ Element filter applied successfully');
-    } catch (error) {
-      console.error('❌ Error applying element filter:', error);
-    } finally {
-      // Stop loading
-      window.dispatchEvent(new CustomEvent('viewer-loading', {
-        detail: { isLoading: false }
-      }));
-
-      // Re-enable all filter buttons
-      const filterButtons = document.querySelectorAll('.filter-btn');
-      const clearFiltersBtn = document.getElementById('filter-clear-btn');
-
-      filterButtons.forEach(btn => btn.removeAttribute('disabled'));
-      if (clearFiltersBtn) clearFiltersBtn.removeAttribute('disabled');
-    }
-  };
-
-  // Wire up filter buttons
-  const filterButtons = document.querySelectorAll('.filter-btn');
-  console.log(`🔘 Found ${filterButtons.length} filter buttons`);
-
-  filterButtons.forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const filterType = btn.getAttribute('data-filter');
-      console.log(`🖱️ Filter button clicked: ${filterType}`);
-
-      if (!filterType) return;
-
-      // Toggle filter
-      let title = 'Filtering Elements';
-      let subtitle = 'Applying filters to 3D model...';
-      if (activeElementFilters.has(filterType)) {
-        activeElementFilters.delete(filterType);
-        btn.classList.remove('active');
-        title = 'Removing Filter';
-        subtitle = 'Restoring view...';
-        console.log(`➖ Removed filter: ${filterType}`);
-      } else {
-        activeElementFilters.add(filterType);
-        btn.classList.add('active');
-        console.log(`➕ Added filter: ${filterType}`);
-      }
-
-      console.log(`📋 Active filters:`, Array.from(activeElementFilters));
-
-      // Apply filter
-      await applyElementFilter(title, subtitle);
     });
-  });
+    updateDisciplineButtonsUi();
+  };
+  wireDisciplineButtons();
 
-  // Wire up clear filters button
-  const clearFiltersBtn = document.getElementById('filter-clear-btn');
-  if (clearFiltersBtn) {
-    clearFiltersBtn.addEventListener('click', async () => {
-      console.log('🧹 Clearing all filters');
-
-      // Remove active class from all filter buttons
-      filterButtons.forEach(btn => {
-        btn.classList.remove('active');
-      });
-
-      // Clear the active filters set
-      activeElementFilters.clear();
-      console.log('📋 Active filters cleared');
-
-      // Reset highlights
-      await applyElementFilter('Clearing Filters', 'Restoring original view...');
-    });
-  }
+  (window as any).__uniqubeViewer = {
+    ...(window as any).__uniqubeViewer,
+    setDisciplineVisible,
+    getDisciplineVisible: () => ({ ...disciplineVisible }),
+    getModelDisciplines: () => Object.fromEntries(modelDisciplineById),
+  };
 
   console.log('🎉 That Open Engine viewer initialized successfully!');
   emitProgress(100, 'Ready');

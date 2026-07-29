@@ -3,6 +3,14 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import './ViewerPage.css';
 import { FloorSelector } from './FloorSelector';
 import { Cube } from '@/components/ui/Cube';
+import {
+  ProjectBrowserPanel,
+  ScheduleTable,
+  DetailPanel,
+  type BrowserDrawing,
+  type BrowserSnapshot,
+} from './ProjectBrowserPanel';
+import { CadDrawingViewer } from './CadDrawingViewer';
 
 // Import custom error types
 import type { ProjectNotFoundError, NetworkError, ModelLoadError, WebGLError } from './main';
@@ -31,6 +39,78 @@ export default function ViewerPage() {
   const [viewer, setViewer] = useState<any>(null);
   const [is2DMode, setIs2DMode] = useState(false);
   const [currentFloor, setCurrentFloor] = useState<string | null>(null);
+
+  // Publish revision selector
+  type PublishRevision = {
+    id: string;
+    label: string;
+    version: number;
+    isLatest: boolean;
+    createdAt: string;
+    categories: string[];
+    models: Array<{ id: string; category: string; version: number; name: string; originalFilename: string }>;
+  };
+  const [revisions, setRevisions] = useState<PublishRevision[]>([]);
+  const [selectedRevisionId, setSelectedRevisionId] = useState<string>('');
+  const [revisionSwitching, setRevisionSwitching] = useState(false);
+  const [versionMenuOpen, setVersionMenuOpen] = useState(false);
+  const versionSelectorRef = useRef<HTMLDivElement>(null);
+  const [hideMenuOpen, setHideMenuOpen] = useState(false);
+  const [hideSheathing, setHideSheathing] = useState(false);
+  const [hideWalls, setHideWalls] = useState(false);
+  const [hideFloors, setHideFloors] = useState(false);
+  const [hideAcp, setHideAcp] = useState(false);
+  const [hideDoorsWindows, setHideDoorsWindows] = useState(false);
+  const [hideBusy, setHideBusy] = useState(false);
+  const hideMenuRef = useRef<HTMLDivElement>(null);
+
+  // Installation sequencing mode
+  const [installMode, setInstallMode] = useState(false);
+  const [installBusy, setInstallBusy] = useState(false);
+  const [installStep, setInstallStep] = useState<{
+    index: number;
+    total: number;
+    display: string;
+    isFirst: boolean;
+    isLast: boolean;
+    previous: Array<{ key: string; display: string }>;
+    upcoming: Array<{ key: string; display: string }>;
+    current: {
+      key: string;
+      display: string;
+      container: string;
+      elementCount: number;
+      structureCount: number;
+      mepCount: number;
+      architectureCount: number;
+      disciplines: string[];
+      sizeLabel: string | null;
+      adjacentCount: number;
+      adjacentNames: string[];
+      pallet: string | null;
+      material: string | null;
+      weight: string | null;
+      location: string | null;
+      objectType: string | null;
+      floor?: number;
+      connectors?: { total: number; byMark: Record<string, number> };
+    } | null;
+    connectorsProject: Array<{ mark: string; count: number }>;
+  } | null>(null);
+  const [seqDetailsExpanded, setSeqDetailsExpanded] = useState(false);
+
+  // Project Browser + CAD drawings
+  const [browserOpen, setBrowserOpen] = useState(false);
+  const [activeDrawing, setActiveDrawing] = useState<BrowserDrawing | null>(null);
+  const [cadOpen, setCadOpen] = useState(false);
+  const [cadSplit, setCadSplit] = useState(false);
+  const [activeSchedule, setActiveSchedule] = useState<
+    NonNullable<BrowserSnapshot['schedules']>[number] | null
+  >(null);
+  const [activeDetail, setActiveDetail] = useState<{
+    title: string;
+    data: Record<string, any>;
+  } | null>(null);
 
   // Sync UI with 2D mode changes (works for toolbar toggle and internal FloorSelector changes)
   useEffect(() => {
@@ -151,15 +231,300 @@ export default function ViewerPage() {
       }
     };
 
+    const handleProgress = (event: CustomEvent) => {
+      if (event.detail?.progress !== undefined) {
+        setLoadingProgress(Math.min(event.detail.progress, 99));
+      }
+      if (event.detail?.status) {
+        setLoadingStatus(event.detail.status);
+      }
+    };
+
     window.addEventListener('viewer-loading' as any, handleViewerLoading);
+    window.addEventListener('viewer-progress' as any, handleProgress);
 
     return () => {
       window.removeEventListener('viewer-loading' as any, handleViewerLoading);
+      window.removeEventListener('viewer-progress' as any, handleProgress);
       if (resetTimeoutRef.current) {
         clearTimeout(resetTimeoutRef.current);
       }
     };
   }, []);
+
+  // Load publish revisions once per project (do not re-run on isLoading —
+  // that was resetting the selector to Latest and blocking re-select).
+  useEffect(() => {
+    if (!projectId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = localStorage.getItem('auth_token');
+        const apiBase =
+          typeof window !== 'undefined'
+            ? `${window.location.origin}/api`
+            : (import.meta as any).env?.VITE_API_BASE_URL || '/api';
+        const res = await fetch(`${apiBase}/projects/${projectId}/publish-revisions`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        const list: PublishRevision[] = data.revisions || [];
+        setRevisions(list);
+        setSelectedRevisionId((prev) => {
+          if (prev && list.some((r) => r.id === prev)) return prev;
+          const latest = list.find((r) => r.isLatest) || list[0];
+          return latest?.id || '';
+        });
+      } catch (e) {
+        console.warn('Failed to load publish revisions:', e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [projectId]);
+
+  const handleRevisionChange = async (revisionId: string) => {
+    const rev = revisions.find((r) => r.id === revisionId);
+    if (!rev) return;
+    const api = (window as any).__uniqubeViewer;
+    if (!api?.loadRevisionModels) {
+      console.warn('Viewer revision API not ready');
+      return;
+    }
+    setVersionMenuOpen(false);
+    setSelectedRevisionId(revisionId);
+    setRevisionSwitching(true);
+    setCadOpen(false);
+    setActiveDrawing(null);
+    setActiveSchedule(null);
+    setActiveDetail(null);
+    try {
+      await api.loadRevisionModels(
+        rev.models.map((m) => ({
+          id: m.id,
+          name: m.originalFilename || m.name,
+          category: m.category,
+        }))
+      );
+    } catch (e) {
+      console.error(e);
+      setError('Failed to load selected version');
+    } finally {
+      setRevisionSwitching(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!versionMenuOpen) return;
+    const onPointer = (e: MouseEvent) => {
+      if (!versionSelectorRef.current?.contains(e.target as Node)) {
+        setVersionMenuOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setVersionMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [versionMenuOpen]);
+
+  useEffect(() => {
+    if (!hideMenuOpen) return;
+    const onPointer = (e: MouseEvent) => {
+      if (!hideMenuRef.current?.contains(e.target as Node)) {
+        setHideMenuOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setHideMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [hideMenuOpen]);
+
+  useEffect(() => {
+    const onReset = () => {
+      setHideSheathing(false);
+      setHideWalls(false);
+      setHideFloors(false);
+      setHideAcp(false);
+      setHideDoorsWindows(false);
+    };
+    window.addEventListener('uniqube-hide-layers-reset', onReset);
+    return () => window.removeEventListener('uniqube-hide-layers-reset', onReset);
+  }, []);
+
+  useEffect(() => {
+    if ((window as any).lucide?.createIcons) {
+      (window as any).lucide.createIcons();
+    }
+  }, [hideMenuOpen]);
+
+  type HideLayer = 'sheathing' | 'walls' | 'floors' | 'acp' | 'doorsWindows';
+
+  const applyHideLayer = async (layer: HideLayer, hidden: boolean) => {
+    const api = (window as any).__uniqubeViewer;
+    if (!api?.setHideLayer) {
+      console.warn('Viewer not ready — cannot hide layers yet');
+      return false;
+    }
+    setHideBusy(true);
+    try {
+      const result = await api.setHideLayer(layer, hidden);
+      if (!result?.ok && hidden) {
+        console.warn(`No ${layer} elements found to hide`);
+        return false;
+      }
+      return true;
+    } catch (e) {
+      console.error(`Failed to toggle hide ${layer}:`, e);
+      return false;
+    } finally {
+      setHideBusy(false);
+    }
+  };
+
+  const applyInstallState = (state: any) => {
+    if (!state) return;
+    if (state.active) {
+      setInstallMode(true);
+      setInstallStep({
+        index: state.index ?? 0,
+        total: state.total ?? 0,
+        display: state.display || '',
+        isFirst: !!state.isFirst,
+        isLast: !!state.isLast,
+        previous: Array.isArray(state.previous) ? state.previous : [],
+        upcoming: Array.isArray(state.upcoming) ? state.upcoming : [],
+        current: state.current || null,
+        connectorsProject: Array.isArray(state.connectorsProject)
+          ? state.connectorsProject
+          : [],
+      });
+      document.body.classList.add('mode-install');
+    } else {
+      setInstallMode(false);
+      setInstallStep(null);
+      setSeqDetailsExpanded(false);
+      document.body.classList.remove('mode-install');
+    }
+  };
+
+  const enterInstallMode = async () => {
+    const api = (window as any).__uniqubeViewer;
+    if (!api?.enterInstallSequence) {
+      console.warn('Install sequence API not ready');
+      return;
+    }
+    setInstallBusy(true);
+    try {
+      // Close side panels for a focused “game” view
+      setBrowserOpen(false);
+      setTreePanelVisible(false);
+      setCadOpen(false);
+      const result = await api.enterInstallSequence();
+      if (!result?.ok) {
+        alert(result?.error || 'No panels available for install sequence');
+        return;
+      }
+      applyInstallState(result);
+    } catch (e) {
+      console.error('Failed to enter install sequence:', e);
+    } finally {
+      setInstallBusy(false);
+    }
+  };
+
+  const exitInstallMode = async () => {
+    const api = (window as any).__uniqubeViewer;
+    if (!api?.exitInstallSequence) return;
+    setInstallBusy(true);
+    try {
+      const result = await api.exitInstallSequence();
+      applyInstallState(result);
+    } catch (e) {
+      console.error('Failed to exit install sequence:', e);
+      setInstallMode(false);
+      setInstallStep(null);
+      setSeqDetailsExpanded(false);
+      document.body.classList.remove('mode-install');
+    } finally {
+      setInstallBusy(false);
+    }
+  };
+
+  const stepInstall = async (direction: 'next' | 'prev') => {
+    const api = (window as any).__uniqubeViewer;
+    if (!api?.goInstallSequence || installBusy) return;
+    setInstallBusy(true);
+    try {
+      const result = await api.goInstallSequence(direction);
+      if (result?.ok) applyInstallState(result);
+    } catch (e) {
+      console.error('Install step failed:', e);
+    } finally {
+      setInstallBusy(false);
+    }
+  };
+
+  const finishInstall = async () => {
+    await exitInstallMode();
+  };
+
+  useEffect(() => {
+    const onSeq = (e: Event) => {
+      applyInstallState((e as CustomEvent).detail);
+    };
+    window.addEventListener('uniqube-install-sequence', onSeq as EventListener);
+    return () => {
+      window.removeEventListener('uniqube-install-sequence', onSeq as EventListener);
+      document.body.classList.remove('mode-install');
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!installMode) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (installBusy) return;
+      if (e.key === 'ArrowRight' || e.key === ' ') {
+        e.preventDefault();
+        if (installStep?.isLast) void finishInstall();
+        else void stepInstall('next');
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        void stepInstall('prev');
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        void exitInstallMode();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [installMode, installBusy, installStep?.isLast]);
+
+  const formatRevisionWhen = (iso: string) => {
+    if (!iso) return '';
+    return new Date(iso).toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  const selectedRevision =
+    revisions.find((r) => r.id === selectedRevisionId) ||
+    revisions.find((r) => r.isLatest) ||
+    revisions[0];
 
   // Initialize the 3D viewer when container is attached
   const initializeViewer = async (containerElement: HTMLDivElement) => {
@@ -626,14 +991,33 @@ export default function ViewerPage() {
 
 
 
+  // Keep 3D + DXF canvases sized when entering/leaving side-by-side View
+  useEffect(() => {
+    if (!cadOpen) {
+      setCadSplit(false);
+      return;
+    }
+    const kick = () => window.dispatchEvent(new Event('resize'));
+    const t1 = window.setTimeout(kick, 40);
+    const t2 = window.setTimeout(kick, 200);
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, [cadOpen, cadSplit, browserOpen]);
+
   return (
-    <div className="viewer-container">
+    <div
+      className={`viewer-container${cadOpen && cadSplit ? ' cad-split-active' : ''}${
+        browserOpen ? ' browser-open' : ''
+      }`}
+    >
       {/* Main 3D Container */}
       <div
         id="container"
         ref={containerRef}
         style={{
-          width: '100%',
+          width: cadOpen && cadSplit ? undefined : '100%',
           height: '100%',
           position: 'relative'
         }}
@@ -795,6 +1179,11 @@ export default function ViewerPage() {
         <h1 className="text-lg sm:text-xl font-bold text-slate-900">
           UniQube <span className="bg-gradient-to-r from-yellow-400 via-yellow-500 to-amber-600 bg-clip-text text-transparent">3D</span>
         </h1>
+        {installMode && (
+          <span className="seq-header-mode-badge" aria-live="polite">
+            Mode · Sequence
+          </span>
+        )}
 
         {/* Back Button */}
         <button
@@ -808,15 +1197,87 @@ export default function ViewerPage() {
             }
           }}
           title=""
-          style={{ marginLeft: '12px', marginRight: 'auto' }}
+          style={{ marginLeft: '12px' }}
         >
           <i className="fas fa-arrow-left"></i>
           <span className="tooltip">{searchParams.get('element') ? 'Back to Report' : 'Back to Project'}</span>
         </button>
 
+        {/* Publish version selector */}
+        {revisions.length > 0 && selectedRevision && (
+          <div
+            className={`version-selector ${versionMenuOpen ? 'open' : ''} ${
+              revisionSwitching ? 'switching' : ''
+            }`}
+            ref={versionSelectorRef}
+          >
+            <button
+              type="button"
+              className="version-selector-trigger"
+              disabled={isLoading || revisionSwitching || is2DMode}
+              aria-haspopup="listbox"
+              aria-expanded={versionMenuOpen}
+              title="Switch published version"
+              onClick={() => setVersionMenuOpen((v) => !v)}
+            >
+              {revisionSwitching ? (
+                <i className="fas fa-circle-notch fa-spin" aria-hidden />
+              ) : (
+                <i className="fas fa-history" aria-hidden />
+              )}
+              <span className="version-selector-label-text">
+                {selectedRevision.label || `v${selectedRevision.version}`}
+              </span>
+              {selectedRevision.isLatest && <span className="version-dot">Latest</span>}
+              <i className={`fas fa-chevron-${versionMenuOpen ? 'up' : 'down'}`} aria-hidden />
+            </button>
+
+            {versionMenuOpen && (
+              <div className="version-selector-menu" role="listbox" aria-label="Versions">
+                {revisions.map((rev) => {
+                  const active = rev.id === selectedRevisionId;
+                  return (
+                    <button
+                      key={rev.id}
+                      type="button"
+                      role="option"
+                      aria-selected={active}
+                      className={`version-option ${active ? 'active' : ''}`}
+                      onClick={() => {
+                        if (!active) handleRevisionChange(rev.id);
+                        else setVersionMenuOpen(false);
+                      }}
+                    >
+                      <span className="version-option-name">
+                        {rev.label || `v${rev.version}`}
+                        {rev.isLatest ? ' · Latest' : ''}
+                      </span>
+                      <span className="version-option-when">
+                        {formatRevisionWhen(rev.createdAt)}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div style={{ marginLeft: 'auto' }} />
+
         <button id="tree-toggle-btn" className="toolbar-button">
           <i className="fas fa-sitemap"></i>
           <span className="tooltip">Model Structure</span>
+        </button>
+        <button
+          id="project-browser-btn"
+          className={`toolbar-button ${browserOpen ? 'active' : ''}`}
+          onClick={() => setBrowserOpen((v) => !v)}
+          disabled={isLoading}
+          title="Revit Project Browser"
+        >
+          <i className="fas fa-project-diagram"></i>
+          <span className="tooltip">Project Browser</span>
         </button>
         <button id="selection-tool-btn" className="toolbar-button">
           <i className="fas fa-mouse-pointer"></i>
@@ -839,30 +1300,159 @@ export default function ViewerPage() {
           <i className="fas fa-layer-group"></i>
           <span className="tooltip">Groups</span>
         </button>
+        <button
+          id="install-sequence-btn"
+          className={`toolbar-button sequence-btn ${installMode ? 'active' : ''}`}
+          type="button"
+          disabled={isLoading || installBusy}
+          title="Sequence — step through panels for site installation"
+          onClick={() => {
+            if (installMode) void exitInstallMode();
+            else void enterInstallMode();
+          }}
+        >
+          <span className="sequence-label">Sequence</span>
+          <span className="tooltip">{installMode ? 'Exit Sequence' : 'Sequence'}</span>
+        </button>
 
-        {/* Element Type Filters */}
+        {/* Discipline model visibility (Architecture → MEP → Structure) */}
         <div className="toolbar-divider"></div>
-        <button id="filter-mep-btn" className="toolbar-button filter-btn" data-filter="MEP">
-          <i data-lucide="wrench"></i>
-          <span className="tooltip">Filter MEP</span>
+        <button
+          id="discipline-arch-btn"
+          className="toolbar-button discipline-btn active"
+          data-discipline="architecture"
+          type="button"
+        >
+          <span className="discipline-label">ARCH</span>
+          <span className="tooltip">Show / hide Architecture model</span>
         </button>
-        <button id="filter-doors-windows-btn" className="toolbar-button filter-btn" data-filter="DOORS_WINDOWS">
-          <i data-lucide="door-open"></i>
-          <span className="tooltip">Filter Doors & Windows</span>
+        <button
+          id="discipline-mep-btn"
+          className="toolbar-button discipline-btn active"
+          data-discipline="mep"
+          type="button"
+        >
+          <span className="discipline-label">MEP</span>
+          <span className="tooltip">Show / hide MEP model</span>
         </button>
-        <button id="filter-frames-btn" className="toolbar-button filter-btn" data-filter="FRAMES">
-          <i data-lucide="frame"></i>
-          <span className="tooltip">ACP</span>
+        <button
+          id="discipline-str-btn"
+          className="toolbar-button discipline-btn active"
+          data-discipline="structure"
+          type="button"
+        >
+          <span className="discipline-label">STR</span>
+          <span className="tooltip">Show / hide Structure model</span>
         </button>
-        <button id="filter-structural-btn" className="toolbar-button filter-btn" data-filter="STRUCTURAL">
-          <i data-lucide="building-2"></i>
-          <span className="tooltip">Filter Structural</span>
-        </button>
-        <button id="filter-clear-btn" className="toolbar-button">
-          <i data-lucide="x-circle"></i>
-          <span className="tooltip">Clear Filters</span>
-        </button>
+        <div className={`hide-layers-wrap ${hideMenuOpen ? 'open' : ''}`} ref={hideMenuRef}>
+          <button
+            id="hide-layers-btn"
+            className={`toolbar-button ${
+              hideSheathing || hideWalls || hideFloors || hideAcp || hideDoorsWindows
+                ? 'active'
+                : ''
+            }`}
+            type="button"
+            title="Layer visibility"
+            aria-expanded={hideMenuOpen}
+            aria-haspopup="true"
+            aria-label="Layer visibility"
+            disabled={hideBusy}
+            onClick={() => setHideMenuOpen((v) => !v)}
+          >
+            <i className="fas fa-eye" aria-hidden="true"></i>
+            <span className="tooltip">Visibility</span>
+          </button>
+          {hideMenuOpen && (
+            <div className="hide-layers-menu" role="menu" aria-label="Layer visibility">
+              <div className="hide-layers-title">Visibility</div>
 
+              <div className="hide-layers-section">
+                <div className="hide-layers-section-label">Architecture</div>
+                <label className="hide-layers-item">
+                  <input
+                    id="hide-layer-acp"
+                    type="checkbox"
+                    checked={!hideAcp}
+                    disabled={hideBusy}
+                    onChange={async (e) => {
+                      const hidden = !e.target.checked;
+                      const ok = await applyHideLayer('acp', hidden);
+                      setHideAcp(ok ? hidden : false);
+                    }}
+                  />
+                  <span>ACP</span>
+                </label>
+                <label className="hide-layers-item">
+                  <input
+                    id="hide-layer-doors-windows"
+                    type="checkbox"
+                    checked={!hideDoorsWindows}
+                    disabled={hideBusy}
+                    onChange={async (e) => {
+                      const hidden = !e.target.checked;
+                      const ok = await applyHideLayer('doorsWindows', hidden);
+                      setHideDoorsWindows(ok ? hidden : false);
+                    }}
+                  />
+                  <span>Doors & Windows</span>
+                </label>
+                <label className="hide-layers-item">
+                  <input
+                    id="hide-layer-floors"
+                    type="checkbox"
+                    checked={!hideFloors}
+                    disabled={hideBusy}
+                    onChange={async (e) => {
+                      const hidden = !e.target.checked;
+                      const ok = await applyHideLayer('floors', hidden);
+                      setHideFloors(ok ? hidden : false);
+                    }}
+                  />
+                  <span>Floors</span>
+                </label>
+                <label className="hide-layers-item">
+                  <input
+                    id="hide-layer-sheathing"
+                    type="checkbox"
+                    checked={!hideSheathing}
+                    disabled={hideBusy}
+                    onChange={async (e) => {
+                      const hidden = !e.target.checked;
+                      const ok = await applyHideLayer('sheathing', hidden);
+                      setHideSheathing(ok ? hidden : false);
+                    }}
+                  />
+                  <span>Sheathing</span>
+                </label>
+                <label className="hide-layers-item">
+                  <input
+                    id="hide-layer-walls"
+                    type="checkbox"
+                    checked={!hideWalls}
+                    disabled={hideBusy}
+                    onChange={async (e) => {
+                      const hidden = !e.target.checked;
+                      const ok = await applyHideLayer('walls', hidden);
+                      setHideWalls(ok ? hidden : false);
+                    }}
+                  />
+                  <span>Walls</span>
+                </label>
+              </div>
+
+              <div className="hide-layers-section">
+                <div className="hide-layers-section-label">MEP</div>
+                <div className="hide-layers-empty">No layer filters yet</div>
+              </div>
+
+              <div className="hide-layers-section">
+                <div className="hide-layers-section-label">Structure</div>
+                <div className="hide-layers-empty">No layer filters yet</div>
+              </div>
+            </div>
+          )}
+        </div>
         <button id="tree-reset-btn" className="toolbar-button">
           <i className="fas fa-home"></i>
           <span className="tooltip">Reset View</span>
@@ -1191,6 +1781,289 @@ export default function ViewerPage() {
         </div>
       </div>
 
+      {/* Install sequence HUD */}
+      {installMode && installStep && (
+        <>
+          <button
+            type="button"
+            className="install-seq-exit"
+            disabled={installBusy}
+            onClick={() => void exitInstallMode()}
+            title="Exit sequence (Esc)"
+            aria-label="Exit sequence"
+          >
+            <i className="fas fa-times" aria-hidden="true"></i>
+          </button>
+
+          {/* Left gaming annotation — panel connectors for current step */}
+          <aside
+            className="seq-conn-hud"
+            aria-label="Panel connectors"
+            key={`conn-hud-${installStep.index}-${installStep.current?.key || ''}`}
+          >
+            <div className="seq-conn-hud-rail" aria-hidden="true" />
+            <div className="seq-conn-hud-card">
+              <div className="seq-conn-hud-top">
+                <span className="seq-conn-hud-tag">OBJ</span>
+                <span className="seq-conn-hud-step">
+                  STEP {String(installStep.index + 1).padStart(2, '0')}
+                </span>
+              </div>
+              <div className="seq-conn-hud-label">Connectors</div>
+              <div className="seq-conn-hud-total">
+                {installStep.current?.connectors?.total ?? 0}
+              </div>
+              {(installStep.current?.connectors?.total ?? 0) > 0 ? (
+                <ul className="seq-conn-hud-list">
+                  {Object.entries(installStep.current!.connectors!.byMark)
+                    .sort(([a], [b]) =>
+                      a.localeCompare(b, undefined, { sensitivity: 'base' })
+                    )
+                    .map(([mark, count]) => (
+                      <li key={mark}>
+                        <span className="seq-conn-hud-mark">{mark}</span>
+                        <span className="seq-conn-hud-count">×{count}</span>
+                      </li>
+                    ))}
+                </ul>
+              ) : (
+                <div className="seq-conn-hud-none">No fasteners on this panel</div>
+              )}
+              <div className="seq-conn-hud-target" aria-hidden="true">
+                <span />
+              </div>
+            </div>
+          </aside>
+
+          <aside
+            className={`seq-detail-panel${seqDetailsExpanded ? ' is-expanded' : ''}`}
+            aria-label="Panel details"
+          >
+            <button
+              type="button"
+              className="seq-detail-mobile-toggle"
+              aria-expanded={seqDetailsExpanded}
+              onClick={() => setSeqDetailsExpanded((v) => !v)}
+            >
+              <span className="seq-detail-mobile-toggle-main">
+                <span className="seq-detail-tag">Target</span>
+                <span className="seq-detail-mobile-name">
+                  {installStep.current?.display || installStep.display || 'Panel'}
+                </span>
+              </span>
+              <span className="seq-detail-mobile-meta">
+                {String(installStep.index + 1).padStart(2, '0')}/
+                {String(installStep.total).padStart(2, '0')}
+                <i
+                  className={`fas fa-chevron-${seqDetailsExpanded ? 'down' : 'up'}`}
+                  aria-hidden="true"
+                />
+              </span>
+            </button>
+            <div className="seq-detail-stack">
+              {/* Previous (up to 3) */}
+              <div className="seq-detail-context seq-detail-previous">
+                <div className="seq-section-tag">Prev</div>
+                {installStep.previous.length === 0 ? (
+                  <div className="seq-context-empty">Start of sequence</div>
+                ) : (
+                  installStep.previous.map((item) => (
+                    <div key={item.key} className="seq-context-row">
+                      <span className="seq-context-mark">{item.display}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Current panel details */}
+              <div className="seq-detail-current">
+                <div className="seq-detail-top">
+                  <span className="seq-detail-tag">Target</span>
+                  <span className="seq-detail-eyebrow">
+                    STEP {String(installStep.index + 1).padStart(2, '0')} /{' '}
+                    {String(installStep.total).padStart(2, '0')}
+                  </span>
+                </div>
+                <h2 className="seq-detail-heading">
+                  {installStep.current?.display || installStep.display || 'Panel'}
+                </h2>
+
+                <div className="seq-detail-chips">
+                  {(installStep.current?.disciplines || []).map((d) => (
+                    <span key={d} className={`seq-chip seq-chip-${d}`}>
+                      {d === 'structure' ? 'STR' : d === 'mep' ? 'MEP' : d === 'architecture' ? 'ARCH' : d}
+                    </span>
+                  ))}
+                </div>
+
+                {/* Project-wide connector totals */}
+                {installStep.connectorsProject.length > 0 && (
+                  <div className="seq-conn-block">
+                    <div className="seq-conn-title">
+                      Project inventory
+                      <span className="seq-conn-total">
+                        {installStep.connectorsProject.reduce((s, r) => s + r.count, 0)}
+                      </span>
+                    </div>
+                    <ul className="seq-conn-list">
+                      {installStep.connectorsProject.map((row) => (
+                        <li key={row.mark}>
+                          <span className="seq-conn-mark">{row.mark}</span>
+                          <span className="seq-conn-count">×{row.count}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <dl className="seq-detail-grid">
+                  <div className="seq-detail-row">
+                    <dt>Container</dt>
+                    <dd>{installStep.current?.container || installStep.display || '—'}</dd>
+                  </div>
+                  <div className="seq-detail-row">
+                    <dt>Pallet</dt>
+                    <dd>{installStep.current?.pallet || '—'}</dd>
+                  </div>
+                  <div className="seq-detail-row">
+                    <dt>Elements</dt>
+                    <dd>
+                      {installStep.current?.elementCount ?? 0}
+                      {installStep.current &&
+                      (installStep.current.structureCount ||
+                        installStep.current.mepCount ||
+                        installStep.current.architectureCount) ? (
+                        <span className="seq-detail-sub">
+                          {[
+                            installStep.current.structureCount
+                              ? `${installStep.current.structureCount} S`
+                              : null,
+                            installStep.current.mepCount
+                              ? `${installStep.current.mepCount} M`
+                              : null,
+                            installStep.current.architectureCount
+                              ? `${installStep.current.architectureCount} A`
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </span>
+                      ) : null}
+                    </dd>
+                  </div>
+                  <div className="seq-detail-row">
+                    <dt>Size</dt>
+                    <dd>{installStep.current?.sizeLabel || '—'}</dd>
+                  </div>
+                  <div className="seq-detail-row">
+                    <dt>Location</dt>
+                    <dd>{installStep.current?.location || '—'}</dd>
+                  </div>
+                  <div className="seq-detail-row">
+                    <dt>Material</dt>
+                    <dd>{installStep.current?.material || '—'}</dd>
+                  </div>
+                  <div className="seq-detail-row">
+                    <dt>Weight</dt>
+                    <dd>{installStep.current?.weight || '—'}</dd>
+                  </div>
+                  <div className="seq-detail-row">
+                    <dt>Type</dt>
+                    <dd>{installStep.current?.objectType || '—'}</dd>
+                  </div>
+                  <div className="seq-detail-row seq-detail-row-full">
+                    <dt>Adjacent</dt>
+                    <dd>
+                      {installStep.current?.adjacentNames?.length
+                        ? installStep.current.adjacentNames.join(', ')
+                        : '—'}
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+
+              {/* Upcoming (up to 3) */}
+              <div className="seq-detail-context seq-detail-upcoming">
+                <div className="seq-section-tag">Next</div>
+                {installStep.upcoming.length === 0 ? (
+                  <div className="seq-context-empty">End of sequence</div>
+                ) : (
+                  installStep.upcoming.map((item) => (
+                    <div key={item.key} className="seq-context-row">
+                      <span className="seq-context-mark">{item.display}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </aside>
+
+          <div className="install-sequence-bar" role="group" aria-label="Install sequence">
+            <button
+              type="button"
+              className="install-seq-btn install-seq-prev"
+              disabled={installBusy || installStep.isFirst}
+              onClick={() => void stepInstall('prev')}
+              title="Previous panel (←)"
+            >
+              <i className="fas fa-chevron-left" aria-hidden="true"></i>
+              <span>Prev</span>
+            </button>
+
+            <div className="install-seq-center">
+              <div className="install-seq-label">
+                <span className="install-seq-mode-tag">Mode</span>
+                Install sequence
+              </div>
+              <div className="install-seq-panel">{installStep.display || 'Panel'}</div>
+              <div className="install-seq-progress">
+                <span>
+                  {String(installStep.index + 1).padStart(2, '0')} /{' '}
+                  {String(installStep.total).padStart(2, '0')}
+                </span>
+                <div className="install-seq-track" aria-hidden="true">
+                  <div
+                    className="install-seq-fill"
+                    style={{
+                      width: `${
+                        installStep.total
+                          ? ((installStep.index + 1) / installStep.total) * 100
+                          : 0
+                      }%`,
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {installStep.isLast ? (
+              <button
+                type="button"
+                className="install-seq-btn install-seq-finish"
+                disabled={installBusy}
+                onClick={() => void finishInstall()}
+                title="Finish and restore full model"
+              >
+                <span>Clear</span>
+                <i className="fas fa-check" aria-hidden="true"></i>
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="install-seq-btn install-seq-next"
+                disabled={installBusy}
+                onClick={() => void stepInstall('next')}
+                title="Next panel (→)"
+              >
+                <span>Next</span>
+                <i className="fas fa-chevron-right" aria-hidden="true"></i>
+              </button>
+            )}
+
+          </div>
+        </>
+      )}
+
       {/* Floor Plans Panel */}
       {
         floorPanelVisible && viewer?.views2d && (
@@ -1216,6 +2089,87 @@ export default function ViewerPage() {
           </div>
         )
       }
+
+      {projectId && (
+        <ProjectBrowserPanel
+          open={browserOpen}
+          onClose={() => setBrowserOpen(false)}
+          projectId={projectId}
+          revisionId={selectedRevisionId}
+          onOpenDrawing={(d) => {
+            setActiveDrawing(d);
+            setCadOpen(true);
+            setActiveSchedule(null);
+            setActiveDetail(null);
+          }}
+          onOpenSchedule={(sch) => {
+            setActiveSchedule(sch);
+            setCadOpen(false);
+            setActiveDrawing(null);
+            setActiveDetail(null);
+          }}
+          onOpenDetail={(detail) => {
+            setActiveDetail(detail);
+            setCadOpen(false);
+            setActiveDrawing(null);
+            setActiveSchedule(null);
+          }}
+          onSelectPanel={(panel) => {
+            setCadOpen(false);
+            setActiveDrawing(null);
+            setActiveSchedule(null);
+            setActiveDetail(null);
+            const api = (window as any).__uniqubeViewer;
+            if (!api?.selectPanelByExpressId) {
+              console.warn('Viewer select API not ready');
+              return;
+            }
+            if (panel.expressId == null) {
+              console.warn('Panel has no expressId — cannot highlight in 3D', panel);
+              return;
+            }
+            void api.selectPanelByExpressId(panel.expressId, panel.modelId || undefined, {
+              id: panel.id,
+              name: panel.name,
+              modelId: panel.modelId,
+              element: { expressId: panel.expressId },
+            });
+          }}
+        />
+      )}
+
+      {activeSchedule && (
+        <ScheduleTable
+          schedule={activeSchedule}
+          dockRight={browserOpen}
+          onClose={() => setActiveSchedule(null)}
+        />
+      )}
+
+      {activeDetail && (
+        <DetailPanel
+          title={activeDetail.title}
+          data={activeDetail.data}
+          dockRight={browserOpen}
+          onClose={() => setActiveDetail(null)}
+        />
+      )}
+
+      {projectId && (
+        <CadDrawingViewer
+          open={cadOpen}
+          projectId={projectId}
+          drawing={activeDrawing}
+          dockRight={browserOpen}
+          splitView={cadSplit}
+          onToggleSplit={() => setCadSplit((v) => !v)}
+          onClose={() => {
+            setCadOpen(false);
+            setCadSplit(false);
+            setActiveDrawing(null);
+          }}
+        />
+      )}
     </div >
   );
 };

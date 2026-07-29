@@ -9,10 +9,16 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
     },
+    // Keep a single three instance; dxf-viewer is compatible with modern three for rendering
+    dedupe: ['three'],
+  },
+  optimizeDeps: {
+    include: ['dxf-viewer', 'three'],
   },
   server: {
     port: 3000,
     host: true,
+    allowedHosts: true,
     proxy: {
       '/qr': {
         target: 'http://localhost:4000',
@@ -23,7 +29,13 @@ export default defineConfig({
         target: 'http://localhost:4000',
         changeOrigin: true,
         secure: false,
-      }
+      },
+      '/socket.io': {
+        target: 'http://localhost:4000',
+        changeOrigin: true,
+        ws: true,
+        secure: false,
+      },
     }
   },
   build: {

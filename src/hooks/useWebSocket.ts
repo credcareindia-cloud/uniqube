@@ -24,15 +24,11 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
             return;
         }
 
-        // Robust URL construction
-        let serverUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
-
-        // Remove /api suffix if present
-        serverUrl = serverUrl.replace(/\/api\/?$/, '');
-
-        // Ensure protocol is present
-        if (!serverUrl.startsWith('http')) {
-            serverUrl = `https://${serverUrl}`;
+        // Same-origin so Vite/Cloudflare tunnel can proxy to the API
+        let serverUrl = window.location.origin;
+        const configured = import.meta.env.VITE_API_BASE_URL as string | undefined;
+        if (configured && /^https?:\/\//i.test(configured)) {
+          serverUrl = configured.replace(/\/api\/?$/, '');
         }
 
         logger.info(`🔌 Connecting to WebSocket server at: ${serverUrl}`);
