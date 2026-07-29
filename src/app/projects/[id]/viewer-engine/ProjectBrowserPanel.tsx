@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import './ProjectBrowserPanel.css';
+import { getBrowserApiBase } from '@/config/browserApi';
 
 export type BrowserDrawing = {
   id: string;
@@ -308,10 +309,7 @@ export function ProjectBrowserPanel({
       setLoading(true);
       setError(null);
       try {
-        const apiBase =
-          typeof window !== 'undefined'
-            ? `${window.location.origin}/api`
-            : (import.meta as any).env?.VITE_API_BASE_URL || '/api';
+        const apiBase = getBrowserApiBase();
         const q = revisionId ? `?revisionId=${encodeURIComponent(revisionId)}` : '';
         const [browserRes, panelsRes, bimsfRes] = await Promise.all([
           fetch(`${apiBase}/projects/${projectId}/browser${q}`, {

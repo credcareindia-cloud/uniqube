@@ -1,15 +1,15 @@
 {
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "https://api.uniqube3d.co/api/$1"
+      "source": "/api/:path*",
+      "destination": "https://api.uniqube3d.co/api/:path*"
     },
     {
-      "source": "/qr/(.*)",
-      "destination": "https://api.uniqube3d.co/qr/$1"
+      "source": "/qr/:path*",
+      "destination": "https://api.uniqube3d.co/qr/:path*"
     },
     {
-      "source": "/(.*)",
+      "source": "/((?!api/|qr/).*)",
       "destination": "/index.html"
     }
   ],

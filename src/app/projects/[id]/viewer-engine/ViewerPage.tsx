@@ -11,6 +11,7 @@ import {
   type BrowserSnapshot,
 } from './ProjectBrowserPanel';
 import { CadDrawingViewer } from './CadDrawingViewer';
+import { getBrowserApiBase } from '@/config/browserApi';
 
 // Import custom error types
 import type { ProjectNotFoundError, NetworkError, ModelLoadError, WebGLError } from './main';
@@ -260,10 +261,7 @@ export default function ViewerPage() {
     (async () => {
       try {
         const token = localStorage.getItem('auth_token');
-        const apiBase =
-          typeof window !== 'undefined'
-            ? `${window.location.origin}/api`
-            : (import.meta as any).env?.VITE_API_BASE_URL || '/api';
+        const apiBase = getBrowserApiBase();
         const res = await fetch(`${apiBase}/projects/${projectId}/publish-revisions`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });

@@ -24,11 +24,23 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
             return;
         }
 
-        // Same-origin so Vite/Cloudflare tunnel can proxy to the API
+        // Production: talk to live API host (Vercel /api rewrite is unreliable for sockets).
+        // Local: same-origin or explicit VITE absolute URL.
         let serverUrl = window.location.origin;
-        const configured = import.meta.env.VITE_API_BASE_URL as string | undefined;
-        if (configured && /^https?:\/\//i.test(configured)) {
-          serverUrl = configured.replace(/\/api\/?$/, '');
+        const host = window.location.hostname;
+        if (host === 'uniqube3d.co' || host === 'www.uniqube3d.co') {
+          serverUrl = 'https://api.uniqube3d.co';
+        } else {
+          const configured = import.meta.env.VITE_API_BASE_URL as string | undefined;
+          const isLocal = host === 'localhost' || host === '127.0.0.1';
+          if (
+            isLocal &&
+            configured &&
+            /^https?:\/\//i.test(configured) &&
+            !/(sslip\.io|elb\.amazonaws\.com)/i.test(configured)
+          ) {
+            serverUrl = configured.replace(/\/api\/?$/, '');
+          }
         }
 
         logger.info(`🔌 Connecting to WebSocket server at: ${serverUrl}`);

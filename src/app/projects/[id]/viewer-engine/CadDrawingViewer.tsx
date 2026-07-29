@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { DxfViewer } from 'dxf-viewer';
 import type { BrowserDrawing } from './ProjectBrowserPanel';
 import './CadDrawingViewer.css';
+import { getBrowserApiBase } from '@/config/browserApi';
 
 type Props = {
   open: boolean;
@@ -89,10 +90,7 @@ export function CadDrawingViewer({
       setStatus('Fetching drawing…');
 
       try {
-        const apiBase =
-          typeof window !== 'undefined'
-            ? `${window.location.origin}/api`
-            : (import.meta as any).env?.VITE_API_BASE_URL || '/api';
+        const apiBase = getBrowserApiBase();
 
         if (!drawing.hasDxf) {
           if (drawing.hasDwg) {

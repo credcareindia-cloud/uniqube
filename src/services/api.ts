@@ -1,3 +1,5 @@
+import { getBrowserApiBase } from '@/config/browserApi';
+
 // API Types
 export interface User {
   id: string;
@@ -103,7 +105,7 @@ class ApiClient {
   private token: string | null = null;
 
   constructor() {
-    this.baseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
+    this.baseUrl = getBrowserApiBase();
     this.token = localStorage.getItem('auth_token');
   }
 

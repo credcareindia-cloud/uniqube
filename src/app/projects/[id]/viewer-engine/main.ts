@@ -7,16 +7,14 @@ import QRCode from 'qrcode';
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { Views2DManager } from './views2d';
 import { localId } from "three/src/nodes/TSL.js";
+import { getBrowserApiBase } from '../../../../config/browserApi';
 
 /** Stainless steel albedo used for BIMSF Structure selection (darker so it reads on white bg) */
 const BIMSF_STAINLESS_COLOR = "#7A848E";
 const BIMSF_STAINLESS_ID = "bimsf-stainless";
 
 // API Configuration - must be defined before any functions that use it
-const API_BASE_URL = (() => {
-  if (typeof window !== 'undefined') return `${window.location.origin}/api`;
-  return (import.meta as any).env?.VITE_API_BASE_URL || '/api';
-})();
+const API_BASE_URL = getBrowserApiBase();
 
 // Custom Error Types for better error handling
 export class ProjectNotFoundError extends Error {
