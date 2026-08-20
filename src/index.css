@@ -39,113 +39,74 @@
   animation-delay: 4s;
 }
 
-/* Light Slate Theme - Soft and Minimal */
+/* UNIQUBE Ops Theme — navy shell + orange accent */
 :root {
-  /* Primary - Soft Dark Slate */
-  --primary: 215 16% 25%;
-  /* Slate 700 - #334155 - Softer dark */
-  --primary-foreground: 210 40% 98%;
-  /* Almost white */
+  --uq-navy: #010127;
+  --uq-navy-2: #0a0a3a;
+  --uq-yellow: #fdaa48;
+  --uq-yellow-hover: #e89532;
+  --uq-yellow-soft: #fff6eb;
+  --uq-orange: #fdaa48;
+  --uq-orange-soft: #fff6eb;
+  --uq-shell: #010127;
+  --uq-blue: #010127;
+  --uq-blue-2: #0a0a3a;
+  --uq-ink: #010127;
+  --uq-muted: #4a4a6a;
+  --uq-icon: #8b8bc4;
+  --uq-icon-on-dark: #c5c5ea;
+  --uq-offwhite: #d8dce3;
+  --uq-offwhite-card: #e4e7ec;
 
-  /* Backgrounds */
-  --background: 0 0% 100%;
-  /* Pure White - #FFFFFF */
-  --foreground: 215 20% 20%;
-  /* Slate 800 - #1E293B - Soft dark text */
+  /* Primary = brand yellow */
+  --primary: 33 98% 64%;
+  --primary-foreground: 240 95% 8%;
 
-  /* Card */
+  --background: 220 14% 96%;
+  --foreground: 222 28% 16%;
+
   --card: 0 0% 100%;
-  /* White - #FFFFFF */
-  --card-foreground: 215 20% 20%;
-  /* Slate 800 */
+  --card-foreground: 222 28% 16%;
 
-  /* Popover */
   --popover: 0 0% 100%;
-  /* White */
-  --popover-foreground: 215 20% 20%;
-  /* Slate 800 */
+  --popover-foreground: 222 28% 16%;
 
-  /* Secondary - Very Light Slate */
-  --secondary: 210 40% 98%;
-  /* Slate 50 - #F8FAFC - Very light */
-  --secondary-foreground: 215 16% 25%;
-  /* Slate 700 */
+  --secondary: 220 14% 96%;
+  --secondary-foreground: 222 28% 16%;
 
-  /* Muted - Light Slate */
-  --muted: 214 32% 95%;
-  /* Slate 100 - #F1F5F9 - Light slate */
-  --muted-foreground: 215 16% 47%;
-  /* Slate 600 - #475569 - Medium slate */
+  --muted: 220 14% 94%;
+  --muted-foreground: 220 10% 46%;
 
-  /* Accent - Light Slate (minimal color) */
-  --accent: 214 32% 95%;
-  /* Slate 100 - #F1F5F9 */
-  --accent-foreground: 215 16% 25%;
-  /* Slate 700 */
+  --accent: 33 98% 64%;
+  --accent-foreground: 240 95% 8%;
 
-  /* Destructive - Red */
   --destructive: 0 84.2% 60.2%;
-  /* Red 500 - #EF4444 */
   --destructive-foreground: 0 0% 98%;
-  /* White */
 
-  /* Border - Light Slate */
-  --border: 214 32% 91%;
-  /* Slate 200 - #E2E8F0 - Light slate border */
-  --input: 214 32% 91%;
-  /* Slate 200 */
-  --ring: 215 16% 47%;
-  /* Slate 600 for focus */
+  --border: 220 16% 88%;
+  --input: 220 16% 88%;
+  --ring: 33 98% 64%;
 
-  /* Sidebar - Very Light Slate Background */
-  --sidebar-background: 210 40% 98%;
-  /* Slate 50 - #F8FAFC - Very light slate */
-  --sidebar-foreground: 215 16% 47%;
-  /* Slate 600 - Medium slate */
-  --sidebar-primary: 215 16% 25%;
-  /* Slate 700 - Soft dark */
-  --sidebar-primary-foreground: 210 40% 98%;
-  /* Almost white */
-  --sidebar-accent: 214 32% 95%;
-  /* Slate 100 for hover */
-  --sidebar-accent-foreground: 215 16% 25%;
-  /* Slate 700 */
-  --sidebar-border: 214 32% 91%;
-  /* Slate 200 - Light border */
+  --sidebar-background: 222 36% 12%;
+  --sidebar-foreground: 220 14% 78%;
+  --sidebar-primary: 33 98% 64%;
+  --sidebar-primary-foreground: 240 95% 8%;
+  --sidebar-accent: 222 30% 18%;
+  --sidebar-accent-foreground: 0 0% 100%;
+  --sidebar-border: 222 28% 18%;
 
-  /* Chart Colors */
-  --chart-1: 217.2 91.2% 59.8%;
-  /* Blue 500 */
-  --chart-2: 142.1 76.2% 36.3%;
-  /* Green 600 */
-  --chart-3: 38.4 92.1% 50.2%;
-  /* Amber 500 */
-  --chart-4: 280.4 89.1% 65.5%;
-  /* Purple 500 */
-  --chart-5: 346.8 77.2% 49.8%;
-  /* Pink 500 */
+  --chart-1: 217 91% 60%;
+  --chart-2: 142 71% 45%;
+  --chart-3: 33 98% 64%;
+  --chart-4: 262 70% 58%;
+  --chart-5: 199 89% 48%;
 
-  /* Border Radius */
-  --radius: 0.5rem;
-  /* 8px */
+  --radius: 0.75rem;
 
-  /* Sidebar */
-  --sidebar: 0 0% 100%;
-  /* White */
-  --sidebar-foreground: 222.2 47.4% 11.2%;
-  /* Slate 900 */
-  --sidebar-primary: 222.2 47.4% 11.2%;
-  /* Slate 900 */
-  --sidebar-primary-foreground: 210 40% 98%;
-  /* White */
-  --sidebar-accent: 210 40% 96.1%;
-  /* Slate 50 */
-  --sidebar-accent-foreground: 222.2 47.4% 11.2%;
-  /* Slate 900 */
-  --sidebar-border: 214.3 31.8% 91.4%;
-  /* Slate 200 */
-  --sidebar-ring: 217.2 91.2% 59.8%;
-  /* Blue 500 */
+  --sidebar: 222 36% 12%;
+  --sidebar-ring: 33 98% 64%;
+
+  --uq-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 @layer base {
@@ -154,11 +115,11 @@
   }
 
   body {
-    @apply bg-white text-slate-900;
-    font-feature-settings: "rlig" 1, "calt" 1;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-      'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-      sans-serif;
+    background: var(--uq-content);
+    color: var(--uq-ink);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    font-family: var(--uq-font);
+    letter-spacing: -0.011em;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -169,47 +130,29 @@
   h4,
   h5,
   h6 {
-    @apply text-slate-900 font-semibold;
+    color: var(--uq-ink);
+    font-family: var(--uq-font);
+    font-weight: 600;
+    letter-spacing: -0.02em;
   }
 
   p {
-    @apply text-slate-600;
+    color: var(--uq-muted);
   }
 }
 
 @layer base {
-
-  /* Custom Scrollbar - Slate Theme */
-  ::-webkit-scrollbar {
-    width: 12px;
-    height: 12px;
-  }
-
-  ::-webkit-scrollbar-track {
-    @apply bg-slate-100;
-    border-radius: 6px;
-  }
-
-  ::-webkit-scrollbar-thumb {
-    @apply bg-slate-400;
-    border-radius: 6px;
-    border: 2px solid transparent;
-    background-clip: padding-box;
-  }
-
-  ::-webkit-scrollbar-thumb:hover {
-    @apply bg-slate-500;
-  }
-
-  ::-webkit-scrollbar-thumb:active {
-    @apply bg-slate-600;
-  }
-
-  /* Firefox Scrollbar */
+  html,
+  body,
   * {
-    scrollbar-width: thin;
-    scrollbar-color: rgb(148 163 184) rgb(241 245 249);
-    /* slate-400 slate-100 */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  *::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
   }
 }
 
@@ -236,4 +179,453 @@
   .bg-surface-secondary {
     @apply bg-slate-100;
   }
+}
+
+.uq-app-shell {
+  background: var(--uq-shell);
+}
+
+.uq-shell-aside {
+  display: none;
+  width: 240px;
+  flex-shrink: 0;
+  height: 100%;
+  overflow: hidden;
+  opacity: 1;
+  transition:
+    width 480ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 360ms ease;
+}
+
+@media (min-width: 1024px) {
+  .uq-shell-aside {
+    display: block;
+  }
+}
+
+.uq-shell-aside-off {
+  width: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.uq-shell-main {
+  padding: 0.75rem;
+  transition: padding 480ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (min-width: 640px) {
+  .uq-shell-main {
+    padding: 1rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .uq-shell-main {
+    padding: 1.25rem;
+  }
+}
+
+.uq-shell-main-expand {
+  padding: 0.75rem;
+}
+
+@media (min-width: 640px) {
+  .uq-shell-main-expand {
+    padding: 1rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .uq-shell-main-expand {
+    padding: 1.25rem;
+  }
+}
+
+.uq-shell-chrome {
+  overflow: hidden;
+  max-height: 96px;
+  padding-bottom: 1.25rem;
+  opacity: 1;
+  transition:
+    max-height 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 280ms ease,
+    padding 420ms ease;
+}
+
+.uq-shell-chrome-off {
+  max-height: 0;
+  padding-bottom: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.uq-main-canvas {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  overscroll-behavior: contain;
+  background: #fff;
+  border-radius: 28px;
+  box-shadow: 0 18px 40px rgba(8, 28, 90, 0.22);
+  padding: 22px 22px 28px;
+  transition:
+    padding 480ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-radius 480ms ease;
+}
+
+.uq-shell-3d .uq-main-canvas {
+  padding: 0;
+  border-radius: 28px;
+  box-shadow: 0 22px 48px rgba(1, 1, 39, 0.38);
+}
+
+@media (min-width: 1024px) {
+  .uq-main-canvas {
+    padding: 28px 32px 36px;
+  }
+
+  .uq-shell-3d .uq-main-canvas {
+    padding: 0;
+  }
+}
+
+.uq-canvas-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.uq-stage-3d {
+  position: relative;
+  overflow: hidden;
+  transform: translateZ(0);
+}
+
+.uq-util-btn {
+  height: 40px;
+  width: 40px;
+  border-radius: 999px;
+  background: var(--uq-yellow);
+  color: var(--uq-ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  position: relative;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.uq-util-btn:hover {
+  background: var(--uq-yellow-hover);
+  color: var(--uq-ink);
+}
+
+.uq-kpi-card {
+  position: relative;
+  background: #fff;
+  border: 1px solid #e8edf4;
+  border-radius: 16px;
+  padding: 18px 18px 16px;
+  text-align: left;
+  box-shadow: 0 1px 2px rgba(15, 40, 80, 0.04);
+  min-height: 108px;
+}
+
+.uq-kpi-card-active {
+  border-color: #010127;
+  box-shadow: 0 0 0 1px rgba(1, 1, 39, 0.2);
+}
+
+.uq-kpi-icon {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  height: 36px;
+  width: 36px;
+  border-radius: 10px;
+  background: #f1f5f9;
+  color: var(--uq-icon);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.uq-stat-strip {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  padding: 8px;
+  background: #f6f6fb;
+  border: 1px solid #ececf4;
+  border-radius: 22px;
+}
+
+@media (min-width: 1024px) {
+  .uq-stat-strip {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.uq-stat-cell {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 76px;
+  padding: 12px 14px;
+  text-align: left;
+  background: #fff;
+  border: 0;
+  border-radius: 16px;
+  color: var(--uq-ink);
+  box-shadow: 0 1px 0 rgba(1, 1, 39, 0.04);
+  transition: background 140ms ease, transform 140ms ease;
+}
+
+.uq-stat-cell:hover {
+  transform: translateY(-1px);
+}
+
+.uq-stat-cell-active {
+  background: var(--uq-yellow);
+  box-shadow: none;
+}
+
+.uq-stat-glyph {
+  height: 40px;
+  width: 40px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--uq-blue);
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.uq-stat-cell-active .uq-stat-glyph {
+  background: var(--uq-ink);
+  color: var(--uq-yellow);
+}
+
+.uq-stat-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--uq-muted);
+  line-height: 1.2;
+}
+
+.uq-stat-value {
+  margin-top: 4px;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  color: var(--uq-ink);
+}
+
+.uq-stat-cell-active .uq-stat-label,
+.uq-stat-cell-active .uq-stat-value {
+  color: var(--uq-ink);
+}
+
+.uq-progress-track {
+  height: 8px;
+  border-radius: 999px;
+  background: #edf2f7;
+  overflow: hidden;
+}
+
+.uq-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #1a1a5c, #010127);
+}
+
+.uq-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.uq-sidebar {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  color: #fff;
+  background: transparent;
+}
+
+.uq-sidebar::before {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: radial-gradient(120% 60% at 0% 0%, rgba(255, 255, 255, 0.16), transparent 55%);
+}
+
+.uq-sidebar > * {
+  position: relative;
+  z-index: 1;
+}
+
+.uq-sidebar-brand {
+  padding: 20px 16px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.uq-sidebar-nav {
+  flex: 1;
+  padding: 8px 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+}
+
+.uq-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 12px;
+  text-align: left;
+  color: #fff;
+  background: transparent;
+  border: 0;
+  border-radius: 12px;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.uq-nav-item:hover,
+.uq-nav-item-active,
+.uq-nav-item-active:hover {
+  color: #fff;
+  background: var(--uq-yellow);
+}
+
+.uq-nav-label {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #fff;
+}
+
+.uq-nav-item svg {
+  color: #fff;
+}
+
+.uq-nav-count {
+  margin-left: auto;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 800;
+  color: #010127;
+  background: #fff;
+  border-radius: 999px;
+}
+
+.uq-nav-item-active .uq-nav-count {
+  color: #010127;
+  background: #fff;
+}
+
+.uq-sidebar-signout {
+  margin: 8px 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: calc(100% - 24px);
+  min-height: 42px;
+  padding: 8px 12px;
+  color: rgba(255, 255, 255, 0.9);
+  background: transparent;
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.uq-sidebar-signout:hover {
+  color: #fff;
+}
+
+.uq-sidebar svg {
+  color: var(--uq-icon-on-dark);
+}
+
+.uq-nav-item svg,
+.uq-nav-item:hover svg,
+.uq-nav-item-active svg {
+  color: #fff;
+}
+
+.uq-main-canvas {
+  color: var(--uq-ink);
+}
+
+.uq-main-canvas svg {
+  color: var(--uq-icon);
+}
+
+.uq-main-canvas :is(button, a, [data-slot="button"]) svg {
+  color: currentColor;
+}
+
+.uq-btn {
+  background: var(--uq-yellow);
+  color: var(--uq-ink);
+  border: 0;
+  transition: background 140ms ease;
+}
+
+.uq-btn:hover:not(:disabled) {
+  background: var(--uq-yellow-hover);
+}
+
+button.bg-blue-600,
+button.bg-slate-700,
+button.bg-orange-500 {
+  background-color: var(--uq-yellow) !important;
+  color: var(--uq-ink) !important;
+}
+
+/* Scroll still works; bars stay hidden app-wide, including later CSS. */
+html,
+body,
+*,
+*::before,
+*::after {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+*::-webkit-scrollbar,
+*::-webkit-scrollbar-button,
+*::-webkit-scrollbar-thumb,
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-track-piece,
+*::-webkit-scrollbar-corner,
+*::-webkit-resizer {
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
+  background: transparent !important;
 }

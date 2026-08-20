@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
+  ChevronDown,
+  ChevronUp,
+  History,
   Calendar,
   Clock,
   CheckCircle,
@@ -30,6 +33,7 @@ import { CreateStatusModal } from '@/components/modals/CreateStatusModal'
 import { CreateGroupModal } from '@/components/modals/CreateGroupModal'
 import { EditPanelModal } from '@/components/modals/EditPanelModal'
 import { PanelDetailModal } from '@/components/modals/PanelDetailModal'
+import { DashboardTab } from '@/components/project-tabs/DashboardTab'
 import { OverviewTab } from '@/components/project-tabs/OverviewTab'
 import { StatusManagementTab } from '@/components/project-tabs/StatusManagementTab'
 import { GroupManagementTab } from '@/components/project-tabs/GroupManagementTab'
@@ -273,7 +277,19 @@ export default function ProjectDetailPage() {
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
-  const [activeTab, setActiveTab] = useState('overview')
+  const [activeTab, setActiveTab] = useState('dashboard')
+  type PublishRevision = {
+    id: string
+    label: string
+    version: number
+    isLatest: boolean
+    createdAt: string
+    categories: string[]
+  }
+  const [revisions, setRevisions] = useState<PublishRevision[]>([])
+  const [selectedRevisionId, setSelectedRevisionId] = useState('')
+  const [versionMenuOpen, setVersionMenuOpen] = useState(false)
+  const versionSelectorRef = useRef<HTMLDivElement>(null)
   const [panels, setPanels] = useState<Panel[]>([])
   const [groups, setGroups] = useState<Group[]>([])
   const [panelStatuses, setPanelStatuses] = useState<PanelStatusSummary[]>([])
@@ -345,6 +361,51 @@ export default function ProjectDetailPage() {
       loadModelMetadata(models.currentModel.id)
     }
   }, [models?.currentModel?.id])
+
+  useEffect(() => {
+    if (!id) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const response = await authenticatedFetch(getApiUrl(`projects/${id}/publish-revisions`))
+        if (!response.ok) return
+        const data = await response.json()
+        if (cancelled) return
+        const list: PublishRevision[] = data.revisions || []
+        setRevisions(list)
+        const stored = sessionStorage.getItem(`uq_publish_revision_${id}`)
+        const next =
+          (stored && list.some((r) => r.id === stored) && stored) ||
+          list.find((r) => r.isLatest)?.id ||
+          list[0]?.id ||
+          ''
+        setSelectedRevisionId(next)
+      } catch (e) {
+        console.warn('Failed to load publish revisions:', e)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [id])
+
+  useEffect(() => {
+    if (!versionMenuOpen) return
+    const onPointer = (e: MouseEvent) => {
+      if (!versionSelectorRef.current?.contains(e.target as Node)) {
+        setVersionMenuOpen(false)
+      }
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setVersionMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onPointer)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onPointer)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [versionMenuOpen])
 
   // Listen for project creation notifications and refresh project data
   useEffect(() => {
@@ -1179,8 +1240,26 @@ export default function ProjectDetailPage() {
 
   const openViewer = (modelId?: string) => {
     if (models?.currentModel?.id || modelId) {
-      navigate(`/projects/${id}/viewer-engine`)
+      const params = new URLSearchParams()
+      if (selectedRevisionId) params.set('revision', selectedRevisionId)
+      const q = params.toString()
+      navigate(`/projects/${id}/viewer-engine${q ? `?${q}` : ''}`)
     }
+  }
+
+  const selectedRevision =
+    revisions.find((r) => r.id === selectedRevisionId) ||
+    revisions.find((r) => r.isLatest) ||
+    revisions[0]
+
+  const formatRevisionWhen = (iso: string) => {
+    if (!iso) return ''
+    return new Date(iso).toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
   }
 
   if (loading) {
@@ -1230,27 +1309,31 @@ export default function ProjectDetailPage() {
   }
 
   return (
-    <div className="w-full h-full">
-      {/* Minimal Header - MyAssembly Style */}
-      <div className="bg-white border-b border-slate-200">
-        <div className="px-8 py-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
+    <div className="w-full max-w-[1400px] mx-auto">
+      {/* Project header */}
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm mb-5 overflow-hidden">
+        <div className="px-6 sm:px-8 py-5">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-4 min-w-0">
               <button
+                type="button"
                 onClick={() => navigate('/projects')}
-                className="text-slate-600 hover:text-slate-900 transition-colors"
+                className="text-[var(--uq-muted)] hover:text-[var(--uq-ink)] transition-colors"
               >
                 <ArrowLeft className="h-5 w-5" />
               </button>
-              <h1 className="text-2xl font-semibold text-slate-900">
-                {/* {project.displayNumber && <span className="text-slate-500">#{project.displayNumber} </span>} */}
-                {project.name}
-              </h1>
+              <div className="min-w-0">
+                <h1 className="text-2xl font-bold text-[var(--uq-ink)] truncate">
+                  {project.name}
+                </h1>
+                <p className="text-sm text-[var(--uq-muted)] mt-0.5">Project workspace</p>
+              </div>
             </div>
             {models?.currentModel && (models.currentModel.status === 'READY' || models.currentModel.status === 'ready') && (
               <button
+                type="button"
                 onClick={() => openViewer(models?.currentModel?.id)}
-                className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-md hover:bg-slate-800 transition-colors text-sm font-medium"
+                className="flex items-center gap-2 px-4 py-2 uq-btn rounded-lg transition-colors text-sm font-semibold"
               >
                 <ExternalLink className="h-4 w-4" />
                 Open 3D Viewer
@@ -1259,107 +1342,119 @@ export default function ProjectDetailPage() {
           </div>
         </div>
 
-        {/* Minimal Tabs */}
-        <div className="px-8">
-          <div className="flex gap-8 border-b border-slate-200">
+        {/* Tabs */}
+        <div className="px-6 sm:px-8">
+          <div className="flex gap-6 sm:gap-8 border-b border-slate-200 overflow-x-auto">
+            <button
+              onClick={() => setActiveTab('dashboard')}
+              className={`pb-3 text-sm font-medium transition-colors relative whitespace-nowrap ${activeTab === 'dashboard'
+                ? 'text-[var(--uq-ink)]'
+                : 'text-slate-500 hover:text-slate-700'
+                }`}
+            >
+              Dashboard
+              {activeTab === 'dashboard' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--uq-orange)]" />
+              )}
+            </button>
             <button
               onClick={() => setActiveTab('overview')}
-              className={`pb-3 text-sm font-medium transition-colors relative ${activeTab === 'overview'
-                ? 'text-slate-900'
+              className={`pb-3 text-sm font-medium transition-colors relative whitespace-nowrap ${activeTab === 'overview'
+                ? 'text-[var(--uq-ink)]'
                 : 'text-slate-500 hover:text-slate-700'
                 }`}
             >
               Overview
               {activeTab === 'overview' && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-900" />
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--uq-orange)]" />
               )}
             </button>
             {permissions.canManage && (
               <>
                 <button
                   onClick={() => setActiveTab('status')}
-                  className={`pb-3 text-sm font-medium transition-colors relative ${activeTab === 'status'
-                    ? 'text-slate-900'
+                  className={`pb-3 text-sm font-medium transition-colors relative whitespace-nowrap ${activeTab === 'status'
+                    ? 'text-[var(--uq-ink)]'
                     : 'text-slate-500 hover:text-slate-700'
                     }`}
                 >
                   Status Management
                   {activeTab === 'status' && (
-                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-900" />
+                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--uq-orange)]" />
                   )}
                 </button>
                 <button
                   onClick={() => setActiveTab('groups')}
-                  className={`pb-3 text-sm font-medium transition-colors relative ${activeTab === 'groups'
-                    ? 'text-slate-900'
+                  className={`pb-3 text-sm font-medium transition-colors relative whitespace-nowrap ${activeTab === 'groups'
+                    ? 'text-[var(--uq-ink)]'
                     : 'text-slate-500 hover:text-slate-700'
                     }`}
                 >
                   Group Management
                   {activeTab === 'groups' && (
-                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-900" />
+                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--uq-orange)]" />
                   )}
                 </button>
                 <button
                   onClick={() => setActiveTab('panels')}
-                  className={`pb-3 text-sm font-medium transition-colors relative ${activeTab === 'panels'
-                    ? 'text-slate-900'
+                  className={`pb-3 text-sm font-medium transition-colors relative whitespace-nowrap ${activeTab === 'panels'
+                    ? 'text-[var(--uq-ink)]'
                     : 'text-slate-500 hover:text-slate-700'
                     }`}
                 >
                   Panel Management
                   {activeTab === 'panels' && (
-                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-900" />
+                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--uq-orange)]" />
                   )}
                 </button>
               </>
             )}
             <button
               onClick={() => setActiveTab('drawings')}
-              className={`pb-3 text-sm font-medium transition-colors relative ${activeTab === 'drawings'
-                ? 'text-slate-900'
+              className={`pb-3 text-sm font-medium transition-colors relative whitespace-nowrap ${activeTab === 'drawings'
+                ? 'text-[var(--uq-ink)]'
                 : 'text-slate-500 hover:text-slate-700'
                 }`}
             >
               Drawings
               {activeTab === 'drawings' && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-900" />
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--uq-orange)]" />
               )}
             </button>
             <button
               onClick={() => setActiveTab('logistics')}
-              className={`pb-3 text-sm font-medium transition-colors relative ${activeTab === 'logistics'
-                ? 'text-slate-900'
+              className={`pb-3 text-sm font-medium transition-colors relative whitespace-nowrap ${activeTab === 'logistics'
+                ? 'text-[var(--uq-ink)]'
                 : 'text-slate-500 hover:text-slate-700'
                 }`}
             >
               Logistics
               {activeTab === 'logistics' && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-900" />
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--uq-orange)]" />
               )}
             </button>
             <button
               onClick={() => setActiveTab('cnc')}
-              className={`pb-3 text-sm font-medium transition-colors relative ${activeTab === 'cnc'
-                ? 'text-slate-900'
+              className={`pb-3 text-sm font-medium transition-colors relative whitespace-nowrap ${activeTab === 'cnc'
+                ? 'text-[var(--uq-ink)]'
                 : 'text-slate-500 hover:text-slate-700'
                 }`}
             >
               CNC
               {activeTab === 'cnc' && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-900" />
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--uq-orange)]" />
               )}
             </button>
             <button
               onClick={() => setActiveTab('details')}
-              className={`pb-3 text-sm font-medium transition-colors relative ml-auto ${activeTab === 'details'
-                ? 'text-slate-900'
+              className={`pb-3 text-sm font-medium transition-colors relative whitespace-nowrap ml-auto ${activeTab === 'details'
+                ? 'text-[var(--uq-ink)]'
                 : 'text-slate-500 hover:text-slate-700'
                 }`}
             >
               Project Details
               {activeTab === 'details' && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-900" />
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--uq-orange)]" />
               )}
             </button>
           </div>
@@ -1415,6 +1510,13 @@ export default function ProjectDetailPage() {
       {/* Main Content Area */}
       <div className="bg-slate-50">
         <div className="px-8 py-6">
+          {activeTab === 'dashboard' && (
+            <DashboardTab
+              totalPanels={totalPanelCount > 0 ? totalPanelCount : panels.length}
+              completedPanels={panelStatuses.find((s) => /install|complete/i.test(s.label))?.count || 0}
+            />
+          )}
+
           {activeTab === 'overview' && (
             <OverviewTab
               key={overviewRefreshKey}
@@ -1509,6 +1611,69 @@ export default function ProjectDetailPage() {
               openViewer={openViewer}
               onEditClick={isAdmin ? () => setShowEditProjectModal(true) : undefined}
               onDeleteClick={isAdmin ? () => setShowDeleteProjectModal(true) : undefined}
+              versionSelector={
+                revisions.length > 0 && selectedRevision ? (
+                  <div ref={versionSelectorRef} className="relative">
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 max-w-[360px] h-9 px-3 rounded-lg border border-slate-200 bg-white text-[13px] font-semibold text-slate-800 hover:bg-slate-50"
+                      aria-haspopup="listbox"
+                      aria-expanded={versionMenuOpen}
+                      onClick={() => setVersionMenuOpen((v) => !v)}
+                    >
+                      <History className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+                      <span className="truncate">
+                        {selectedRevision.label || `v${selectedRevision.version}`}
+                      </span>
+                      {selectedRevision.isLatest && (
+                        <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-amber-700 bg-orange-50 border border-orange-200 rounded-full px-1.5 py-px">
+                          Latest
+                        </span>
+                      )}
+                      {versionMenuOpen ? (
+                        <ChevronUp className="h-3 w-3 text-slate-400 shrink-0" />
+                      ) : (
+                        <ChevronDown className="h-3 w-3 text-slate-400 shrink-0" />
+                      )}
+                    </button>
+                    {versionMenuOpen && (
+                      <div
+                        className="absolute left-0 top-full mt-1 z-30 min-w-[240px] max-w-[400px] p-1 bg-white border border-slate-200 rounded-xl shadow-lg"
+                        role="listbox"
+                        aria-label="Published versions"
+                      >
+                        {revisions.map((rev) => {
+                          const active = rev.id === selectedRevisionId
+                          return (
+                            <button
+                              key={rev.id}
+                              type="button"
+                              role="option"
+                              aria-selected={active}
+                              className={`flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-left ${
+                                active ? 'bg-orange-50' : 'hover:bg-slate-50'
+                              }`}
+                              onClick={() => {
+                                setSelectedRevisionId(rev.id)
+                                if (id) sessionStorage.setItem(`uq_publish_revision_${id}`, rev.id)
+                                setVersionMenuOpen(false)
+                              }}
+                            >
+                              <span className="text-[13px] font-semibold text-slate-900 truncate">
+                                {rev.label || `v${rev.version}`}
+                                {rev.isLatest ? ' · Latest' : ''}
+                              </span>
+                              <span className="text-[11px] text-slate-500 shrink-0">
+                                {formatRevisionWhen(rev.createdAt)}
+                              </span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ) : null
+              }
             />
           )}
 

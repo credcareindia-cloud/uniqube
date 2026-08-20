@@ -1,99 +1,103 @@
-import React from 'react'
-import { Badge } from '@/components/ui/badge'
+import React, { useMemo } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { 
-  Home,
-  User,
+import {
+  FolderKanban,
   Bell,
-  Shield,
-  Database,
   Settings,
-  LogOut
+  User,
+  LogOut,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useNotifications } from '@/hooks/useNotifications'
 import { useRBAC } from '@/contexts/RBACContext'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface SidebarItem {
   name: string
   href: string
   icon: React.ComponentType<{ className?: string }>
-  badge?: string
   count?: number
+  match?: (path: string) => boolean
 }
-
-const bottomNavigation: SidebarItem[] = [
-  { name: 'Logout', href: '/logout', icon: Settings },
-]
 
 export function Sidebar() {
   const navigate = useNavigate()
   const location = useLocation()
   const { unreadCount } = useNotifications()
   const { isAdmin } = useRBAC()
+  const { user, logout } = useAuth()
 
-  const navigation: SidebarItem[] = [
-    // { name: 'Dashboard', href: '/dashboard', icon: Home },
-    { name: 'Projects', href: '/projects', icon: Database },
-    { name: 'Profile', href: '/profile', icon: User },
-    { name: 'Notifications', href: '/notifications', icon: Bell, count: unreadCount > 0 ? unreadCount : undefined },
-    ...(isAdmin ? [{ name: 'Administration', href: '/admin', icon: Shield }] : []),
-  ]
-
-  const handleNavigation = (href: string) => {
-    navigate(href)
-  }
+  const navigation: SidebarItem[] = useMemo(
+    () => [
+      {
+        name: 'Projects',
+        href: '/projects',
+        icon: FolderKanban,
+        match: (p) => p === '/' || p.startsWith('/projects'),
+      },
+      {
+        name: 'Alerts',
+        href: '/notifications',
+        icon: Bell,
+        count: unreadCount > 0 ? unreadCount : undefined,
+      },
+      {
+        name: 'Profile',
+        href: '/profile',
+        icon: User,
+      },
+      ...(isAdmin ? [{ name: 'Administration', href: '/admin', icon: Settings }] : []),
+    ],
+    [unreadCount, isAdmin]
+  )
 
   return (
-    <aside className="h-full w-60 bg-slate-50 border-r border-slate-200 flex flex-col">
-      {/* Navigation */}
-      <nav className="flex-1 px-3 py-4 space-y-1">
+    <aside className="uq-sidebar h-full w-[240px] flex flex-col">
+      <div className="uq-sidebar-brand">
+        <div className="h-10 w-10 rounded-full bg-[var(--uq-blue)] overflow-hidden flex items-center justify-center shrink-0 ring-1 ring-white/25">
+          <img src="/uniQube.png" alt="UNIQUBE" className="h-8 w-8 object-contain" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-[15px] font-bold tracking-wide leading-tight text-[var(--uq-yellow)]">UNIQUBE</p>
+          <p className="text-[11px] text-white/70 truncate">{user?.name || 'Workspace'}</p>
+        </div>
+      </div>
+
+      <nav className="uq-sidebar-nav">
         {navigation.map((item) => {
           const Icon = item.icon
-          const isActive = location.pathname === item.href
+          const isActive = item.match
+            ? item.match(location.pathname)
+            : location.pathname === item.href || location.pathname.startsWith(item.href + '/')
 
           return (
-            <div
+            <button
               key={item.name}
-              className={cn(
-                "relative group cursor-pointer",
-                isActive && "before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 before:bg-slate-700 before:rounded-r"
-              )}
-              onClick={() => handleNavigation(item.href)}
+              type="button"
+              onClick={() => navigate(item.href)}
+              className={cn('uq-nav-item', isActive && 'uq-nav-item-active')}
             >
-              <div className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors",
-                isActive 
-                  ? "bg-slate-100 text-slate-900" 
-                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/50"
-              )}>
-                <Icon className="h-5 w-5" />
-                <span className="text-sm font-medium">{item.name}</span>
-                
-                {item.count && (
-                  <div className="ml-auto">
-                    <Badge variant="default" className="h-5 min-w-5 flex items-center justify-center px-1.5">
-                      {item.count}
-                    </Badge>
-                  </div>
-                )}
-              </div>
-            </div>
+              <Icon className="h-[16px] w-[16px] shrink-0" />
+              <span className="uq-nav-label">{item.name}</span>
+              {item.count != null && (
+                <span className="uq-nav-count">{item.count}</span>
+              )}
+            </button>
           )
         })}
       </nav>
-      
 
-      {/* Logout */}
-      <div className="p-3 border-t border-slate-200">
-        <div
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100/50 transition-colors cursor-pointer"
-          onClick={() => handleNavigation('/login')}
-        >
-          <LogOut className="h-5 w-5" />
-          <span className="text-sm font-medium">Logout</span>
-        </div>
-      </div>
+      <button
+        type="button"
+        className="uq-sidebar-signout"
+        onClick={() => {
+          logout()
+          navigate('/login')
+        }}
+      >
+        <LogOut className="h-4 w-4 shrink-0" />
+        Sign out
+      </button>
     </aside>
   )
 }

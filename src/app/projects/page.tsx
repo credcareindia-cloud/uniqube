@@ -1,36 +1,30 @@
-import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+﻿import { useState, useEffect } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Building2,
   Plus,
-  Search,
-  Grid3X3,
-  List,
   Calendar,
   Activity,
   TrendingUp,
   Package,
-  Upload
+  Box,
+  Eye,
+  Layers,
 } from 'lucide-react'
 import { CubeLoader } from '@/components/ui/CubeLoader'
-import { ProjectCard } from '@/components/dashboard/ProjectCard'
 import { ModelCreation } from '@/components/projects/ModelCreation'
 import { MultiFileModelCreation } from '@/components/projects/MultiFileModelCreation'
-import { api } from '@/services/api'
 import { useNotifications } from '@/hooks/useNotifications'
 import { useRBAC } from '@/contexts/RBACContext'
-import type { Project } from '@/services/api'
 
-type ViewMode = 'grid' | 'table'
 type FilterStatus = 'all' | 'active' | 'completed' | 'planning'
 
 export default function ProjectsPage() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { userProjects, canCreateProjects, isLoading: rbacLoading, refreshUserProjects } = useRBAC()
-  // const [loading, setLoading] = useState(true) // Removed to prevent flicker
   const [error, setError] = useState<string | null>(null)
-  const [viewMode, setViewMode] = useState<ViewMode>('grid')
-  const [searchQuery, setSearchQuery] = useState('')
+  const searchQuery = searchParams.get('q') || ''
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all')
   const [showModelCreation, setShowModelCreation] = useState(false)
   const [showMultiFileCreation, setShowMultiFileCreation] = useState(false)
@@ -38,6 +32,12 @@ export default function ProjectsPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const { notifications } = useNotifications()
   const ITEMS_PER_PAGE = 9
+
+  const initials = (name?: string) => {
+    const parts = (name || 'P').trim().split(/\s+/).filter(Boolean)
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+  }
 
   // Handle project creation success
   const handleProjectCreated = async (newProject: any) => {
@@ -52,6 +52,15 @@ export default function ProjectsPage() {
   useEffect(() => {
     refreshUserProjects()
   }, [refreshUserProjects])
+
+  useEffect(() => {
+    if (searchParams.get('create') !== '1') return
+    if (!canCreateProjects()) return
+    setShowMultiFileCreation(true)
+    const next = new URLSearchParams(searchParams)
+    next.delete('create')
+    setSearchParams(next, { replace: true })
+  }, [searchParams, canCreateProjects, setSearchParams])
 
   // Listen for notifications to trigger refresh
   useEffect(() => {
@@ -68,7 +77,7 @@ export default function ProjectsPage() {
     });
 
     if (hasRecentProjectNotification) {
-      console.log('🔄 Refreshing projects due to notification update...');
+      console.log('Refreshing projects due to notification update...')
       refreshUserProjects();
     }
   }, [notifications, refreshUserProjects]);
@@ -129,7 +138,6 @@ export default function ProjectsPage() {
     active: userProjects.filter(p => normalizeStatus(p.status) === 'active').length,
     completed: userProjects.filter(p => normalizeStatus(p.status) === 'completed').length,
     planning: userProjects.filter(p => normalizeStatus(p.status) === 'planning').length,
-    totalPanels: userProjects.reduce((sum, p) => sum + (p.stats?.totalPanels || 0), 0)
   }
 
   // Only show skeleton on initial load (when no projects and loading)
@@ -139,262 +147,179 @@ export default function ProjectsPage() {
   }
 
   return (
-    <div className="w-full h-full space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-        <div className="flex items-center gap-4">
-          <div className="w-14 h-14 bg-gradient-to-br from-slate-100 to-slate-50 border border-slate-200 rounded-xl flex items-center justify-center shadow-sm">
-            <Building2 className="h-7 w-7 text-slate-700" />
-          </div>
-          <div>
-            <h1 className="text-3xl font-bold text-slate-900">
-              Projects
-            </h1>
-            <p className="text-slate-600 mt-1">
-              Projects Assigned to You
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {canCreateProjects() && (
+    <div className="w-full max-w-[1400px] mx-auto space-y-6">
+      <div className="uq-stat-strip">
+        {(
+          [
+            { key: 'all' as FilterStatus, label: 'Total', value: stats.total, icon: Building2 },
+            { key: 'active' as FilterStatus, label: 'Active', value: stats.active, icon: Activity },
+            { key: 'completed' as FilterStatus, label: 'Completed', value: stats.completed, icon: TrendingUp },
+            { key: 'planning' as FilterStatus, label: 'Planning', value: stats.planning, icon: Calendar },
+          ]
+        ).map((item) => {
+          const selected = filterStatus === item.key
+          const Icon = item.icon
+          return (
             <button
-              onClick={() => setShowMultiFileCreation(true)}
-              className="flex items-center gap-2 px-4 py-2.5 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors shadow-sm font-medium"
+              key={item.key}
+              type="button"
+              onClick={() => setFilterStatus(item.key)}
+              className={`uq-stat-cell ${selected ? 'uq-stat-cell-active' : ''}`}
             >
-              <Plus className="h-4 w-4" />
-              Create New Project
+              <span className="uq-stat-glyph">
+                <Icon className="h-4 w-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="uq-stat-label block">{item.label}</span>
+                <span className="uq-stat-value block">{item.value}</span>
+              </span>
             </button>
-          )}
-        </div>
+          )
+        })}
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white border border-slate-200 rounded-lg p-6 hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between mb-3">
-            <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center">
-              <Building2 className="h-5 w-5 text-slate-700" />
-            </div>
-          </div>
-          <div className="text-2xl font-bold text-slate-900 mb-1">{stats.total}</div>
-          <div className="text-sm text-slate-600">Total Projects</div>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-lg p-6 hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between mb-3">
-            <div className="w-10 h-10 bg-green-50 rounded-lg flex items-center justify-center">
-              <Activity className="h-5 w-5 text-green-600" />
-            </div>
-          </div>
-          <div className="text-2xl font-bold text-slate-900 mb-1">{stats.active}</div>
-          <div className="text-sm text-slate-600">Active Projects</div>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-lg p-6 hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between mb-3">
-            <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center">
-              <TrendingUp className="h-5 w-5 text-blue-600" />
-            </div>
-          </div>
-          <div className="text-2xl font-bold text-slate-900 mb-1">{stats.completed}</div>
-          <div className="text-sm text-slate-600">Completed</div>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-lg p-6 hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between mb-3">
-            <div className="w-10 h-10 bg-amber-50 rounded-lg flex items-center justify-center">
-              <Calendar className="h-5 w-5 text-amber-600" />
-            </div>
-          </div>
-          <div className="text-2xl font-bold text-slate-900 mb-1">{stats.planning}</div>
-          <div className="text-sm text-slate-600">Planning</div>
-        </div>
-      </div>
-
-      {/* Controls */}
-      <div className="flex flex-col sm:flex-row gap-4 mb-6">
-        {/* Search */}
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Search projects..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:border-slate-600 focus:ring-2 focus:ring-slate-600 focus:outline-none transition-colors"
-          />
-        </div>
-
-        {/* Filter */}
-        {/* <select
-          value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value as FilterStatus)}
-          className="px-4 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 focus:border-slate-600 focus:ring-2 focus:ring-slate-600 focus:outline-none transition-colors"
-        >
-          <option value="all">All Status</option>
-          <option value="active">Active</option>
-          <option value="completed">Completed</option>
-          <option value="planning">Planning</option>
-        </select> */}
-
-        {/* View Mode Toggle */}
-        {/* <div className="flex bg-white border border-slate-300 rounded-lg p-1">
-          <button
-            onClick={() => setViewMode('grid')}
-            className={`p-2 rounded transition-colors ${
-              viewMode === 'grid' 
-                ? 'bg-slate-100 text-slate-900' 
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Grid3X3 className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => setViewMode('table')}
-            className={`p-2 rounded transition-colors ${
-              viewMode === 'table' 
-                ? 'bg-slate-100 text-slate-900' 
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <List className="h-4 w-4" />
-          </button>
-        </div> */}
-      </div>
-
-      {/* Error Message */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4">
           <p className="text-red-600 text-sm">{error}</p>
         </div>
       )}
 
-      {/* Projects Content */}
       {filteredProjects.length === 0 ? (
-        <div className="text-center py-12 bg-white border border-slate-200 rounded-lg">
+        <div className="text-center py-16 rounded-3xl bg-[var(--uq-offwhite)] border border-black/5">
           <Building2 className="h-12 w-12 text-slate-300 mx-auto mb-4" />
           <h3 className="text-lg font-semibold text-slate-900 mb-2">No projects found</h3>
-          <p className="text-slate-600 mb-4">
+          <p className="text-slate-600 mb-5 max-w-md mx-auto">
             {searchQuery || filterStatus !== 'all'
-              ? 'Try adjusting your search or filter criteria.'
+              ? 'Try a different search or clear the status filter.'
               : canCreateProjects()
-                ? 'Get started by creating your first project.'
-                : 'No projects have been assigned to you yet.'
-            }
+                ? 'Create a project and publish Structure, MEP, or Architecture from Revit.'
+                : 'No projects have been assigned to you yet.'}
           </p>
           {canCreateProjects() && (
             <button
-              onClick={() => setShowModelCreation(true)}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors shadow-sm"
+              type="button"
+              onClick={() => setShowMultiFileCreation(true)}
+              className="inline-flex items-center gap-2 px-4 py-2 uq-btn rounded-lg transition-colors"
             >
               <Plus className="h-4 w-4" />
-              Create New Project
+              New project
             </button>
           )}
         </div>
       ) : (
         <>
-          {viewMode === 'grid' ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {paginatedProjects.map((project) => (
-                <ProjectCard
-                  key={project.id}
-                  project={project}
-                  onView={() => navigate(`/projects/${project.id}`)}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="bg-[rgba(26,31,46,0.8)] border border-[rgba(184,188,200,0.1)] rounded-lg overflow-hidden">
-              <div className="p-6">
-                <div className="space-y-4">
-                  {paginatedProjects.map((project) => {
-                    const totalPanels = project.stats?.totalPanels || 0
-                    const completedPanels = project.completedPanels || 0
-                    const progress = totalPanels > 0 ? Math.round((completedPanels / totalPanels) * 100) : 0
-                    const s = normalizeStatus(project.status)
-                    return (
-                      <div key={project.id} className="flex items-center justify-between p-4 bg-[rgba(15,20,25,0.5)] rounded-lg border border-[rgba(184,188,200,0.1)] hover:border-[rgba(74,144,226,0.3)] transition-all duration-300">
-                        <div className="flex-1">
-                          <h3 className="text-[#E8EAF0] font-semibold mb-1">{project.name}</h3>
-                          <p className="text-[#B8BCC8] text-sm mb-2">{project.description}</p>
-                          <div className="flex items-center gap-4 text-xs text-[#B8BCC8]">
-                            <span className={`px-2 py-1 rounded uppercase tracking-wider ${s === 'active' ? 'bg-[rgba(16,185,129,0.2)] text-[#10B981]' :
-                              s === 'completed' ? 'bg-[rgba(139,92,246,0.2)] text-[#8B5CF6]' :
-                                s === 'planning' ? 'bg-[rgba(245,158,11,0.2)] text-[#F59E0B]' :
-                                  'bg-[rgba(239,68,68,0.2)] text-[#EF4444]'
-                              }`}>
-                              {s === 'on-hold' ? 'On Hold' : s.charAt(0).toUpperCase() + s.slice(1)}
+            <div className="rounded-3xl bg-[var(--uq-offwhite)] p-3 sm:p-4 space-y-3">
+                {paginatedProjects.map((project) => {
+                  const totalPanels = project.stats?.totalPanels || project.totalPanels || 0
+                  const completedPanels = project.completedPanels || 0
+                  const pct = totalPanels > 0 ? Math.round((completedPanels / totalPanels) * 100) : 0
+                  const s = normalizeStatus(project.status)
+                  const hasModel = !!project.currentModel
+                  return (
+                    <article
+                      key={project.id}
+                      className="rounded-2xl border border-black/5 bg-[var(--uq-offwhite-card)] px-4 py-4 sm:px-5 hover:border-black/10 hover:shadow-sm transition-all"
+                    >
+                      <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
+                        <div className="h-12 w-12 rounded-xl bg-[var(--uq-blue)] text-white flex items-center justify-center text-sm font-bold shrink-0">
+                          {initials(project.name)}
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2 mb-1">
+                            {project.displayNumber != null && (
+                              <span className="text-[11px] font-semibold text-slate-400">
+                                #{String(project.displayNumber).padStart(2, '0')}
+                              </span>
+                            )}
+                            <h3 className="text-base font-semibold text-[var(--uq-ink)] truncate">
+                              {project.name}
+                            </h3>
+                            <span
+                              className={`uq-pill capitalize ${
+                                s === 'active'
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                                  : s === 'completed'
+                                    ? 'bg-slate-100 text-slate-600'
+                                    : s === 'planning'
+                                      ? 'bg-[var(--uq-yellow-soft)] text-[var(--uq-ink)] border border-[var(--uq-yellow)]/40'
+                                      : 'bg-red-50 text-red-700'
+                              }`}
+                            >
+                              {s === 'on-hold' ? 'On hold' : s}
                             </span>
-                            <span>{progress}% Complete</span>
-                            <span>{completedPanels.toLocaleString()} / {totalPanels.toLocaleString()} Panels</span>
+                          </div>
+                          <p className="text-sm text-[var(--uq-muted)] truncate mb-3">
+                            {project.description || 'No description'}
+                          </p>
+                          <div className="flex items-center gap-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between text-xs text-slate-500 mb-1.5">
+                                <span className="inline-flex items-center gap-1.5">
+                                  <Layers className="h-3.5 w-3.5" />
+                                  {totalPanels.toLocaleString()} panels
+                                </span>
+                                <span className="font-semibold text-[var(--uq-ink)]">{pct}%</span>
+                              </div>
+                              <div className="uq-progress-track">
+                                <div
+                                  className="uq-progress-fill"
+                                  style={{ width: `${Math.min(100, pct)}%` }}
+                                />
+                              </div>
+                            </div>
                           </div>
                         </div>
-                        <button
-                          onClick={() => navigate(`/projects/${project.id}`)}
-                          className="px-4 py-2 bg-gradient-to-r from-[#4A90E2] to-[#357ABD] text-white rounded-lg hover:from-[#357ABD] hover:to-[#2E5F9F] transition-all duration-300"
-                        >
-                          View
-                        </button>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
 
-          {filteredProjects.length >= 10 && (
-            <div className="flex items-center justify-between mt-8 pt-6 border-t border-slate-200">
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            className="uq-btn inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold"
+                            onClick={() => navigate(`/projects/${project.id}`)}
+                          >
+                            <Eye className="h-4 w-4" />
+                            View
+                          </button>
+                          <button
+                            type="button"
+                            className="uq-btn inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-40"
+                            disabled={!hasModel}
+                            title={hasModel ? 'Open 3D viewer' : 'No 3D model yet'}
+                            onClick={() => navigate(`/projects/${project.id}/viewer-engine`)}
+                          >
+                            <Box className="h-4 w-4" />
+                            3D
+                          </button>
+                        </div>
+                      </div>
+                    </article>
+                  )
+                })}
+            </div>
+
+          {filteredProjects.length > ITEMS_PER_PAGE && (
+            <div className="flex items-center justify-between pt-2">
               <div className="text-sm text-slate-600">
-                Showing {startIndex + 1} to {Math.min(endIndex, filteredProjects.length)} of {filteredProjects.length} projects
+                Showing {startIndex + 1}–{Math.min(endIndex, filteredProjects.length)} of{' '}
+                {filteredProjects.length}
               </div>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  type="button"
+                  onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
                   disabled={currentPage === 1}
-                  className="px-3 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="px-3 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Previous
                 </button>
-                <div className="flex items-center gap-1">
-                  {Array.from({ length: totalPages }).map((_, i) => {
-                    const pageNum = i + 1
-                    const isCurrentPage = pageNum === currentPage
-                    const isNearCurrent = Math.abs(pageNum - currentPage) <= 1
-                    const isFirstOrLast = pageNum === 1 || pageNum === totalPages
-
-                    if (!isNearCurrent && !isFirstOrLast) {
-                      return null
-                    }
-
-                    if (!isNearCurrent && isFirstOrLast) {
-                      if (pageNum === 1 && currentPage > 3) {
-                        return <span key="start-ellipsis" className="px-2 text-slate-600">...</span>
-                      }
-                      if (pageNum === totalPages && currentPage < totalPages - 2) {
-                        return <span key="end-ellipsis" className="px-2 text-slate-600">...</span>
-                      }
-                    }
-
-                    return (
-                      <button
-                        key={pageNum}
-                        onClick={() => setCurrentPage(pageNum)}
-                        className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${isCurrentPage
-                          ? 'bg-slate-700 text-white'
-                          : 'border border-slate-300 text-slate-700 hover:bg-slate-50'
-                          }`}
-                      >
-                        {pageNum}
-                      </button>
-                    )
-                  })}
-                </div>
+                <span className="text-sm text-slate-600">
+                  {currentPage} / {totalPages}
+                </span>
                 <button
-                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                  type="button"
+                  onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
                   disabled={currentPage === totalPages}
-                  className="px-3 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="px-3 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Next
                 </button>
@@ -404,51 +329,30 @@ export default function ProjectsPage() {
         </>
       )}
 
-      {/* Creation Choice Modal */}
       {showCreationChoice && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full">
-            <h2 className="text-xl font-bold text-slate-900 mb-4">Create New Project</h2>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full">
+            <h2 className="text-xl font-bold text-slate-900 mb-4">Create new project</h2>
             <p className="text-slate-600 mb-6">Upload IFC files to create your project:</p>
-
-            <div className="space-y-3">
-              {/* Primary Option: Multi-Component Project */}
-              <button
-                onClick={() => {
-                  setShowCreationChoice(false)
-                  setShowMultiFileCreation(true)
-                }}
-                className="w-full flex items-center gap-3 p-4 border-2 border-blue-200 bg-blue-50 rounded-lg hover:border-blue-300 hover:bg-blue-100 transition-colors text-left"
-              >
-                <Package className="h-5 w-5 text-blue-600" />
-                <div>
-                  <h3 className="font-medium text-slate-900">Create Project with Model</h3>
-                  <p className="text-sm text-slate-600">Upload IFC files to create a project with building components</p>
-                </div>
-              </button>
-
-              {/* Commented out for now - Single file option */}
-              {/* 
-              <button
-                onClick={() => {
-                  setShowCreationChoice(false)
-                  setShowModelCreation(true)
-                }}
-                className="w-full flex items-center gap-3 p-4 border border-slate-200 rounded-lg hover:border-slate-300 hover:bg-slate-50 transition-colors text-left"
-              >
-                <Upload className="h-5 w-5 text-slate-600" />
-                <div>
-                  <h3 className="font-medium text-slate-900">Single IFC File</h3>
-                  <p className="text-sm text-slate-600">Upload one IFC or FRAG file for a simple project</p>
-                </div>
-              </button>
-              */}
-            </div>
-
+            <button
+              type="button"
+              onClick={() => {
+                setShowCreationChoice(false)
+                setShowMultiFileCreation(true)
+              }}
+              className="w-full flex items-center gap-3 p-4 border-2 border-orange-200 bg-[var(--uq-orange-soft)] rounded-xl hover:border-[var(--uq-orange)] transition-colors text-left"
+            >
+              <Package className="h-5 w-5 text-[var(--uq-orange)]" />
+              <div>
+                <h3 className="font-medium text-slate-900">Create project with model</h3>
+                <p className="text-sm text-slate-600">Upload IFC files for building components</p>
+              </div>
+            </button>
             <div className="flex justify-end mt-6">
               <button
+                type="button"
                 onClick={() => setShowCreationChoice(false)}
-                className="px-4 py-2 text-slate-600 hover:text-slate-800 transition-colors"
+                className="px-4 py-2 text-slate-600 hover:text-slate-800"
               >
                 Cancel
               </button>
@@ -457,7 +361,6 @@ export default function ProjectsPage() {
         </div>
       )}
 
-      {/* Single File Model Creation Modal */}
       {showModelCreation && (
         <ModelCreation
           onProjectCreated={handleProjectCreated}
@@ -465,7 +368,6 @@ export default function ProjectsPage() {
         />
       )}
 
-      {/* Multi-File Model Creation Modal */}
       {showMultiFileCreation && (
         <MultiFileModelCreation
           onProjectCreated={handleProjectCreated}
@@ -475,3 +377,4 @@ export default function ProjectsPage() {
     </div>
   )
 }
+

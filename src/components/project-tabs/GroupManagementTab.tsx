@@ -8,6 +8,7 @@ import { EditGroupModal } from '@/components/modals/EditGroupModal'
 import { ConfirmDeleteModal } from '@/components/modals/ConfirmDeleteModal'
 import { toast } from '@/components/ui/use-toast'
 import { getApiUrl } from '@/config/api'
+import { collapseMembersToPanels } from '@/utils/panelMark'
 
 interface Group {
   id: string
@@ -24,6 +25,15 @@ interface Group {
     panels?: number
     panelGroups?: number
   }
+  panelGroups?: Array<{
+    panel: {
+      id: string
+      name?: string
+      tag?: string
+      objectType?: string
+      metadata?: Record<string, unknown> | null
+    }
+  }>
 }
 
 interface GroupManagementTabProps {
@@ -186,7 +196,7 @@ export function GroupManagementTab({ projectId, onCreateGroup, onViewGroup, onDa
           </div>
           <button
             onClick={onCreateGroup}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-slate-700 rounded-lg hover:bg-slate-600 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium uq-btn rounded-lg transition-colors"
           >
             <Plus className="w-4 h-4" />
             Create Group
@@ -199,7 +209,10 @@ export function GroupManagementTab({ projectId, onCreateGroup, onViewGroup, onDa
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pb-6">
           {groups.map((group) => {
             const IconComponent = getTypeIcon(group.type)
-            const panelCount = group._count?.panelGroups || group._count?.panels || group.metadata?.panelCount || 0
+            const uniquePanels = collapseMembersToPanels(
+              (group.panelGroups || []).map((pg) => pg.panel)
+            )
+            const panelCount = uniquePanels.length || group._count?.panelGroups || group._count?.panels || group.metadata?.panelCount || 0
             const displayDescription = group.description || `Group for organizing ${group.name.toLowerCase()} panels`
 
             return (
@@ -274,7 +287,7 @@ export function GroupManagementTab({ projectId, onCreateGroup, onViewGroup, onDa
             <p className="text-slate-500 mb-6">Create your first group to organize panels</p>
             <button
               onClick={onCreateGroup}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-slate-700 rounded-lg hover:bg-slate-600 transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium uq-btn rounded-lg transition-colors"
             >
               <Plus className="w-4 h-4" />
               Create Group

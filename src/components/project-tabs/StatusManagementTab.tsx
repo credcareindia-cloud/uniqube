@@ -322,7 +322,7 @@ export function StatusManagementTab({
           </div>
           <button
             onClick={onCreateStatus}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-slate-700 rounded-lg hover:bg-slate-600 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium uq-btn rounded-lg transition-colors"
           >
             <Plus className="w-4 h-4" />
             Create Status
@@ -416,7 +416,7 @@ export function StatusManagementTab({
             </p>
             <button
               onClick={onCreateStatus}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-slate-700 rounded-lg hover:bg-slate-600 transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium uq-btn rounded-lg transition-colors"
             >
               <Plus className="w-4 h-4" />
               Create First Status

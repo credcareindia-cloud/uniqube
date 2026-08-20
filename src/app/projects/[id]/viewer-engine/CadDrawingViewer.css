@@ -9,7 +9,7 @@
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 12px 36px rgba(15, 23, 42, 0.16);
-  font-family: "Segoe UI", system-ui, sans-serif;
+  font-family: var(--uq-font, "Inter", "Segoe UI", system-ui, sans-serif);
   animation: cad-fade-in 0.18s ease-out;
 }
 

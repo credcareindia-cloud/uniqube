@@ -123,7 +123,7 @@ export function AssignStatusModal({
                     <button
                         onClick={handleConfirm}
                         disabled={selectedStatuses.size === 0}
-                        className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        className="px-4 py-2 text-sm font-medium uq-btn rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
                         <Check className="w-4 h-4 inline mr-2" />
                         Assign {selectedStatuses.size > 0 ? `(${selectedStatuses.size})` : ''}

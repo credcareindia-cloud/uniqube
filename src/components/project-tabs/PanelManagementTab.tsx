@@ -821,7 +821,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
                   <span className="text-slate-500 text-sm flex-1">Filter by Group</span>
                 ) : (
                   <>
-                    <div className="flex-1 overflow-y-auto max-h-[60px] pr-2 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
+                    <div className="flex-1 overflow-y-auto max-h-[60px]">
                       <div className="flex flex-wrap gap-1">
                         {selectedGroupIds.slice(0, 10).map(groupId => {
                           const group = groups.find(g => g.id === groupId);
@@ -947,7 +947,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
                   <span className="text-slate-500 text-sm flex-1">Filter by Status</span>
                 ) : (
                   <>
-                    <div className="flex-1 overflow-y-auto max-h-[60px] pr-2 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
+                    <div className="flex-1 overflow-y-auto max-h-[60px]">
                       <div className="flex flex-wrap gap-1">
                         {selectedStatusIds.slice(0, 10).map(statusId => {
                           const status = statuses.find(s => s.id === statusId);

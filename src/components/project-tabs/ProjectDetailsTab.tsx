@@ -12,6 +12,7 @@ interface ProjectDetailsTabProps {
   openViewer: (modelId: string) => void
   onEditClick?: () => void
   onDeleteClick?: () => void
+  versionSelector?: React.ReactNode
 }
 
 export function ProjectDetailsTab({
@@ -24,14 +25,18 @@ export function ProjectDetailsTab({
   navigate,
   openViewer,
   onEditClick,
-  onDeleteClick
+  onDeleteClick,
+  versionSelector
 }: ProjectDetailsTabProps) {
   return (
     <div className="space-y-6">
       {/* Header with Title and Action Buttons */}
-      <div className="flex items-center justify-between border-b border-slate-200 pb-4">
-        <h2 className="text-2xl font-bold text-slate-900">Project Details</h2>
-        <div className="flex items-center justify-end gap-3">
+      <div className="flex items-center justify-between gap-4 border-b border-slate-200 pb-4">
+        <div className="flex items-center gap-4 min-w-0">
+          <h2 className="text-2xl font-bold text-slate-900 shrink-0">Project Details</h2>
+          {versionSelector}
+        </div>
+        <div className="flex items-center justify-end gap-3 shrink-0">
           {onEditClick && (
             <button
               onClick={onEditClick}
@@ -157,7 +162,7 @@ export function ProjectDetailsTab({
               )}
             </div>
             {models?.modelHistory && models.modelHistory.length > 0 ? (
-              <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-slate-100 [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:rounded-full">
+              <div className="space-y-2 max-h-[400px] overflow-y-auto">
                 {models.modelHistory.map((model: any) => (
                   <div key={model.id} className="p-3 bg-slate-50 border border-slate-200 rounded-lg hover:border-slate-300 hover:bg-slate-100 transition-colors">
                     <div className="flex items-start justify-between gap-3">

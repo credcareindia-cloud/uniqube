@@ -643,7 +643,7 @@ export function CreateStatusModal({ isOpen, onClose, onSubmit }: CreateStatusMod
             <button
               type="submit"
               disabled={isSubmitting || !name.trim()}
-              className="flex-1 px-4 py-2 bg-slate-700 text-white rounded-lg font-semibold hover:opacity-90 transition-all disabled:opacity-50"
+              className="flex-1 px-4 py-2 uq-btn rounded-lg font-semibold transition-all disabled:opacity-50"
             >
               {isSubmitting ? 'Creating...' : 'Create'}
             </button>

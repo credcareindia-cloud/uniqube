@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X, Eye, Edit, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
+import { collapseMembersToPanels } from '@/utils/panelMark'
 
 interface Panel {
   id: string
@@ -11,6 +12,7 @@ interface Panel {
   tag?: string
   objectType: string
   location: string
+  metadata?: Record<string, unknown> | null
   status: string
   description?: string
   group?: {
@@ -139,11 +141,11 @@ export function StatusDetailModal({
 
   const IconComponent = getIconComponent(status.icon)
 
-  // Pagination
-  const totalPages = Math.ceil(panels.length / itemsPerPage)
+  const uniquePanels = collapseMembersToPanels(panels)
+  const totalPages = Math.max(1, Math.ceil(uniquePanels.length / itemsPerPage))
   const startIndex = (currentPage - 1) * itemsPerPage
   const endIndex = startIndex + itemsPerPage
-  const currentPanels = panels.slice(startIndex, endIndex)
+  const currentPanels = uniquePanels.slice(startIndex, endIndex)
 
   const goToNextPage = () => {
     if (currentPage < totalPages) {
@@ -177,7 +179,7 @@ export function StatusDetailModal({
               <div>
                 <h2 className="text-2xl font-semibold text-slate-900">{status.name}</h2>
                 <p className="text-sm text-slate-500 mt-1">
-                  {status.panelCount || panels.length} panels with this status
+                  {uniquePanels.length} panel{uniquePanels.length !== 1 ? 's' : ''} with this status
                 </p>
                 {status.description && (
                   <p className="text-sm text-slate-600 mt-2">{status.description}</p>
@@ -238,10 +240,7 @@ export function StatusDetailModal({
                 {currentPanels.map((panel) => (
                   <tr key={panel.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-slate-900">{panel.name}</div>
-                      {panel.tag && (
-                        <div className="text-xs text-slate-500">{panel.tag}</div>
-                      )}
+                      <div className="text-sm font-medium text-slate-900">{panel.panelMark || panel.name}</div>
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex flex-wrap gap-2">
@@ -288,7 +287,7 @@ export function StatusDetailModal({
         <div className="p-6 border-t border-slate-200">
           <div className="flex items-center justify-between">
             <div className="text-sm text-slate-600">
-              Showing {startIndex + 1}-{Math.min(endIndex, panels.length)} of {panels.length} {panels.length === 1 ? 'panel' : 'panels'}
+              Showing {uniquePanels.length === 0 ? 0 : startIndex + 1}-{Math.min(endIndex, uniquePanels.length)} of {uniquePanels.length} {uniquePanels.length === 1 ? 'panel' : 'panels'}
             </div>
             <div className="flex items-center gap-3">
               {totalPages > 1 && (

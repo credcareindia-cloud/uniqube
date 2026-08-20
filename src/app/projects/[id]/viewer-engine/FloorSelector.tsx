@@ -398,7 +398,7 @@ export const FloorSelector: React.FC<FloorSelectorProps> = ({
         .floor-selector {
           width: 100%;
           padding: 0;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          font-family: var(--uq-font, "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
           color: var(--text-primary);
           display: flex;
           flex-direction: column;
@@ -545,24 +545,14 @@ export const FloorSelector: React.FC<FloorSelectorProps> = ({
           overflow-y: auto;
           flex: 0 1 auto;
           min-height: 0;
+          scrollbar-width: none;
+          -ms-overflow-style: none;
         }
 
         .floor-list::-webkit-scrollbar {
-          width: 6px;
-        }
-
-        .floor-list::-webkit-scrollbar-track {
-          background: var(--surface-secondary);
-          border-radius: 3px;
-        }
-
-        .floor-list::-webkit-scrollbar-thumb {
-          background: var(--border-color);
-          border-radius: 3px;
-        }
-
-        .floor-list::-webkit-scrollbar-thumb:hover {
-          background: var(--primary);
+          width: 0;
+          height: 0;
+          display: none;
         }
 
         .floor-btn {

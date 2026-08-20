@@ -9,6 +9,7 @@ import {
   DetailPanel,
   type BrowserDrawing,
   type BrowserSnapshot,
+  type TabId,
 } from './ProjectBrowserPanel';
 import { CadDrawingViewer } from './CadDrawingViewer';
 import { getBrowserApiBase } from '@/config/browserApi';
@@ -33,8 +34,6 @@ export default function ViewerPage() {
   const mainScriptRef = useRef(false);
   const [statusPanelVisible, setStatusPanelVisible] = useState(false);
   const [selectedElement, setSelectedElement] = useState<any>(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [treePanelVisible, setTreePanelVisible] = useState(false);
 
   // 2D Views state
   const [viewer, setViewer] = useState<any>(null);
@@ -54,8 +53,7 @@ export default function ViewerPage() {
   const [revisions, setRevisions] = useState<PublishRevision[]>([]);
   const [selectedRevisionId, setSelectedRevisionId] = useState<string>('');
   const [revisionSwitching, setRevisionSwitching] = useState(false);
-  const [versionMenuOpen, setVersionMenuOpen] = useState(false);
-  const versionSelectorRef = useRef<HTMLDivElement>(null);
+  const appliedRevisionRef = useRef<string | null>(null);
   const [hideMenuOpen, setHideMenuOpen] = useState(false);
   const [hideSheathing, setHideSheathing] = useState(false);
   const [hideWalls, setHideWalls] = useState(false);
@@ -74,6 +72,8 @@ export default function ViewerPage() {
     display: string;
     isFirst: boolean;
     isLast: boolean;
+    playing?: boolean;
+    isComplete?: boolean;
     previous: Array<{ key: string; display: string }>;
     upcoming: Array<{ key: string; display: string }>;
     current: {
@@ -102,6 +102,7 @@ export default function ViewerPage() {
 
   // Project Browser + CAD drawings
   const [browserOpen, setBrowserOpen] = useState(false);
+  const [browserTab, setBrowserTab] = useState<TabId>('tree');
   const [activeDrawing, setActiveDrawing] = useState<BrowserDrawing | null>(null);
   const [cadOpen, setCadOpen] = useState(false);
   const [cadSplit, setCadSplit] = useState(false);
@@ -120,10 +121,8 @@ export default function ViewerPage() {
       document.body.classList.add('mode-2d');
 
       // Click close buttons where available to trigger native handlers
-      const treeClose = document.getElementById('tree-close-btn');
       const statusClose = document.getElementById('status-close-btn');
       const groupsClose = document.getElementById('groups-close-btn');
-      treeClose?.click();
       statusClose?.click();
       groupsClose?.click();
 
@@ -134,7 +133,7 @@ export default function ViewerPage() {
       }
 
       // Disable toolbar buttons
-      ['tree-toggle-btn', 'status-toggle-btn', 'groups-toggle-btn', 'selection-tool-btn'].forEach(id => {
+      ['status-toggle-btn', 'groups-toggle-btn', 'selection-tool-btn'].forEach(id => {
         const el = document.getElementById(id);
         if (el) {
           el.classList.remove('active');
@@ -147,15 +146,13 @@ export default function ViewerPage() {
 
       // Floor panel visible in 2D
       setFloorPanelVisible(true);
-      // Mirror state for React-driven panels
-      setTreePanelVisible(false);
       setStatusPanelVisible(false);
     } else {
       // Remove body guard class
       document.body.classList.remove('mode-2d');
 
       // Re-enable toolbar buttons
-      ['tree-toggle-btn', 'status-toggle-btn', 'groups-toggle-btn', 'selection-tool-btn'].forEach(id => {
+      ['status-toggle-btn', 'groups-toggle-btn', 'selection-tool-btn'].forEach(id => {
         const el = document.getElementById(id);
         if (el) {
           el.classList.remove('disabled-in-2d');
@@ -164,7 +161,7 @@ export default function ViewerPage() {
       });
 
       // Reset any forced styles on panels
-      ['tree-panel', 'statusPanel', 'groupsPanel', 'infoPanel'].forEach(id => {
+      ['statusPanel', 'groupsPanel', 'infoPanel'].forEach(id => {
         const panel = document.getElementById(id) as HTMLElement | null;
         if (panel) {
           panel.style.transform = '';
@@ -270,8 +267,14 @@ export default function ViewerPage() {
         if (cancelled) return;
         const list: PublishRevision[] = data.revisions || [];
         setRevisions(list);
+        const urlRev = searchParams.get('revision');
+        const stored = projectId
+          ? sessionStorage.getItem(`uq_publish_revision_${projectId}`)
+          : null;
         setSelectedRevisionId((prev) => {
           if (prev && list.some((r) => r.id === prev)) return prev;
+          if (urlRev && list.some((r) => r.id === urlRev)) return urlRev;
+          if (stored && list.some((r) => r.id === stored)) return stored;
           const latest = list.find((r) => r.isLatest) || list[0];
           return latest?.id || '';
         });
@@ -290,7 +293,6 @@ export default function ViewerPage() {
       console.warn('Viewer revision API not ready');
       return;
     }
-    setVersionMenuOpen(false);
     setSelectedRevisionId(revisionId);
     setRevisionSwitching(true);
     setCadOpen(false);
@@ -314,25 +316,16 @@ export default function ViewerPage() {
   };
 
   useEffect(() => {
-    if (!versionMenuOpen) return;
-    const onPointer = (e: MouseEvent) => {
-      if (!versionSelectorRef.current?.contains(e.target as Node)) {
-        setVersionMenuOpen(false);
-      }
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setVersionMenuOpen(false);
-    };
-    document.addEventListener('mousedown', onPointer);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onPointer);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [versionMenuOpen]);
-
-  useEffect(() => {
     if (!hideMenuOpen) return;
+    const placeMenu = () => {
+      const btn = document.getElementById('hide-layers-btn');
+      const wrap = hideMenuRef.current;
+      if (!btn || !wrap) return;
+      const r = btn.getBoundingClientRect();
+      wrap.style.setProperty('--layers-menu-top', `${Math.round(r.bottom + 6)}px`);
+      wrap.style.setProperty('--layers-menu-right', `${Math.round(window.innerWidth - r.right)}px`);
+    };
+    placeMenu();
     const onPointer = (e: MouseEvent) => {
       if (!hideMenuRef.current?.contains(e.target as Node)) {
         setHideMenuOpen(false);
@@ -341,11 +334,16 @@ export default function ViewerPage() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setHideMenuOpen(false);
     };
-    document.addEventListener('mousedown', onPointer);
+    const t = window.setTimeout(() => {
+      document.addEventListener('mousedown', onPointer);
+    }, 0);
     document.addEventListener('keydown', onKey);
+    window.addEventListener('resize', placeMenu);
     return () => {
+      window.clearTimeout(t);
       document.removeEventListener('mousedown', onPointer);
       document.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', placeMenu);
     };
   }, [hideMenuOpen]);
 
@@ -358,7 +356,19 @@ export default function ViewerPage() {
       setHideDoorsWindows(false);
     };
     window.addEventListener('uniqube-hide-layers-reset', onReset);
-    return () => window.removeEventListener('uniqube-hide-layers-reset', onReset);
+    const onSync = (e: Event) => {
+      const detail = (e as CustomEvent).detail || {};
+      setHideSheathing(!!detail.sheathing);
+      setHideWalls(!!detail.walls);
+      setHideFloors(!!detail.floors);
+      setHideAcp(!!detail.acp);
+      setHideDoorsWindows(!!detail.doorsWindows);
+    };
+    window.addEventListener('uniqube-hide-layers-sync', onSync as EventListener);
+    return () => {
+      window.removeEventListener('uniqube-hide-layers-reset', onReset);
+      window.removeEventListener('uniqube-hide-layers-sync', onSync as EventListener);
+    };
   }, []);
 
   useEffect(() => {
@@ -407,6 +417,8 @@ export default function ViewerPage() {
         connectorsProject: Array.isArray(state.connectorsProject)
           ? state.connectorsProject
           : [],
+        playing: !!state.playing,
+        isComplete: !!state.isComplete,
       });
       document.body.classList.add('mode-install');
     } else {
@@ -427,7 +439,6 @@ export default function ViewerPage() {
     try {
       // Close side panels for a focused “game” view
       setBrowserOpen(false);
-      setTreePanelVisible(false);
       setCadOpen(false);
       const result = await api.enterInstallSequence();
       if (!result?.ok) {
@@ -445,6 +456,7 @@ export default function ViewerPage() {
   const exitInstallMode = async () => {
     const api = (window as any).__uniqubeViewer;
     if (!api?.exitInstallSequence) return;
+    api.pauseInstallSequence?.();
     setInstallBusy(true);
     try {
       const result = await api.exitInstallSequence();
@@ -463,6 +475,7 @@ export default function ViewerPage() {
   const stepInstall = async (direction: 'next' | 'prev') => {
     const api = (window as any).__uniqubeViewer;
     if (!api?.goInstallSequence || installBusy) return;
+    api.pauseInstallSequence?.();
     setInstallBusy(true);
     try {
       const result = await api.goInstallSequence(direction);
@@ -471,6 +484,20 @@ export default function ViewerPage() {
       console.error('Install step failed:', e);
     } finally {
       setInstallBusy(false);
+    }
+  };
+
+  const toggleInstallPlay = async () => {
+    const api = (window as any).__uniqubeViewer;
+    if (!api?.playInstallSequence || installBusy) return;
+    if (installStep?.playing) {
+      api.pauseInstallSequence?.();
+      return;
+    }
+    try {
+      await api.playInstallSequence();
+    } catch (e) {
+      console.error('Install play failed:', e);
     }
   };
 
@@ -492,8 +519,14 @@ export default function ViewerPage() {
   useEffect(() => {
     if (!installMode) return;
     const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === ' ') {
+        e.preventDefault();
+        void toggleInstallPlay();
+        return;
+      }
       if (installBusy) return;
-      if (e.key === 'ArrowRight' || e.key === ' ') {
+      if (e.key === 'ArrowRight') {
         e.preventDefault();
         if (installStep?.isLast) void finishInstall();
         else void stepInstall('next');
@@ -507,22 +540,17 @@ export default function ViewerPage() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [installMode, installBusy, installStep?.isLast]);
+  }, [installMode, installBusy, installStep?.isLast, installStep?.playing]);
 
-  const formatRevisionWhen = (iso: string) => {
-    if (!iso) return '';
-    return new Date(iso).toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
-
-  const selectedRevision =
-    revisions.find((r) => r.id === selectedRevisionId) ||
-    revisions.find((r) => r.isLatest) ||
-    revisions[0];
+  useEffect(() => {
+    if (!viewer || isLoading || !selectedRevisionId || !revisions.length) return;
+    if (appliedRevisionRef.current === selectedRevisionId) return;
+    const rev = revisions.find((r) => r.id === selectedRevisionId);
+    if (!rev) return;
+    appliedRevisionRef.current = selectedRevisionId;
+    if (rev.isLatest) return;
+    void handleRevisionChange(rev.id);
+  }, [viewer, isLoading, selectedRevisionId, revisions]);
 
   // Initialize the 3D viewer when container is attached
   const initializeViewer = async (containerElement: HTMLDivElement) => {
@@ -760,62 +788,8 @@ export default function ViewerPage() {
     }
   };
 
-  // Draggable resize for the Model Structure (tree) panel
-  // -------------------------------------------------
-  useEffect(() => {
-    const panel = document.getElementById('tree-panel');
-    const resizer = panel?.querySelector('.tree-resizer') as HTMLElement | null;
-    if (!panel || !resizer) return;
-
-    let startX = 0;
-    let startWidth = 0;
-    const minWidth = 320; // px
-    const maxWidth = 600; // px
-
-    const onMouseDown = (e: MouseEvent) => {
-      e.preventDefault();
-      startX = e.clientX;
-      startWidth = panel.getBoundingClientRect().width;
-      document.addEventListener('mousemove', onMouseMove);
-      document.addEventListener('mouseup', onMouseUp);
-    };
-
-    const onMouseMove = (e: MouseEvent) => {
-      const dx = e.clientX - startX;
-      let newWidth = startWidth + dx;
-      if (newWidth < minWidth) newWidth = minWidth;
-      if (newWidth > maxWidth) newWidth = maxWidth;
-      panel.style.width = `${newWidth}px`;
-    };
-
-    const onMouseUp = () => {
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-    };
-
-    resizer.addEventListener('mousedown', onMouseDown);
-
-    return () => {
-      resizer.removeEventListener('mousedown', onMouseDown);
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-    };
-  }, []);
-
-  // Toggle panels
-  const toggleTreePanel = () => {
-    setTreePanelVisible(!treePanelVisible);
-    const panel = document.getElementById('tree-panel');
-    if (panel) {
-      panel.classList.toggle('panel-hidden');
-    }
-  };
-
   const toggleStatusPanel = () => {
     setStatusPanelVisible(!statusPanelVisible);
-    if (!statusPanelVisible) {
-      setTreePanelVisible(false);
-    }
   };
 
   // Toggle 2D/3D mode and Floor Plans panel
@@ -833,20 +807,13 @@ export default function ViewerPage() {
     if (newMode) {
       // Add body guard class to enforce hiding via CSS too
       document.body.classList.add('mode-2d');
-      // Update React state mirrors
-      setTreePanelVisible(false);
       setStatusPanelVisible(false);
 
       // Forcibly hide panels via DOM classes (authoritative)
-      const treePanelEl = document.getElementById('tree-panel');
       const statusPanelEl = document.getElementById('statusPanel');
       const groupsPanelEl = document.getElementById('groupsPanel');
       const infoPanelEl = document.getElementById('infoPanel');
 
-      if (treePanelEl && !treePanelEl.classList.contains('panel-hidden')) {
-        treePanelEl.classList.add('panel-hidden');
-        console.log('✅ Closed tree panel');
-      }
       if (statusPanelEl && !statusPanelEl.classList.contains('panel-hidden')) {
         statusPanelEl.classList.add('panel-hidden');
         console.log('✅ Closed status panel');
@@ -870,7 +837,6 @@ export default function ViewerPage() {
 
       // Disable toolbar buttons for other panels
       const buttonsToDisable = [
-        'tree-toggle-btn',
         'selection-tool-btn',
         'status-toggle-btn',
         'groups-toggle-btn'
@@ -894,7 +860,6 @@ export default function ViewerPage() {
 
       // When exiting 2D mode, re-enable toolbar buttons
       const buttonsToEnable = [
-        'tree-toggle-btn',
         'selection-tool-btn',
         'status-toggle-btn',
         'groups-toggle-btn'
@@ -910,7 +875,6 @@ export default function ViewerPage() {
 
       // Reset panel transforms to allow normal operation
       const panelsToReset = [
-        'tree-panel',
         'statusPanel',
         'groupsPanel',
         'infoPanel'
@@ -942,7 +906,7 @@ export default function ViewerPage() {
         document.body.classList.remove('mode-2d');
 
         // Re-enable all toolbar buttons immediately
-        ['tree-toggle-btn', 'status-toggle-btn', 'groups-toggle-btn', 'selection-tool-btn'].forEach(id => {
+        ['status-toggle-btn', 'groups-toggle-btn', 'selection-tool-btn'].forEach(id => {
           const el = document.getElementById(id);
           if (el) {
             el.classList.remove('disabled-in-2d');
@@ -951,7 +915,7 @@ export default function ViewerPage() {
         });
 
         // Reset panel styles immediately
-        ['tree-panel', 'statusPanel', 'groupsPanel', 'infoPanel'].forEach(id => {
+        ['statusPanel', 'groupsPanel', 'infoPanel'].forEach(id => {
           const panel = document.getElementById(id) as HTMLElement | null;
           if (panel) {
             panel.style.transform = '';
@@ -1169,315 +1133,255 @@ export default function ViewerPage() {
 
       {/* Toolbar */}
       <div id="toolbar">
-
-        <div className="w-8 h-8 sm:w-10 sm:h-10 bg-slate-700 rounded-lg flex items-center justify-center shadow-sm">
-          <img src="/uniQube.png" alt="UniQube Logo" className="w-8 h-8 sm:w-12 sm:h-8" />
+        <div className="toolbar-left">
+          <div className="toolbar-brand">
+            <div className="toolbar-brand-mark">
+              <img src="/uniQube.png" alt="" className="toolbar-brand-logo" />
+            </div>
+            <h1 className="toolbar-brand-title">
+              UNIQUBE<span className="toolbar-brand-accent">-3D</span>
+            </h1>
+          </div>
+          {installMode && (
+            <span className="seq-header-mode-badge" aria-live="polite">
+              Sequence
+            </span>
+          )}
+          <button
+            className="toolbar-button toolbar-text-btn toolbar-back-btn"
+            onClick={() => {
+              const elementId = searchParams.get('element');
+              if (elementId) {
+                window.location.href = `/projects/${projectId}/element-report#${elementId}`;
+              } else {
+                window.location.href = `/projects/${projectId}`;
+              }
+            }}
+          >
+            <i className="fas fa-arrow-left toolbar-icon" aria-hidden="true"></i>
+            <span className="toolbar-label">
+              {searchParams.get('element') ? 'Report' : 'Back'}
+            </span>
+          </button>
         </div>
 
-        <h1 className="text-lg sm:text-xl font-bold text-slate-900">
-          UniQube <span className="bg-gradient-to-r from-yellow-400 via-yellow-500 to-amber-600 bg-clip-text text-transparent">3D</span>
-        </h1>
-        {installMode && (
-          <span className="seq-header-mode-badge" aria-live="polite">
-            Mode · Sequence
-          </span>
-        )}
+        <div className="toolbar-actions">
+          <div className="toolbar-group">
+            <button
+              id="project-browser-btn"
+              className={`toolbar-button toolbar-text-btn ${browserOpen ? 'active' : ''}`}
+              onClick={() => setBrowserOpen((v) => !v)}
+              disabled={isLoading}
+            >
+              <i className="fas fa-project-diagram toolbar-icon" aria-hidden="true"></i>
+              <span className="toolbar-label">Browser</span>
+            </button>
+            <button id="selection-tool-btn" className="toolbar-button toolbar-text-btn">
+              <i className="fas fa-mouse-pointer toolbar-icon" aria-hidden="true"></i>
+              <span className="toolbar-label">Select</span>
+            </button>
+            <button id="status-toggle-btn" className="toolbar-button toolbar-text-btn">
+              <i className="fas fa-tags toolbar-icon" aria-hidden="true"></i>
+              <span className="toolbar-label">Status</span>
+            </button>
+            <button id="groups-toggle-btn" className="toolbar-button toolbar-text-btn">
+              <i className="fas fa-layer-group toolbar-icon" aria-hidden="true"></i>
+              <span className="toolbar-label">Groups</span>
+            </button>
+          </div>
 
-        {/* Back Button */}
-        <button
-          className="toolbar-button"
-          onClick={() => {
-            const elementId = searchParams.get('element');
-            if (elementId) {
-              window.location.href = `/projects/${projectId}/element-report#${elementId}`;
-            } else {
-              window.location.href = `/projects/${projectId}`;
-            }
-          }}
-          title=""
-          style={{ marginLeft: '12px' }}
-        >
-          <i className="fas fa-arrow-left"></i>
-          <span className="tooltip">{searchParams.get('element') ? 'Back to Report' : 'Back to Project'}</span>
-        </button>
-
-        {/* Publish version selector */}
-        {revisions.length > 0 && selectedRevision && (
-          <div
-            className={`version-selector ${versionMenuOpen ? 'open' : ''} ${
-              revisionSwitching ? 'switching' : ''
-            }`}
-            ref={versionSelectorRef}
-          >
+          <div className="toolbar-group">
             <button
               type="button"
-              className="version-selector-trigger"
-              disabled={isLoading || revisionSwitching || is2DMode}
-              aria-haspopup="listbox"
-              aria-expanded={versionMenuOpen}
-              title="Switch published version"
-              onClick={() => setVersionMenuOpen((v) => !v)}
+              className={`toolbar-button toolbar-text-btn header-2d-btn ${browserOpen && browserTab === '2d' ? 'active' : ''}`}
+              onClick={() => {
+                if (browserOpen && browserTab === '2d') {
+                  setBrowserOpen(false);
+                  return;
+                }
+                setBrowserTab('2d');
+                setBrowserOpen(true);
+              }}
+              disabled={isLoading}
             >
-              {revisionSwitching ? (
-                <i className="fas fa-circle-notch fa-spin" aria-hidden />
-              ) : (
-                <i className="fas fa-history" aria-hidden />
-              )}
-              <span className="version-selector-label-text">
-                {selectedRevision.label || `v${selectedRevision.version}`}
-              </span>
-              {selectedRevision.isLatest && <span className="version-dot">Latest</span>}
-              <i className={`fas fa-chevron-${versionMenuOpen ? 'up' : 'down'}`} aria-hidden />
+              <i className="fas fa-drafting-compass toolbar-icon" aria-hidden="true"></i>
+              <span className="toolbar-label">2D</span>
             </button>
-
-            {versionMenuOpen && (
-              <div className="version-selector-menu" role="listbox" aria-label="Versions">
-                {revisions.map((rev) => {
-                  const active = rev.id === selectedRevisionId;
-                  return (
-                    <button
-                      key={rev.id}
-                      type="button"
-                      role="option"
-                      aria-selected={active}
-                      className={`version-option ${active ? 'active' : ''}`}
-                      onClick={() => {
-                        if (!active) handleRevisionChange(rev.id);
-                        else setVersionMenuOpen(false);
-                      }}
-                    >
-                      <span className="version-option-name">
-                        {rev.label || `v${rev.version}`}
-                        {rev.isLatest ? ' · Latest' : ''}
-                      </span>
-                      <span className="version-option-when">
-                        {formatRevisionWhen(rev.createdAt)}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+            <button
+              id="install-sequence-btn"
+              className={`toolbar-button toolbar-text-btn sequence-btn ${installMode ? 'active' : ''}`}
+              type="button"
+              disabled={isLoading || installBusy}
+              onClick={() => {
+                if (installMode) void exitInstallMode();
+                else void enterInstallMode();
+              }}
+            >
+              <i className="fas fa-list-ol toolbar-icon" aria-hidden="true"></i>
+              <span className="toolbar-label sequence-label">
+                {installMode ? 'Exit Sequence' : 'Sequence'}
+              </span>
+            </button>
           </div>
-        )}
 
-        <div style={{ marginLeft: 'auto' }} />
+          <div className="toolbar-group">
+            <button
+              id="discipline-arch-btn"
+              className="toolbar-button discipline-btn active"
+              data-discipline="architecture"
+              type="button"
+            >
+              <i className="fas fa-building toolbar-icon" aria-hidden="true"></i>
+              <span className="discipline-label">Architecture</span>
+            </button>
+            <button
+              id="discipline-mep-btn"
+              className="toolbar-button discipline-btn active"
+              data-discipline="mep"
+              type="button"
+            >
+              <i className="fas fa-bolt toolbar-icon" aria-hidden="true"></i>
+              <span className="discipline-label">MEP</span>
+            </button>
+            <button
+              id="discipline-str-btn"
+              className="toolbar-button discipline-btn active"
+              data-discipline="structure"
+              type="button"
+            >
+              <i className="fas fa-cube toolbar-icon" aria-hidden="true"></i>
+              <span className="discipline-label">Structure</span>
+            </button>
+          </div>
 
-        <button id="tree-toggle-btn" className="toolbar-button">
-          <i className="fas fa-sitemap"></i>
-          <span className="tooltip">Model Structure</span>
-        </button>
-        <button
-          id="project-browser-btn"
-          className={`toolbar-button ${browserOpen ? 'active' : ''}`}
-          onClick={() => setBrowserOpen((v) => !v)}
-          disabled={isLoading}
-          title="Revit Project Browser"
-        >
-          <i className="fas fa-project-diagram"></i>
-          <span className="tooltip">Project Browser</span>
-        </button>
-        <button id="selection-tool-btn" className="toolbar-button">
-          <i className="fas fa-mouse-pointer"></i>
-          <span className="tooltip">Selection — double-click a panel · ⌘/Ctrl+double-click to add/remove · Esc to clear</span>
-        </button>
-        <button
-          id="plan-toggle-btn"
-          className={`toolbar-button ${is2DMode ? 'active' : ''}`}
-          onClick={toggle2DMode}
-          disabled={isLoading}
-        >
-          <i className={`fas fa-${is2DMode ? 'cube' : 'map'}`}></i>
-          <span className="tooltip">{is2DMode ? '3D View' : '2D Plan Mode'}</span>
-        </button>
-        <button id="status-toggle-btn" className="toolbar-button">
-          <i className="fas fa-tags"></i>
-          <span className="tooltip">Status</span>
-        </button>
-        <button id="groups-toggle-btn" className="toolbar-button">
-          <i className="fas fa-layer-group"></i>
-          <span className="tooltip">Groups</span>
-        </button>
-        <button
-          id="install-sequence-btn"
-          className={`toolbar-button sequence-btn ${installMode ? 'active' : ''}`}
-          type="button"
-          disabled={isLoading || installBusy}
-          title="Sequence — step through panels for site installation"
-          onClick={() => {
-            if (installMode) void exitInstallMode();
-            else void enterInstallMode();
-          }}
-        >
-          <span className="sequence-label">Sequence</span>
-          <span className="tooltip">{installMode ? 'Exit Sequence' : 'Sequence'}</span>
-        </button>
+          <div className="toolbar-group">
+            <div className={`hide-layers-wrap ${hideMenuOpen ? 'open' : ''}`} ref={hideMenuRef}>
+              <button
+                id="hide-layers-btn"
+                className={`toolbar-button toolbar-text-btn ${
+                  hideSheathing || hideWalls || hideFloors || hideAcp || hideDoorsWindows
+                    ? 'active'
+                    : ''
+                }`}
+                type="button"
+                aria-expanded={hideMenuOpen}
+                aria-haspopup="true"
+                aria-label="Layers"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setHideMenuOpen((v) => !v);
+                }}
+              >
+                <i className="fas fa-eye toolbar-icon" aria-hidden="true"></i>
+                <span className="toolbar-label">Layers</span>
+              </button>
+              {hideMenuOpen && (
+                <div
+                  className="hide-layers-menu"
+                  role="menu"
+                  aria-label="Layer visibility"
+                  onMouseDown={(e) => e.stopPropagation()}
+                >
+                  <div className="hide-layers-title">Visibility</div>
 
-        {/* Discipline model visibility (Architecture → MEP → Structure) */}
-        <div className="toolbar-divider"></div>
-        <button
-          id="discipline-arch-btn"
-          className="toolbar-button discipline-btn active"
-          data-discipline="architecture"
-          type="button"
-        >
-          <span className="discipline-label">ARCH</span>
-          <span className="tooltip">Show / hide Architecture model</span>
-        </button>
-        <button
-          id="discipline-mep-btn"
-          className="toolbar-button discipline-btn active"
-          data-discipline="mep"
-          type="button"
-        >
-          <span className="discipline-label">MEP</span>
-          <span className="tooltip">Show / hide MEP model</span>
-        </button>
-        <button
-          id="discipline-str-btn"
-          className="toolbar-button discipline-btn active"
-          data-discipline="structure"
-          type="button"
-        >
-          <span className="discipline-label">STR</span>
-          <span className="tooltip">Show / hide Structure model</span>
-        </button>
-        <div className={`hide-layers-wrap ${hideMenuOpen ? 'open' : ''}`} ref={hideMenuRef}>
-          <button
-            id="hide-layers-btn"
-            className={`toolbar-button ${
-              hideSheathing || hideWalls || hideFloors || hideAcp || hideDoorsWindows
-                ? 'active'
-                : ''
-            }`}
-            type="button"
-            title="Layer visibility"
-            aria-expanded={hideMenuOpen}
-            aria-haspopup="true"
-            aria-label="Layer visibility"
-            disabled={hideBusy}
-            onClick={() => setHideMenuOpen((v) => !v)}
-          >
-            <i className="fas fa-eye" aria-hidden="true"></i>
-            <span className="tooltip">Visibility</span>
-          </button>
-          {hideMenuOpen && (
-            <div className="hide-layers-menu" role="menu" aria-label="Layer visibility">
-              <div className="hide-layers-title">Visibility</div>
+                  <div className="hide-layers-section">
+                    <div className="hide-layers-section-label">Architecture</div>
+                    <label className="hide-layers-item">
+                      <input
+                        id="hide-layer-acp"
+                        type="checkbox"
+                        checked={!hideAcp}
+                        disabled={hideBusy}
+                        onChange={async (e) => {
+                          const hidden = !e.target.checked;
+                          const ok = await applyHideLayer('acp', hidden);
+                          setHideAcp(ok ? hidden : false);
+                        }}
+                      />
+                      <span>ACP</span>
+                    </label>
+                    <label className="hide-layers-item">
+                      <input
+                        id="hide-layer-doors-windows"
+                        type="checkbox"
+                        checked={!hideDoorsWindows}
+                        disabled={hideBusy}
+                        onChange={async (e) => {
+                          const hidden = !e.target.checked;
+                          const ok = await applyHideLayer('doorsWindows', hidden);
+                          setHideDoorsWindows(ok ? hidden : false);
+                        }}
+                      />
+                      <span>Doors & Windows</span>
+                    </label>
+                    <label className="hide-layers-item">
+                      <input
+                        id="hide-layer-floors"
+                        type="checkbox"
+                        checked={!hideFloors}
+                        disabled={hideBusy}
+                        onChange={async (e) => {
+                          const hidden = !e.target.checked;
+                          const ok = await applyHideLayer('floors', hidden);
+                          setHideFloors(ok ? hidden : false);
+                        }}
+                      />
+                      <span>Floors</span>
+                    </label>
+                    <label className="hide-layers-item">
+                      <input
+                        id="hide-layer-sheathing"
+                        type="checkbox"
+                        checked={!hideSheathing}
+                        disabled={hideBusy}
+                        onChange={async (e) => {
+                          const hidden = !e.target.checked;
+                          const ok = await applyHideLayer('sheathing', hidden);
+                          setHideSheathing(ok ? hidden : false);
+                        }}
+                      />
+                      <span>Sheathing</span>
+                    </label>
+                    <label className="hide-layers-item">
+                      <input
+                        id="hide-layer-walls"
+                        type="checkbox"
+                        checked={!hideWalls}
+                        disabled={hideBusy}
+                        onChange={async (e) => {
+                          const hidden = !e.target.checked;
+                          const ok = await applyHideLayer('walls', hidden);
+                          setHideWalls(ok ? hidden : false);
+                        }}
+                      />
+                      <span>Walls</span>
+                    </label>
+                  </div>
 
-              <div className="hide-layers-section">
-                <div className="hide-layers-section-label">Architecture</div>
-                <label className="hide-layers-item">
-                  <input
-                    id="hide-layer-acp"
-                    type="checkbox"
-                    checked={!hideAcp}
-                    disabled={hideBusy}
-                    onChange={async (e) => {
-                      const hidden = !e.target.checked;
-                      const ok = await applyHideLayer('acp', hidden);
-                      setHideAcp(ok ? hidden : false);
-                    }}
-                  />
-                  <span>ACP</span>
-                </label>
-                <label className="hide-layers-item">
-                  <input
-                    id="hide-layer-doors-windows"
-                    type="checkbox"
-                    checked={!hideDoorsWindows}
-                    disabled={hideBusy}
-                    onChange={async (e) => {
-                      const hidden = !e.target.checked;
-                      const ok = await applyHideLayer('doorsWindows', hidden);
-                      setHideDoorsWindows(ok ? hidden : false);
-                    }}
-                  />
-                  <span>Doors & Windows</span>
-                </label>
-                <label className="hide-layers-item">
-                  <input
-                    id="hide-layer-floors"
-                    type="checkbox"
-                    checked={!hideFloors}
-                    disabled={hideBusy}
-                    onChange={async (e) => {
-                      const hidden = !e.target.checked;
-                      const ok = await applyHideLayer('floors', hidden);
-                      setHideFloors(ok ? hidden : false);
-                    }}
-                  />
-                  <span>Floors</span>
-                </label>
-                <label className="hide-layers-item">
-                  <input
-                    id="hide-layer-sheathing"
-                    type="checkbox"
-                    checked={!hideSheathing}
-                    disabled={hideBusy}
-                    onChange={async (e) => {
-                      const hidden = !e.target.checked;
-                      const ok = await applyHideLayer('sheathing', hidden);
-                      setHideSheathing(ok ? hidden : false);
-                    }}
-                  />
-                  <span>Sheathing</span>
-                </label>
-                <label className="hide-layers-item">
-                  <input
-                    id="hide-layer-walls"
-                    type="checkbox"
-                    checked={!hideWalls}
-                    disabled={hideBusy}
-                    onChange={async (e) => {
-                      const hidden = !e.target.checked;
-                      const ok = await applyHideLayer('walls', hidden);
-                      setHideWalls(ok ? hidden : false);
-                    }}
-                  />
-                  <span>Walls</span>
-                </label>
-              </div>
+                  <div className="hide-layers-section">
+                    <div className="hide-layers-section-label">MEP</div>
+                    <div className="hide-layers-empty">No layer filters yet</div>
+                  </div>
 
-              <div className="hide-layers-section">
-                <div className="hide-layers-section-label">MEP</div>
-                <div className="hide-layers-empty">No layer filters yet</div>
-              </div>
-
-              <div className="hide-layers-section">
-                <div className="hide-layers-section-label">Structure</div>
-                <div className="hide-layers-empty">No layer filters yet</div>
-              </div>
+                  <div className="hide-layers-section">
+                    <div className="hide-layers-section-label">Structure</div>
+                    <div className="hide-layers-empty">No layer filters yet</div>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
+            <button id="tree-reset-btn" className="toolbar-button toolbar-text-btn">
+              <i className="fas fa-undo toolbar-icon" aria-hidden="true"></i>
+              <span className="toolbar-label">Reset</span>
+            </button>
+          </div>
         </div>
-        <button id="tree-reset-btn" className="toolbar-button">
-          <i className="fas fa-home"></i>
-          <span className="tooltip">Reset View</span>
-        </button>
-      </div>
-
-      {/* Tree Panel */}
-      <div id="tree-panel" className="tree-panel panel-hidden">
-        <div id="treeViewHeader">
-          <h3>Model Structure</h3>
-          <button id="tree-close-btn"><i className="fas fa-times"></i></button>
-        </div>
-        <input
-          id="tree-search"
-          type="text"
-          placeholder="Search..."
-          className="tree-search-input"
-        />
-        <div id="tree-container" className="tree-container"></div>
-        {/* Resizer handle */}
-        <div className="tree-resizer" />
       </div>
 
       {/* Info Panel */}
       <div id="infoPanel" className="info-panel panel-hidden">
         <div id="infoPanelHeader">
-          <h3>Element Information</h3>
+          <h3>Panel Information</h3>
           <button id="info-close-btn"><i className="fas fa-times"></i></button>
         </div>
         <div id="infoPanelContent" className="info-content">
@@ -1597,11 +1501,11 @@ export default function ViewerPage() {
         </div>
       </div>
 
-      {/* Add Members Modal */}
+      {/* Add Panels Modal */}
       <div id="membersModal" className="modal" style={{ display: 'none' }}>
         <div className="modal-content modal-large">
           <div className="modal-header">
-            <h3>Add Members to Group</h3>
+            <h3>Add Panels to Group</h3>
             <button id="members-modal-close-btn"><i className="fas fa-times"></i></button>
           </div>
           <div className="modal-body">
@@ -1802,14 +1706,20 @@ export default function ViewerPage() {
             <div className="seq-conn-hud-rail" aria-hidden="true" />
             <div className="seq-conn-hud-card">
               <div className="seq-conn-hud-top">
-                <span className="seq-conn-hud-tag">OBJ</span>
+                <span className="seq-conn-hud-tag">{installStep.isComplete ? 'ALL' : 'OBJ'}</span>
                 <span className="seq-conn-hud-step">
-                  STEP {String(installStep.index + 1).padStart(2, '0')}
+                  {installStep.isComplete
+                    ? 'FINAL'
+                    : `STEP ${String(installStep.index + 1).padStart(2, '0')}`}
                 </span>
               </div>
-              <div className="seq-conn-hud-label">Connectors</div>
+              <div className="seq-conn-hud-label">
+                {installStep.isComplete ? 'Building' : 'Connectors'}
+              </div>
               <div className="seq-conn-hud-total">
-                {installStep.current?.connectors?.total ?? 0}
+                {installStep.isComplete
+                  ? '100%'
+                  : (installStep.current?.connectors?.total ?? 0)}
               </div>
               {(installStep.current?.connectors?.total ?? 0) > 0 ? (
                 <ul className="seq-conn-hud-list">
@@ -1844,7 +1754,7 @@ export default function ViewerPage() {
               onClick={() => setSeqDetailsExpanded((v) => !v)}
             >
               <span className="seq-detail-mobile-toggle-main">
-                <span className="seq-detail-tag">Target</span>
+                <span className="seq-detail-tag">{installStep.isComplete ? 'Final' : 'Target'}</span>
                 <span className="seq-detail-mobile-name">
                   {installStep.current?.display || installStep.display || 'Panel'}
                 </span>
@@ -1876,10 +1786,11 @@ export default function ViewerPage() {
               {/* Current panel details */}
               <div className="seq-detail-current">
                 <div className="seq-detail-top">
-                  <span className="seq-detail-tag">Target</span>
+                  <span className="seq-detail-tag">{installStep.isComplete ? 'Final' : 'Target'}</span>
                   <span className="seq-detail-eyebrow">
-                    STEP {String(installStep.index + 1).padStart(2, '0')} /{' '}
-                    {String(installStep.total).padStart(2, '0')}
+                    {installStep.isComplete
+                      ? 'FULL BUILDING'
+                      : `STEP ${String(installStep.index + 1).padStart(2, '0')} / ${String(installStep.total).padStart(2, '0')}`}
                   </span>
                 </div>
                 <h2 className="seq-detail-heading">
@@ -1894,7 +1805,27 @@ export default function ViewerPage() {
                   ))}
                 </div>
 
-                {/* Project-wide connector totals */}
+                {installStep.current?.connectors &&
+                installStep.current.connectors.total > 0 ? (
+                  <div className="seq-conn-block">
+                    <div className="seq-conn-title">
+                      This panel
+                      <span className="seq-conn-total">
+                        {installStep.current.connectors.total}
+                      </span>
+                    </div>
+                    <ul className="seq-conn-list">
+                      {Object.entries(installStep.current.connectors.byMark).map(
+                        ([mark, count]) => (
+                          <li key={mark}>
+                            <span className="seq-conn-mark">{mark}</span>
+                            <span className="seq-conn-count">×{count}</span>
+                          </li>
+                        )
+                      )}
+                    </ul>
+                  </div>
+                ) : null}
                 {installStep.connectorsProject.length > 0 && (
                   <div className="seq-conn-block">
                     <div className="seq-conn-title">
@@ -1914,6 +1845,18 @@ export default function ViewerPage() {
                   </div>
                 )}
 
+                {installStep.isComplete ? (
+                  <dl className="seq-detail-grid">
+                    <div className="seq-detail-row seq-detail-row-full">
+                      <dt>Status</dt>
+                      <dd>Full building visible — no layer filters, all disciplines on</dd>
+                    </div>
+                    <div className="seq-detail-row">
+                      <dt>Scope</dt>
+                      <dd>Architecture · MEP · Structure</dd>
+                    </div>
+                  </dl>
+                ) : (
                 <dl className="seq-detail-grid">
                   <div className="seq-detail-row">
                     <dt>Container</dt>
@@ -1978,13 +1921,16 @@ export default function ViewerPage() {
                     </dd>
                   </div>
                 </dl>
+                )}
               </div>
 
               {/* Upcoming (up to 3) */}
               <div className="seq-detail-context seq-detail-upcoming">
                 <div className="seq-section-tag">Next</div>
                 {installStep.upcoming.length === 0 ? (
-                  <div className="seq-context-empty">End of sequence</div>
+                  <div className="seq-context-empty">
+                    {installStep.isComplete ? 'Build complete' : 'End of sequence'}
+                  </div>
                 ) : (
                   installStep.upcoming.map((item) => (
                     <div key={item.key} className="seq-context-row">
@@ -2000,7 +1946,7 @@ export default function ViewerPage() {
             <button
               type="button"
               className="install-seq-btn install-seq-prev"
-              disabled={installBusy || installStep.isFirst}
+              disabled={installBusy || installStep.isFirst || !!installStep.playing}
               onClick={() => void stepInstall('prev')}
               title="Previous panel (←)"
             >
@@ -2008,12 +1954,29 @@ export default function ViewerPage() {
               <span>Prev</span>
             </button>
 
+            <button
+              type="button"
+              className={`install-seq-btn install-seq-play${installStep.playing ? ' is-playing' : ''}`}
+              disabled={installBusy}
+              onClick={() => void toggleInstallPlay()}
+              title={installStep.playing ? 'Pause sequence (Space)' : 'Play sequence (Space)'}
+              aria-pressed={!!installStep.playing}
+            >
+              <i
+                className={`fas ${installStep.playing ? 'fa-pause' : 'fa-play'}`}
+                aria-hidden="true"
+              />
+              <span>{installStep.playing ? 'Pause' : 'Play'}</span>
+            </button>
+
             <div className="install-seq-center">
               <div className="install-seq-label">
                 <span className="install-seq-mode-tag">Mode</span>
                 Install sequence
               </div>
-              <div className="install-seq-panel">{installStep.display || 'Panel'}</div>
+              <div className="install-seq-panel">
+                {installStep.isComplete ? 'Complete building' : installStep.display || 'Panel'}
+              </div>
               <div className="install-seq-progress">
                 <span>
                   {String(installStep.index + 1).padStart(2, '0')} /{' '}
@@ -2038,7 +2001,7 @@ export default function ViewerPage() {
               <button
                 type="button"
                 className="install-seq-btn install-seq-finish"
-                disabled={installBusy}
+                disabled={installBusy || !!installStep.playing}
                 onClick={() => void finishInstall()}
                 title="Finish and restore full model"
               >
@@ -2049,7 +2012,7 @@ export default function ViewerPage() {
               <button
                 type="button"
                 className="install-seq-btn install-seq-next"
-                disabled={installBusy}
+                disabled={installBusy || !!installStep.playing}
                 onClick={() => void stepInstall('next')}
                 title="Next panel (→)"
               >
@@ -2094,6 +2057,8 @@ export default function ViewerPage() {
           onClose={() => setBrowserOpen(false)}
           projectId={projectId}
           revisionId={selectedRevisionId}
+          activeTab={browserTab}
+          onTabChange={setBrowserTab}
           onOpenDrawing={(d) => {
             setActiveDrawing(d);
             setCadOpen(true);

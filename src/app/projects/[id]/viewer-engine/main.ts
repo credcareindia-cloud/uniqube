@@ -344,11 +344,17 @@ export async function initializeViewer(containerId: string = "container") {
     doorsWindows: null,
   };
 
+  let reapplyHiddenLayers = async () => {};
+  let applyInstallCompleteStage = async (_quick = false) => {};
+  let restoreInstallBuildFilters = async () => {};
+
   type PanelSelectionEntry = {
     modelId: string;
     panelLocalId: number;
     fragmentIds: number[];
     name?: string;
+    /** BIMSF_Container mark (FT-1001) — one logical panel may span models */
+    bimsfKey?: string;
   };
 
   /** Active multi-panel selection (panels chosen via selection tool or tree) */
@@ -409,6 +415,27 @@ export async function initializeViewer(containerId: string = "container") {
     if (/^connectors?$/i.test(name)) return true;
     if (/\bconnectors?\b/i.test(name)) return true;
     return false;
+  };
+
+  const bimsfLocalKey = (modelId: string, localId: number) => `${modelId}:${localId}`;
+
+  const findBimsfPanelKey = (modelId: string, localId: number): string | null => {
+    const direct = bimsfLocalToKey.get(bimsfLocalKey(modelId, localId));
+    if (direct && !isBimsfConnectorKey(direct)) return direct;
+    // Clicked a fastener: still try host panel via other models / later IFC walk
+    if (direct && isBimsfConnectorKey(direct)) return null;
+    for (const [key, byModel] of bimsfIndex.entries()) {
+      if (isBimsfConnectorKey(key)) continue;
+      const ids = byModel.get(modelId);
+      if (ids && ids.includes(localId)) return key;
+    }
+    return null;
+  };
+
+  const canonicalLocalIdForBimsf = (modelId: string, panelKey: string, fallback: number): number => {
+    const ids = bimsfIndex.get(panelKey)?.get(modelId);
+    if (!ids?.length) return fallback;
+    return ids.reduce((min, id) => (id < min ? id : min), ids[0]);
   };
 
   const applyGhostAndHighlights = async (
@@ -677,6 +704,8 @@ export async function initializeViewer(containerId: string = "container") {
    */
   const bimsfIndex = new Map<string, Map<string, number[]>>();
   const bimsfDisplayByKey = new Map<string, string>();
+  /** `${modelId}:${localId}` → BIMSF panel key */
+  const bimsfLocalToKey = new Map<string, string>();
   /** panelKey → checked disciplines (M/S/A) for cross-model highlight */
   const bimsfChecked = new Map<string, Set<DisciplineKey>>();
   /** Cached world AABB per BIMSF panel (for adjacency) */
@@ -690,6 +719,10 @@ export async function initializeViewer(containerId: string = "container") {
   let installSequenceActive = false;
   let installSequenceKeys: string[] = [];
   let installSequenceIndex = 0;
+  let installPlaying = false;
+  let installPlayToken = 0;
+  let installPlayAdvancing = false;
+  let installSavedHideLayers: typeof hideLayerState | null = null;
   /** BIMSF localIds in the sequence (modelId → ids) */
   const installAllIdsByModel = new Map<string, number[]>();
   /** Non-sequence geometry hidden while in install mode (restored on exit) */
@@ -838,6 +871,7 @@ export async function initializeViewer(containerId: string = "container") {
         const list = byModel.get(modelId) || [];
         list.push(batch[j]);
         byModel.set(modelId, list);
+        bimsfLocalToKey.set(`${modelId}:${batch[j]}`, key);
         matched += 1;
       }
     }
@@ -1430,15 +1464,30 @@ export async function initializeViewer(containerId: string = "container") {
     }
   };
 
+  const excludeHiddenLayerIds = (modelId: string, ids: number[]): number[] => {
+    let hidden: Set<number> | null = null;
+    for (const layer of Object.keys(hideLayerState) as Array<keyof typeof hideLayerState>) {
+      if (!hideLayerState[layer]) continue;
+      const layerIds = hideLayerIds[layer]?.get(modelId);
+      if (!layerIds?.length) continue;
+      if (!hidden) hidden = new Set();
+      for (const id of layerIds) hidden.add(id);
+    }
+    if (!hidden?.size) return ids;
+    return ids.filter((id) => !hidden!.has(id));
+  };
+
   const setBimsfPanelVisible = async (panelKey: string, visible: boolean) => {
     const byModel = bimsfIndex.get(panelKey);
     if (!byModel) return;
     for (const [modelId, ids] of byModel) {
       const model = models.get(modelId);
       if (!model || !ids.length) continue;
+      const toApply = visible ? excludeHiddenLayerIds(modelId, ids) : ids;
+      if (!toApply.length) continue;
       const CHUNK = 400;
-      for (let i = 0; i < ids.length; i += CHUNK) {
-        await model.setVisible(ids.slice(i, i + CHUNK), visible);
+      for (let i = 0; i < toApply.length; i += CHUNK) {
+        await model.setVisible(toApply.slice(i, i + CHUNK), visible);
       }
     }
   };
@@ -1574,6 +1623,111 @@ export async function initializeViewer(containerId: string = "container") {
     }
   };
 
+  const hashInstallKey = (value: string): number => {
+    let h = 2166136261;
+    for (let i = 0; i < value.length; i++) {
+      h ^= value.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
+  };
+
+  /** Fill missing BIMSF metadata with stage-specific presentation values. Real fields win. */
+  const fillInstallPresentationGaps = (details: NonNullable<typeof installCurrentDetails>) => {
+    const sort = parseInstallSortKey(details.key);
+    const h = hashInstallKey(details.key);
+    const seqIdx = Math.max(0, installSequenceKeys.indexOf(details.key));
+    const floor = Number.isFinite(details.floor)
+      ? details.floor
+      : isFoundationPanelKey(details.key)
+        ? 0
+        : sort.floor;
+    const grids = 'ABCDEFGH';
+    const gridA = `${grids[h % grids.length]}${(h % 9) + 1}`;
+    const gridB = `${grids[(h >> 4) % grids.length]}${(((h >> 8) % 9) + 1)}`;
+
+    const mockPallet = `UQ-${String(Math.max(0, floor)).padStart(2, '0')}-${String(seqIdx + 1).padStart(3, '0')}`;
+    const mockLocation =
+      floor <= 0
+        ? `Foundation · Grid ${gridA}–${gridB}`
+        : `Level ${floor} · Grid ${gridA}–${gridB}`;
+    const mockMaterial =
+      sort.kind === -1
+        ? 'C40/50 reinforced concrete'
+        : sort.kind === 0
+          ? '1.2 mm G550 cold-formed steel'
+          : sort.kind === 1
+            ? 'CFS cassette + 18 mm OSB'
+            : sort.kind === 2
+              ? 'Cold-formed steel floor truss'
+              : details.disciplines.includes('mep')
+                ? 'Galvanised steel + copper'
+                : 'Light-gauge steel framing';
+    const baseWeight =
+      sort.kind === -1 ? 1850 : sort.kind === 0 ? 118 : sort.kind === 1 ? 96 : sort.kind === 2 ? 214 : 72;
+    const mockWeight = `${baseWeight + (h % 40) + Math.max(0, details.elementCount) * 2} kg`;
+    const mockType =
+      sort.kind === -1
+        ? 'Foundation pad'
+        : sort.kind === 0
+          ? /^nlb/i.test(sort.name)
+            ? 'Non-loadbearing wall panel'
+            : /^elb/i.test(sort.name)
+              ? 'External wall panel'
+              : 'Loadbearing wall panel'
+          : sort.kind === 1
+            ? 'Ceiling deck cassette'
+            : sort.kind === 2
+              ? 'Floor truss panel'
+              : 'Prefabricated install panel';
+    const mockSize =
+      sort.kind === -1
+        ? `${(4.2 + (h % 8) * 0.15).toFixed(2)} × ${(3.6 + ((h >> 3) % 6) * 0.15).toFixed(2)} × 0.45 m`
+        : sort.kind === 0
+          ? `${(2.4 + (h % 5) * 0.3).toFixed(2)} × 2.85 × 0.14 m`
+          : sort.kind === 1
+            ? `${(3.6 + (h % 4) * 0.3).toFixed(2)} × ${(1.2 + ((h >> 2) % 3) * 0.3).toFixed(2)} × 0.18 m`
+            : sort.kind === 2
+              ? `${(4.8 + (h % 6) * 0.2).toFixed(2)} × 0.36 × 0.28 m`
+              : `${(2.1 + (h % 4) * 0.3).toFixed(2)} × ${(1.2 + ((h >> 4) % 3) * 0.3).toFixed(2)} × 0.12 m`;
+
+    let adjacentNames = details.adjacentNames;
+    if (!adjacentNames.length && installSequenceKeys.length) {
+      const names: string[] = [];
+      for (const neighborKey of [
+        installSequenceKeys[seqIdx - 2],
+        installSequenceKeys[seqIdx - 1],
+        installSequenceKeys[seqIdx + 1],
+      ]) {
+        if (neighborKey) names.push(bimsfDisplayByKey.get(neighborKey) || neighborKey);
+      }
+      adjacentNames = names;
+    }
+
+    details.pallet = details.pallet || mockPallet;
+    details.material = details.material || mockMaterial;
+    details.weight = details.weight || mockWeight;
+    details.location = details.location || mockLocation;
+    details.objectType = details.objectType || mockType;
+    details.sizeLabel = details.sizeLabel || mockSize;
+    details.adjacentNames = adjacentNames;
+    details.adjacentCount = details.adjacentCount || adjacentNames.length;
+    if (!details.connectors?.total) {
+      const clip = 4 + (h % 5);
+      const bolt = 2 + ((h >> 3) % 4);
+      const hold = 1 + (h % 3);
+      details.connectors = {
+        total: clip + bolt + hold,
+        byMark: {
+          'Clip Angle': clip,
+          'Anchor Bolt': bolt,
+          'Hold Down': hold,
+        },
+      };
+    }
+    return details;
+  };
+
   const buildInstallPanelDetails = async (panelKey: string) => {
     const display = bimsfDisplayByKey.get(panelKey) || panelKey;
     const byModel = bimsfIndex.get(panelKey);
@@ -1667,7 +1821,7 @@ export async function initializeViewer(containerId: string = "container") {
     const conn = installConnectorCache.get(panelKey);
     const sort = parseInstallSortKey(panelKey);
 
-    return {
+    return fillInstallPresentationGaps({
       key: panelKey,
       display,
       container: display,
@@ -1689,20 +1843,31 @@ export async function initializeViewer(containerId: string = "container") {
         total: conn?.count || 0,
         byMark: conn?.byMark || {},
       },
-    };
+    });
   };
 
   const getInstallSequenceState = () => {
-    const total = installSequenceKeys.length;
-    const index = installSequenceIndex;
-    const key = installSequenceKeys[index] || '';
+    const panelCount = installSequenceKeys.length;
+    const isComplete = panelCount > 0 && installSequenceIndex >= panelCount;
+    const total = panelCount > 0 ? panelCount + 1 : 0;
+    const index = isComplete ? panelCount : installSequenceIndex;
+    const key = isComplete ? '__complete__' : installSequenceKeys[index] || '';
     const steps = installSequenceKeys.map((k) => ({
       key: k,
       display: bimsfDisplayByKey.get(k) || k,
     }));
-    const previous = steps.slice(Math.max(0, index - 3), index);
-    const upcoming = steps.slice(index + 1, index + 4);
-    const currentFloor = key
+    const previous = isComplete
+      ? steps.slice(Math.max(0, panelCount - 3), panelCount)
+      : steps.slice(Math.max(0, index - 3), index);
+    const upcoming = isComplete
+      ? []
+      : [
+          ...steps.slice(index + 1, index + 4),
+          ...(index >= panelCount - 1
+            ? [{ key: '__complete__', display: 'Complete building' }]
+            : []),
+        ].slice(0, 3);
+    const currentFloor = !isComplete && key
       ? isFoundationPanelKey(key)
         ? 0
         : parseInstallSortKey(key).floor
@@ -1712,74 +1877,32 @@ export async function initializeViewer(containerId: string = "container") {
 
     return {
       active: installSequenceActive,
+      playing: installPlaying,
+      isComplete,
       index,
       total,
       key,
-      display: key ? bimsfDisplayByKey.get(key) || key : '',
+      display: isComplete
+        ? 'Complete building'
+        : key
+          ? bimsfDisplayByKey.get(key) || key
+          : '',
       isFirst: index <= 0,
-      isLast: total === 0 || index >= total - 1,
+      isLast: isComplete,
       steps,
       previous,
       upcoming,
       current: installCurrentDetails,
-      connectorsProject: installProjectConnectorTotals,
+      connectorsProject: installProjectConnectorTotals.length
+        ? installProjectConnectorTotals
+        : [
+            { mark: 'Clip Angle', count: Math.max(24, installSequenceKeys.length * 4) },
+            { mark: 'Anchor Bolt', count: Math.max(12, installSequenceKeys.length * 2) },
+            { mark: 'Hold Down', count: Math.max(8, installSequenceKeys.length) },
+          ],
       connectorsLevel: levelConnectors,
       connectorsLevels: installLevelConnectorTotals,
     };
-  };
-
-  /** Instant camera framing — no transition. */
-  const quickFocusInstallPanel = async (localIds: number[]) => {
-    if (!localIds.length) return;
-    let hasAny = false;
-    const union = new THREE.Box3();
-    for (const [, m] of models.entries()) {
-      try {
-        const boxes = await m.getBoxes(localIds);
-        for (const b of boxes || []) {
-          if (b && !b.isEmpty()) {
-            union.union(b);
-            hasAny = true;
-          }
-        }
-      } catch {
-        /* id may not belong to this model */
-      }
-    }
-    if (!hasAny) return;
-
-    const center = new THREE.Vector3();
-    union.getCenter(center);
-    const controls: any = world.camera.controls as any;
-    const closer = 0.85;
-    const minDistance = 2;
-
-    if (controls && typeof controls.fitToBox === 'function') {
-      await controls.fitToBox(union, false, {
-        paddingLeft: 0.06,
-        paddingRight: 0.06,
-        paddingTop: 0.06,
-        paddingBottom: 0.06,
-      });
-      const cam = world.camera.three as THREE.PerspectiveCamera;
-      const curDist = cam.position.distanceTo(center);
-      const diagDir = new THREE.Vector3(0.7, 0.45, 0.7).normalize();
-      const newPos = center.clone().add(diagDir.multiplyScalar(Math.max(curDist * closer, minDistance)));
-      controls.setLookAt(newPos.x, newPos.y, newPos.z, center.x, center.y, center.z, false);
-    } else {
-      const size = new THREE.Vector3();
-      union.getSize(size);
-      const cam = world.camera.three as THREE.PerspectiveCamera;
-      const vfov = THREE.MathUtils.degToRad(cam.fov);
-      const aspect = cam.aspect || window.innerWidth / window.innerHeight;
-      const distanceForHeight = (size.y * 0.5) / Math.tan(vfov / 2);
-      const hfov = 2 * Math.atan(Math.tan(vfov / 2) * aspect);
-      const distanceForWidth = (size.x * 0.5) / Math.tan(hfov / 2);
-      const fitDistance = Math.max(distanceForHeight, distanceForWidth, size.z) * 1.15;
-      const dir = cam.position.clone().sub(center).normalize();
-      const newPos = center.clone().add(dir.multiplyScalar(Math.max(fitDistance * closer, minDistance)));
-      world.camera.controls.setLookAt(newPos.x, newPos.y, newPos.z, center.x, center.y, center.z, false);
-    }
   };
 
   const setModelIdsVisible = async (modelId: string, ids: number[], visible: boolean) => {
@@ -1817,11 +1940,21 @@ export async function initializeViewer(containerId: string = "container") {
     }
   };
 
-  const restoreNonSequenceGeometry = async () => {
+  const restoreNonSequenceGeometry = async (keepCache = false) => {
     for (const [modelId, ids] of installOtherIdsByModel) {
       await setModelIdsVisible(modelId, ids, true);
     }
-    installOtherIdsByModel.clear();
+    if (!keepCache) installOtherIdsByModel.clear();
+  };
+
+  const hideCachedNonSequenceGeometry = async () => {
+    if (!installOtherIdsByModel.size) {
+      await hideNonSequenceGeometry();
+      return;
+    }
+    for (const [modelId, ids] of installOtherIdsByModel) {
+      await setModelIdsVisible(modelId, ids, false);
+    }
   };
 
   const syncInstallVisibilityUpTo = async (index: number) => {
@@ -1830,7 +1963,7 @@ export async function initializeViewer(containerId: string = "container") {
     }
   };
 
-  /** Fast step: show panels up to index with metallic / MEP colours, instant camera. */
+  /** Fast step: show panels up to index with metallic / MEP colours. Camera stays put. */
   const applyInstallStep = async (index: number) => {
     await syncInstallVisibilityUpTo(index);
     await syncInstallConnectorsUpTo(index);
@@ -1928,6 +2061,7 @@ export async function initializeViewer(containerId: string = "container") {
     }
 
     await fragments.update(true);
+    await reapplyHiddenLayers();
 
     const key = installSequenceKeys[index];
     if (key) {
@@ -1936,7 +2070,7 @@ export async function initializeViewer(containerId: string = "container") {
       } catch (e) {
         console.warn('buildInstallPanelDetails:', e);
         const conn = installConnectorCache.get(key);
-        installCurrentDetails = {
+        installCurrentDetails = fillInstallPresentationGaps({
           key,
           display: bimsfDisplayByKey.get(key) || key,
           container: bimsfDisplayByKey.get(key) || key,
@@ -1958,9 +2092,8 @@ export async function initializeViewer(containerId: string = "container") {
             total: conn?.count || 0,
             byMark: conn?.byMark || {},
           },
-        };
+        });
       }
-      await quickFocusInstallPanel(gatherLocalIdsForPanels([key]));
     } else {
       installCurrentDetails = null;
     }
@@ -1995,24 +2128,178 @@ export async function initializeViewer(containerId: string = "container") {
     return { ok: true as const, ...state };
   };
 
-  const goInstallSequence = async (direction: 'next' | 'prev' | 'goto', target?: number) => {
+  const highlightInstallPanelFast = async (panelKey: string) => {
+    const byModel = bimsfIndex.get(panelKey);
+    if (byModel) {
+      for (const [modelId, rawIds] of byModel) {
+        const model = models.get(modelId);
+        const ids = excludeHiddenLayerIds(modelId, rawIds);
+        if (!model || !ids.length) continue;
+        const disc = modelDisciplineById.get(modelId);
+        const style = disc ? styleForDiscipline(disc) : 'default';
+        if (style === 'structure') {
+          await model.highlight(ids, {
+            color: new THREE.Color(STEEL_SELECT_COLOR),
+            opacity: 1,
+            transparent: false,
+            renderedFaces: FRAGS.RenderedFaces.TWO,
+            customId: BIMSF_STAINLESS_ID,
+          } as any);
+        } else if (style === 'mep') {
+          const revitColors = revitColorByModel.get(modelId);
+          const byColor = new Map<string, number[]>();
+          const unmapped: number[] = [];
+          for (const localId of ids) {
+            const hex = revitColors?.get(localId);
+            if (hex) {
+              const list = byColor.get(hex) || [];
+              list.push(localId);
+              byColor.set(hex, list);
+            } else {
+              unmapped.push(localId);
+            }
+          }
+          for (const [hex, colorIds] of byColor) {
+            await model.highlight(colorIds, {
+              color: new THREE.Color(hex),
+              opacity: 1,
+              transparent: false,
+              renderedFaces: FRAGS.RenderedFaces.TWO,
+            });
+          }
+          if (unmapped.length) {
+            await model.highlight(unmapped, {
+              color: new THREE.Color(MEP_SELECT_FALLBACK),
+              opacity: 1,
+              transparent: false,
+              renderedFaces: FRAGS.RenderedFaces.TWO,
+            });
+          }
+        } else {
+          await model.highlight(ids, {
+            color: new THREE.Color(DEFAULT_SELECT_COLOR),
+            opacity: 1,
+            transparent: false,
+            renderedFaces: FRAGS.RenderedFaces.TWO,
+          });
+        }
+      }
+    }
+    const conn = installConnectorCache.get(panelKey);
+    if (!conn?.byModel) return;
+    for (const [modelId, ids] of conn.byModel) {
+      const model = models.get(modelId);
+      if (!model || !ids.length) continue;
+      await model.highlight(ids, {
+        color: new THREE.Color(BIMSF_CONNECTOR_COLOR),
+        opacity: 1,
+        transparent: false,
+        renderedFaces: FRAGS.RenderedFaces.TWO,
+      });
+    }
+  };
+
+  /** Play mode: reveal only the newly added panel (no full re-hide / re-color). */
+  const revealInstallStepFast = async (index: number) => {
+    const key = installSequenceKeys[index];
+    if (!key) return;
+    await setBimsfPanelVisible(key, true);
+    const conn = installConnectorCache.get(key);
+    if (conn?.byModel) {
+      for (const [modelId, ids] of conn.byModel) {
+        await setModelIdsVisible(modelId, ids, true);
+      }
+    }
+    await highlightInstallPanelFast(key);
+    try {
+      await fragments.update(true);
+    } catch {
+      /* ignore */
+    }
+
+    const discs = [...getDisciplinesForPanel(key)];
+    let structureCount = 0;
+    let mepCount = 0;
+    let architectureCount = 0;
+    let elementCount = 0;
+    const byModel = bimsfIndex.get(key);
+    if (byModel) {
+      for (const [modelId, ids] of byModel) {
+        const n = ids.length;
+        elementCount += n;
+        const d = modelDisciplineById.get(modelId);
+        if (d === 'structure') structureCount += n;
+        else if (d === 'mep') mepCount += n;
+        else if (d === 'architecture') architectureCount += n;
+      }
+    }
+    installCurrentDetails = fillInstallPresentationGaps({
+      key,
+      display: bimsfDisplayByKey.get(key) || key,
+      container: bimsfDisplayByKey.get(key) || key,
+      elementCount,
+      structureCount,
+      mepCount,
+      architectureCount,
+      disciplines: discs,
+      sizeLabel: null,
+      adjacentCount: 0,
+      adjacentNames: [],
+      pallet: null,
+      material: null,
+      weight: null,
+      location: null,
+      objectType: null,
+      floor: isFoundationPanelKey(key) ? 0 : parseInstallSortKey(key).floor,
+      connectors: {
+        total: conn?.count || 0,
+        byMark: conn?.byMark || {},
+      },
+    });
+  };
+
+  const goInstallSequence = async (
+    direction: 'next' | 'prev' | 'goto',
+    target?: number,
+    opts?: { fast?: boolean }
+  ) => {
     if (!installSequenceActive || !installSequenceKeys.length) {
       return { ok: false as const, error: 'Install sequence not active', ...getInstallSequenceState() };
     }
+    if (installPlaying && !installPlayAdvancing) {
+      installPlaying = false;
+      installPlayToken += 1;
+    }
 
     let nextIndex = installSequenceIndex;
-    if (direction === 'next') nextIndex = Math.min(installSequenceIndex + 1, installSequenceKeys.length - 1);
+    const panelCount = installSequenceKeys.length;
+    const maxIndex = panelCount;
+    if (direction === 'next') nextIndex = Math.min(installSequenceIndex + 1, maxIndex);
     else if (direction === 'prev') nextIndex = Math.max(installSequenceIndex - 1, 0);
     else if (direction === 'goto' && typeof target === 'number') {
-      nextIndex = Math.max(0, Math.min(target, installSequenceKeys.length - 1));
+      nextIndex = Math.max(0, Math.min(target, maxIndex));
     }
 
     if (nextIndex === installSequenceIndex && direction !== 'goto') {
       return { ok: true as const, ...getInstallSequenceState() };
     }
 
+    const leavingFinale = installSequenceIndex >= panelCount && nextIndex < panelCount;
+    const enteringFinale = nextIndex >= panelCount;
     installSequenceIndex = nextIndex;
-    await applyInstallStep(nextIndex);
+
+    if (leavingFinale) {
+      await hideCachedNonSequenceGeometry();
+      await restoreInstallBuildFilters();
+    }
+
+    if (enteringFinale) {
+      await applyInstallCompleteStage(!!opts?.fast);
+    } else if (opts?.fast && direction === 'next') {
+      await revealInstallStepFast(nextIndex);
+    } else {
+      await applyInstallStep(nextIndex);
+    }
 
     const state = getInstallSequenceState();
     try {
@@ -2024,6 +2311,9 @@ export async function initializeViewer(containerId: string = "container") {
   };
 
   const exitInstallSequence = async () => {
+    installPlaying = false;
+    installPlayToken += 1;
+    installPlayAdvancing = false;
     installSequenceActive = false;
     installSequenceIndex = 0;
     installCurrentDetails = null;
@@ -2037,6 +2327,7 @@ export async function initializeViewer(containerId: string = "container") {
     installProjectConnectorTotals = [];
     installLevelConnectorTotals = [];
     installSequenceKeys = [];
+    installSavedHideLayers = null;
 
     const tasks: Promise<any>[] = [];
     for (const [, m] of models.entries()) tasks.push(m.resetHighlight(undefined));
@@ -2049,6 +2340,7 @@ export async function initializeViewer(containerId: string = "container") {
     lastFragmentHighlight = [];
     bimsfChecked.clear();
     bimsfNeighborFocusKey = null;
+    await reapplyHiddenLayers();
     await fragments.update(true);
 
     const state = getInstallSequenceState();
@@ -2072,160 +2364,6 @@ export async function initializeViewer(containerId: string = "container") {
         btn.setAttribute('aria-pressed', checked.has(disc) ? 'true' : 'false');
       });
     });
-  };
-
-  const createBimsfMsaControls = (panelKey: string, available: Set<DisciplineKey>) => {
-    const wrap = document.createElement('span');
-    wrap.className = 'bimsf-msa';
-    wrap.title = 'M = MEP · S = Structure · A = Architecture';
-
-    const defs: Array<{ disc: DisciplineKey; letter: string }> = [
-      { disc: 'mep', letter: 'M' },
-      { disc: 'structure', letter: 'S' },
-      { disc: 'architecture', letter: 'A' },
-    ];
-
-    for (const { disc, letter } of defs) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'bimsf-msa-btn';
-      btn.dataset.disc = disc;
-      btn.textContent = letter;
-      const has = available.has(disc);
-      btn.disabled = !has;
-      btn.title = has
-        ? `Toggle ${disc} for this panel`
-        : `No ${disc} model has this panel`;
-      if (has) {
-        btn.onclick = async (e) => {
-          e.stopPropagation();
-          const checked = bimsfChecked.get(panelKey);
-          const on = !(checked && checked.has(disc));
-          await toggleBimsfDiscipline(panelKey, disc, on, true);
-        };
-      }
-      wrap.appendChild(btn);
-    }
-    return wrap;
-  };
-
-  /**
-   * Inject a "3D Panels" folder under each discipline model in the tree.
-   * Panel rows show M / S / A toggles when that panel exists across disciplines.
-   */
-  const injectBimsfPanelsIntoTree = () => {
-    const treeContainer = document.getElementById('tree-container');
-    if (!treeContainer || !bimsfIndex.size) return;
-
-    treeContainer.querySelectorAll('.bimsf-folder-root').forEach((el) => el.remove());
-
-    const modelRoots = treeContainer.querySelectorAll<HTMLElement>('.tree-node-container.model-root');
-    modelRoots.forEach((modelRoot) => {
-      const modelNode = modelRoot.querySelector('.model-node') as HTMLElement | null;
-      const childrenContainer = modelRoot.querySelector('.model-children') as HTMLElement | null;
-      if (!modelNode || !childrenContainer) return;
-
-      let modelId =
-        (modelRoot as any)._modelId ||
-        modelNode.dataset.modelId ||
-        '';
-
-      if (!modelId) {
-        const storeyNode = childrenContainer.querySelector('.storey-node') as any;
-        const storeyData = storeyNode?._storeyData;
-        if (storeyData?._modelId) modelId = storeyData._modelId;
-      }
-      if (!modelId) return;
-
-      (modelRoot as any)._modelId = modelId;
-      modelNode.dataset.modelId = modelId;
-
-      const homeDisc =
-        modelDisciplineById.get(modelId) ||
-        resolveDiscipline(null, modelNode.querySelector('.tree-label')?.textContent || '');
-      if (!homeDisc) return;
-
-      const panelKeys: string[] = [];
-      for (const [key, byModel] of bimsfIndex.entries()) {
-        if (byModel.has(modelId)) panelKeys.push(key);
-      }
-      if (!panelKeys.length) return;
-      panelKeys.sort((a, b) =>
-        (bimsfDisplayByKey.get(a) || a).localeCompare(bimsfDisplayByKey.get(b) || b)
-      );
-
-      const folderRoot = document.createElement('div');
-      folderRoot.className = 'tree-node-container bimsf-folder-root';
-
-      const folderNode = document.createElement('div');
-      folderNode.className = 'tree-node bimsf-folder-node';
-      folderNode.style.paddingLeft = '30px';
-      folderNode.style.cursor = 'pointer';
-
-      const toggleIcon = document.createElement('span');
-      toggleIcon.className = 'tree-toggle-icon';
-      toggleIcon.textContent = '▶';
-      folderNode.appendChild(toggleIcon);
-
-      const icon = document.createElement('span');
-      icon.className = 'tree-icon';
-      icon.textContent = '▦';
-      folderNode.appendChild(icon);
-
-      const label = document.createElement('span');
-      label.className = 'tree-label';
-      label.textContent = '3D Panels';
-      folderNode.appendChild(label);
-
-      const count = document.createElement('span');
-      count.className = 'tree-count';
-      count.textContent = String(panelKeys.length);
-      folderNode.appendChild(count);
-
-      const panelChildren = document.createElement('div');
-      panelChildren.className = 'bimsf-panel-children collapsed tree-children';
-
-      folderNode.onclick = (e) => {
-        e.stopPropagation();
-        const isCollapsed = panelChildren.classList.contains('collapsed');
-        panelChildren.classList.toggle('collapsed', !isCollapsed);
-        toggleIcon.classList.toggle('expanded', isCollapsed);
-      };
-
-      for (const panelKey of panelKeys) {
-        const display = bimsfDisplayByKey.get(panelKey) || panelKey;
-        const available = getDisciplinesForPanel(panelKey);
-
-        const row = document.createElement('div');
-        row.className = 'tree-node bimsf-panel-row';
-        row.style.paddingLeft = '50px';
-        row.dataset.bimsfKey = panelKey;
-
-        const spacer = document.createElement('span');
-        spacer.style.width = '16px';
-        spacer.style.display = 'inline-block';
-        row.appendChild(spacer);
-
-        const idSpan = document.createElement('span');
-        idSpan.className = 'bimsf-panel-id tree-label';
-        idSpan.textContent = display;
-        idSpan.title = `${display} — click selects all available M/S/A`;
-        idSpan.onclick = async (e) => {
-          e.stopPropagation();
-          await selectBimsfPanelAllDisciplines(panelKey, !(e.ctrlKey || e.metaKey));
-        };
-        row.appendChild(idSpan);
-        row.appendChild(createBimsfMsaControls(panelKey, available));
-        panelChildren.appendChild(row);
-      }
-
-      folderRoot.appendChild(folderNode);
-      folderRoot.appendChild(panelChildren);
-      childrenContainer.insertBefore(folderRoot, childrenContainer.firstChild);
-    });
-
-    syncBimsfCheckboxUi();
-    console.log('✅ BIMSF 3D Panels injected into tree');
   };
 
   // Back-compat alias used after model load
@@ -2636,6 +2774,23 @@ export async function initializeViewer(containerId: string = "container") {
     return true;
   };
 
+  const withTimeout = async <T,>(promise: Promise<T>, ms: number, label: string): Promise<T | void> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        promise,
+        new Promise<void>((resolve) => {
+          timer = setTimeout(() => {
+            console.warn(`⏱️ ${label} timed out after ${ms}ms — continuing`);
+            resolve();
+          }, ms);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
+
   const emitProgress = (progress: number, status: string) => {
     window.dispatchEvent(new CustomEvent('viewer-progress', {
       detail: { progress, status }
@@ -2701,28 +2856,33 @@ export async function initializeViewer(containerId: string = "container") {
         currentProgress += progressPerModel * 0.5;
         emitProgress(currentProgress, `Processing: ${cleanName}`);
 
-        // Also register model in OBC FragmentsManager so 2D Views can read IFC storeys
-        try {
-          const obcBuffer = buffer.slice(0); // clone to avoid transfer issues
-          await (obcFragments as any).core?.load?.(obcBuffer, { modelId: modelInfo.id });
-        } catch (e) {
-          console.warn('⚠️ OBC.FragmentsManager load failed (2D Views may be limited):', e);
-        }
-        const model = await fragments.load(buffer, { modelId: modelInfo.id });
+        // Do not dual-load into OBC FragmentsManager here. Sharing the same
+        // fragments worker + modelId hangs ThatOpen (stuck at ~45%).
+        // 2D Views can load on demand later; 3D uses `fragments` below.
+        const model = await withTimeout(
+          fragments.load(buffer, { modelId: modelInfo.id }),
+          120000,
+          `fragments.load(${modelInfo.id})`
+        );
 
-        models.set(modelInfo.id, model);
+        if (!model) {
+          throw new Error(`fragments.load timed out for ${cleanName}`);
+        }
+
+        const loaded = model as FRAGS.FragmentsModel;
+        models.set(modelInfo.id, loaded);
         registerModelDiscipline(modelInfo.id, modelInfo.category, modelInfo.name);
-        applyLodVisibilityTuning(model, `${modelInfo.category || ''} ${modelInfo.name || ''}`);
+        applyLodVisibilityTuning(loaded, `${modelInfo.category || ''} ${modelInfo.name || ''}`);
         console.log(`✅ Loaded: ${modelInfo.name} (ID: ${modelInfo.id})`);
 
         // Restore Revit system / material colours (e.g. DCW blue #0000FF)
         try {
-          await applyRevitColorMap(modelInfo.id, model);
+          await applyRevitColorMap(modelInfo.id, loaded);
         } catch (colorErr) {
           console.warn(`⚠️ Could not apply Revit colors for ${modelInfo.name}:`, colorErr);
         }
         try {
-          await indexBimsfMapForModel(modelInfo.id, model);
+          await indexBimsfMapForModel(modelInfo.id, loaded);
         } catch (bimsfErr) {
           console.warn(`⚠️ Could not index BIMSF for ${modelInfo.name}:`, bimsfErr);
         }
@@ -2798,23 +2958,6 @@ export async function initializeViewer(containerId: string = "container") {
     console.error('❌ Failed to load models:', error);
     throw error; // Re-throw to trigger ViewerPage error state
   }
-
-  const withTimeout = async <T,>(promise: Promise<T>, ms: number, label: string): Promise<T | void> => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      return await Promise.race([
-        promise,
-        new Promise<void>((resolve) => {
-          timer = setTimeout(() => {
-            console.warn(`⏱️ ${label} timed out after ${ms}ms — continuing`);
-            resolve();
-          }, ms);
-        }),
-      ]);
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-  };
 
   const emitSwitchProgress = (progress: number, status: string) => {
     window.dispatchEvent(new CustomEvent('viewer-loading', {
@@ -3023,17 +3166,6 @@ export async function initializeViewer(containerId: string = "container") {
     model?: FRAGS.FragmentsModel;
   }
 
-  interface ModelTreeData {
-    modelName: string;
-    model: FRAGS.FragmentsModel;
-    children: TreeNodeData[];
-  }
-
-  let spatialTreeData: any = null;
-  let treeNodeMap = new Map<number, HTMLElement>();
-  let selectedTreeNode: number | null = null;
-  let currentModel: FRAGS.FragmentsModel | null = null;
-
   // Global cache for panel data (keyed by panel ID)
   const panelDataCache = new Map<string, any>();
   try {
@@ -3043,8 +3175,6 @@ export async function initializeViewer(containerId: string = "container") {
   }
   // Map localId -> panel data (for quick lookup from selection)
   const localIdPanelMap = new Map<number, any>();
-  // Toggle: synchronize tree selection when selecting in canvas
-  let SYNC_TREE_ON_SELECT = true;
 
   // Auto-focus on element from URL (fetch from database)
   const elementIdFromUrl = urlParams.get('element');
@@ -3089,8 +3219,6 @@ export async function initializeViewer(containerId: string = "container") {
             return;
           }
 
-          // Force tree to open for this selection
-          openTreeNextSelection = true;
           selectElementByLocalId(foundLocalId, panel.modelId);
         } else {
           console.warn(`⚠️ Panel ${elementIdFromUrl} missing metadata.ifcElementId`);
@@ -3102,46 +3230,8 @@ export async function initializeViewer(containerId: string = "container") {
     }, 1500); // Wait for viewer to be fully initialized
   }
 
-  // Get icon based on IFC type
-  const getIconForType = (type: string): string => {
-    const typeUpper = type.toUpperCase();
-    if (typeUpper.includes("PROJECT")) return "🏗️";
-    if (typeUpper.includes("SITE")) return "🌍";
-    if (typeUpper.includes("BUILDING")) return "🏢";
-    if (typeUpper.includes("STOREY")) return "📐";
-    if (typeUpper.includes("SPACE")) return "📦";
-    if (typeUpper.includes("WALL")) return "🧱";
-    if (typeUpper.includes("DOOR")) return "🚪";
-    if (typeUpper.includes("WINDOW")) return "🪟";
-    if (typeUpper.includes("SLAB")) return "⬜";
-    if (typeUpper.includes("BEAM")) return "━";
-    if (typeUpper.includes("COLUMN")) return "┃";
-    if (typeUpper.includes("STAIR")) return "🪜";
-    if (typeUpper.includes("ROOF")) return "🏠";
-    if (typeUpper.includes("RAILING")) return "🛤️";
-    if (typeUpper.includes("ASSEMBLY")) return "⚙️";
-    return "📄";
-  };
-
-  // Helper function to check if a node or its descendants contain storeys
-  const containsStoreys = (node: any): boolean => {
-    if (node.category && node.category.toUpperCase().includes("STOREY")) {
-      return true;
-    }
-    if (node.children && Array.isArray(node.children)) {
-      return node.children.some((child: any) => containsStoreys(child));
-    }
-    return false;
-  };
-
-  // Helper function to check if a node is a direct child of IFCBUILDINGSTOREY
-  const isStoreyChild = (parentCategory: string | null): boolean => {
-    return !!(parentCategory && parentCategory.toUpperCase().includes("STOREY"));
-  };
-
   // Cache for spatial structures to avoid re-parsing
   const spatialStructureCache = new Map<string, any>();
-  const lazyLoadedNodes = new Map<string, TreeNodeData>();
 
   // Hoisted helpers (function declarations avoid TDZ issues)
   function findPathToLocalId(spatialData: any, targetId: number): any[] | null {
@@ -3235,7 +3325,6 @@ export async function initializeViewer(containerId: string = "container") {
     return null;
   };
 
-  // Helper: select corresponding tree node and ensure it is visible
   // List of IFC types that are considered "Panels" and tracked in the database
   const PANEL_TYPES = [
     // Structural
@@ -3268,6 +3357,19 @@ export async function initializeViewer(containerId: string = "container") {
     // MEP - HVAC Equipment
     'IFCFAN', 'IFCPUMP', 'IFCBOILER', 'IFCCHILLER', 'IFCCOIL', 'IFCHEATEXCHANGER'
   ];
+
+  /** Pieces of a panel — never treat these as the selected panel. */
+  const MEMBER_LIKE_TYPES = [
+    'IFCMEMBER', 'IFCBEAM', 'IFCCOLUMN', 'IFCPLATE',
+    'IFCBUILDINGELEMENTPART', 'IFCELEMENTCOMPONENT', 'IFCDISCRETEACCESSORY',
+    'IFCMECHANICALFASTENER', 'IFCREINFORCINGBAR', 'IFCREINFORCINGMESH',
+    'IFCTENDON', 'IFCTENDONANCHOR',
+  ];
+
+  const typeIsMemberLike = (typeRaw: string): boolean => {
+    const typeNormalized = String(typeRaw || '').toUpperCase().replace(/^IFC/, '');
+    return MEMBER_LIKE_TYPES.some((t) => typeNormalized.includes(t.replace(/^IFC/, '')));
+  };
 
   // Helper: Find the ID of the nearest ancestor that is a "Panel" type
   // This uses the IFC spatial structure which is always fully loaded
@@ -3351,9 +3453,8 @@ export async function initializeViewer(containerId: string = "container") {
             const tNormalized = t.replace(/^IFC/, '');
             return typeNormalized.includes(tNormalized);
           });
-
-          if (isPanel && id !== null && id !== undefined) {
-            // Keep updating to find the topmost panel
+          if (isPanel && id !== null && id !== undefined && !typeIsMemberLike(typeRaw)) {
+            // Keep updating to find the topmost container panel (assembly / wall / slab)
             topmostPanelId = id;
             topmostPanelType = typeRaw;
           }
@@ -3371,359 +3472,6 @@ export async function initializeViewer(containerId: string = "container") {
     }
     return null;
   }
-
-  // Helper: select corresponding tree node and ensure it is visible
-  const selectTreeNodeByLocalId = async (localId: number): Promise<boolean> => {
-    const treeContainer = document.getElementById("tree-container");
-    if (!treeContainer) return false;
-
-    const expandAndNavigate = (target: HTMLElement) => {
-      // Expand its parent storey if collapsed
-      const storeyChildren = target.closest('.storey-children') as HTMLElement | null;
-      if (storeyChildren && storeyChildren.classList.contains('collapsed')) {
-        storeyChildren.classList.remove('collapsed');
-        const storeyNode = storeyChildren.previousElementSibling as HTMLElement | null;
-        const toggle = storeyNode?.querySelector('.tree-toggle-icon');
-        toggle?.classList.add('expanded');
-      }
-
-      // Ensure model root is expanded
-      const modelRoot = target.closest('.model-root') as HTMLElement | null;
-      if (modelRoot) {
-        const modelChildren = modelRoot.querySelector('.model-children') as HTMLElement | null;
-        const modelToggle = modelRoot.querySelector('.tree-toggle-icon') as HTMLElement | null;
-        if (modelChildren && modelChildren.classList.contains('collapsed')) {
-          modelChildren.classList.remove('collapsed');
-          modelToggle?.classList.add('expanded');
-        }
-      }
-
-      syncTreeSelectionUI();
-
-      setTimeout(() => {
-        target.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      }, 100);
-
-      const treePanel = document.getElementById('tree-panel');
-      treePanel?.classList.remove('panel-hidden');
-    };
-
-    // Helper to wait for DOM update
-    const waitForNode = async (id: number, retries = 5): Promise<HTMLElement | null> => {
-      for (let i = 0; i < retries; i++) {
-        const node = treeContainer.querySelector(`.tree-node.panel-node[data-local-id="${id}"]`) as HTMLElement | null;
-        if (node) return node;
-        await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 100)));
-      }
-      return null;
-    };
-
-    // 1. Try to find existing node in DOM (Fast path)
-    let target = await waitForNode(localId, 1); // Quick check
-
-    if (target) {
-      expandAndNavigate(target);
-      return true;
-    }
-
-    // 2. Node not found - Resolve Parent ID using IFC Structure
-    console.log(`🔍 Node for localId ${localId} not found in tree. Resolving hierarchy...`);
-
-    let targetId = localId;
-    const model = await findModelForLocalId(localId);
-
-    if (model) {
-      const parentId = await findParentPanelId(model, localId);
-      if (parentId && parentId !== localId) {
-        console.log(`✅ Resolved child element ${localId} to parent panel ${parentId}`);
-        targetId = parentId;
-
-        // Check DOM again for parent
-        target = await waitForNode(targetId, 1);
-        if (target) {
-          expandAndNavigate(target);
-          return true;
-        }
-      }
-    }
-
-    // 3. Still not found - Fetch Location from Backend (Deep Linking)
-    // Get project ID from URL
-    const pathParts = window.location.pathname.split('/');
-    const projectsIndex = pathParts.indexOf('projects');
-    const projectId = projectsIndex >= 0 ? pathParts[projectsIndex + 1] : null;
-
-    if (!projectId) return false;
-
-    // Fetch location using the targetId (resolved parent or original)
-    const location = await fetchPanelLocation(projectId, targetId);
-
-    if (!location) {
-      // Element (and its parent) not in database
-      console.log(`ℹ️ Element ${targetId} is not tracked in the database`);
-      return false; // Graceful exit
-    }
-
-    console.log(`📍 Found panel location:`, location);
-
-    // 4. Load Page & Select
-    // Find the correct storey node in the tree
-    const modelRoots = treeContainer.querySelectorAll('.model-root');
-    for (const modelRoot of Array.from(modelRoots)) {
-      const storeyNodes = modelRoot.querySelectorAll('.storey-node');
-      for (const sNode of Array.from(storeyNodes)) {
-        const label = sNode.querySelector('.tree-label')?.textContent;
-        if (label === location.storey) {
-          // Found the storey!
-          const storeyContainer = sNode.parentElement as HTMLElement;
-          const childrenContainer = storeyContainer.querySelector('.storey-children') as HTMLElement;
-          const storeyData = (sNode as any)._storeyData;
-
-          if (storeyData) {
-            // Check if we need to load the page
-            // Load if: not loaded at all, OR requested page is beyond what we have
-            const currentMaxPage = storeyData._page || 1;
-            const needsLoading = !storeyData._loaded || location.page > currentMaxPage;
-
-            if (needsLoading) {
-              console.log(`Loading page ${location.page} for storey ${location.storey}...`);
-
-              // Show loading overlay on tree
-              const treeContainer = document.getElementById('tree-container');
-              if (treeContainer && location.page > 10) {
-                const loadingOverlay = document.createElement('div');
-                loadingOverlay.id = 'tree-loading-overlay';
-                loadingOverlay.style.cssText = `
-                  position: absolute;
-                  top: 0;
-                  left: 0;
-                  right: 0;
-                  bottom: 0;
-                  background: rgba(255, 255, 255, 0.95);
-                  display: flex;
-                  flex-direction: column;
-                  align-items: center;
-                  justify-content: center;
-                  z-index: 1000;
-                  backdrop-filter: blur(4px);
-                `;
-
-                // Create 3D cube loader (matching CubeLoader component)
-                loadingOverlay.innerHTML = `
-                  <div style="position: relative; width: 40px; height: 40px; perspective: 1000px;">
-                    <div class="cube-3d" style="position: absolute; width: 100%; height: 100%; transform-style: preserve-3d; animation: spin-3d 3s infinite linear;">
-                      <!-- Front -->
-                      <div class="cube-face" style="position: absolute; width: 40px; height: 40px; background: rgba(148,163,184,0.2); border: 2px solid rgba(148,163,184,0.8); backdrop-filter: blur(2px); transform: translateZ(20px); box-shadow: 0 0 10px rgba(148,163,184,0.5);"></div>
-                      <!-- Back -->
-                      <div class="cube-face" style="position: absolute; width: 40px; height: 40px; background: rgba(148,163,184,0.2); border: 2px solid rgba(148,163,184,0.8); backdrop-filter: blur(2px); transform: rotateY(180deg) translateZ(20px); box-shadow: 0 0 10px rgba(148,163,184,0.5);"></div>
-                      <!-- Right -->
-                      <div class="cube-face" style="position: absolute; width: 40px; height: 40px; background: rgba(148,163,184,0.2); border: 2px solid rgba(148,163,184,0.8); backdrop-filter: blur(2px); transform: rotateY(90deg) translateZ(20px); box-shadow: 0 0 10px rgba(148,163,184,0.5);"></div>
-                      <!-- Left -->
-                      <div class="cube-face" style="position: absolute; width: 40px; height: 40px; background: rgba(148,163,184,0.2); border: 2px solid rgba(148,163,184,0.8); backdrop-filter: blur(2px); transform: rotateY(-90deg) translateZ(20px); box-shadow: 0 0 10px rgba(148,163,184,0.5);"></div>
-                      <!-- Top -->
-                      <div class="cube-face" style="position: absolute; width: 40px; height: 40px; background: rgba(148,163,184,0.2); border: 2px solid rgba(148,163,184,0.8); backdrop-filter: blur(2px); transform: rotateX(90deg) translateZ(20px); box-shadow: 0 0 10px rgba(148,163,184,0.5);"></div>
-                      <!-- Bottom -->
-                      <div class="cube-face" style="position: absolute; width: 40px; height: 40px; background: rgba(148,163,184,0.2); border: 2px solid rgba(148,163,184,0.8); backdrop-filter: blur(2px); transform: rotateX(-90deg) translateZ(20px); box-shadow: 0 0 10px rgba(148,163,184,0.5);"></div>
-                      <!-- Core -->
-                      <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 20px; height: 20px; background: rgba(148,163,184,0.8); box-shadow: 0 0 15px rgba(148,163,184,0.5); animation: pulse 2s infinite;"></div>
-                    </div>
-                  </div>
-                  
-                  <div style="margin-top: 24px; text-align: center;">
-                    <h3 style="font-size: 13px; font-weight: 600; color: var(--slate-700); letter-spacing: 0.05em;">Loading page ${location.page}</h3>
-                    <div style="display: flex; gap: 3px; justify-content: center; margin-top: 8px;">
-                      <div style="width: 6px; height: 6px; background: var(--slate-500); border-radius: 50%; animation: bounce 1s infinite; animation-delay: 0ms;"></div>
-                      <div style="width: 6px; height: 6px; background: var(--slate-500); border-radius: 50%; animation: bounce 1s infinite; animation-delay: 100ms;"></div>
-                      <div style="width: 6px; height: 6px; background: var(--slate-500); border-radius: 50%; animation: bounce 1s infinite; animation-delay: 200ms;"></div>
-                    </div>
-                  </div>
-                  
-                  <style>
-                    @keyframes spin-3d {
-                      0% { transform: rotateX(0deg) rotateY(0deg); }
-                      100% { transform: rotateX(360deg) rotateY(360deg); }
-                    }
-                    @keyframes pulse {
-                      0%, 100% { opacity: 1; }
-                      50% { opacity: 0.5; }
-                    }
-                    @keyframes bounce {
-                      0%, 100% { transform: translateY(0); }
-                      50% { transform: translateY(-6px); }
-                    }
-                  </style>
-                `;
-                treeContainer.style.position = 'relative';
-                treeContainer.appendChild(loadingOverlay);
-              }
-
-              // Show loading state
-              const toggle = sNode.querySelector('.tree-toggle-icon');
-              if (toggle) {
-                toggle.classList.add("loading");
-                toggle.textContent = "⏳";
-              }
-
-              try {
-                // Fetch with timeout for deep pages
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-
-                const result = await fetchPanelsForStorey(
-                  projectId, // Keep projectId as first argument
-                  modelRoot.dataset.modelId || location.modelId,
-                  location.storey,
-                  location.page,
-                  50, // Keep limit as 50
-                  controller.signal
-                );
-
-                clearTimeout(timeoutId);
-
-                if (result && result.panels) {
-                  // Update cache
-                  result.panels.forEach((panel: any) => {
-                    panelDataCache.set(panel.id, panel);
-                    // Use expressId (robust) or fallback to metadata
-                    const localId = panel.element?.expressId || (panel.metadata?.ifcElementId ? parseInt(panel.metadata.ifcElementId) : null);
-                    if (localId) {
-                      localIdPanelMap.set(localId, panel);
-                    }
-                  });
-
-                  // Merge new panels with existing
-                  const existingIds = new Set(storeyData.children.map((p: any) => p.id));
-                  const newPanels = result.panels.filter((p: any) => !existingIds.has(p.id));
-                  storeyData.children.push(...newPanels);
-
-                  // Update pagination state
-                  if (!storeyData._page || location.page > storeyData._page) {
-                    storeyData._page = location.page;
-                  }
-                  // Initialize start page for deep linking
-                  if (!storeyData._startPage || location.page < storeyData._startPage) {
-                    storeyData._startPage = location.page;
-                  }
-                  storeyData._hasMore = result.panels.length < result.total;
-
-                  // Render children
-                  const isContainerEmpty = childrenContainer.children.length === 0 || childrenContainer.textContent === 'Failed to load';
-
-                  if (isContainerEmpty) {
-                    childrenContainer.innerHTML = "";
-
-                    // Add Load Previous button if we're not on page 1
-                    if (storeyData._startPage > 1) {
-                      renderStoreyLoadPreviousButton(storeyData, childrenContainer, location.modelId);
-                    }
-
-                    // If container was empty, we must render ALL children, not just new ones
-                    // because they might be in data but not in DOM
-                    console.log(`Rendering all ${storeyData.children.length} panels for storey`);
-                    storeyData.children.forEach((panel: any) => {
-                      renderDatabasePanelNode(panel, childrenContainer);
-                    });
-                  } else {
-                    // Just append new ones
-                    console.log(`Appending ${newPanels.length} new panels`);
-                    newPanels.forEach((panel: any) => {
-                      renderDatabasePanelNode(panel, childrenContainer);
-                    });
-                  }
-
-                  // Update load more button
-                  const existingBtn = childrenContainer.querySelector('.load-more-btn');
-                  if (existingBtn) existingBtn.remove();
-
-                  if (storeyData._hasMore) {
-                    renderStoreyLoadMoreButton(storeyData, childrenContainer, location.modelId);
-                  }
-
-                  // Select the target node (Retry a few times for DOM update)
-                  const newTarget = await waitForNode(targetId, 5);
-                  if (newTarget) {
-                    expandAndNavigate(newTarget);
-                    return true;
-                  } else {
-                    console.warn("Node still not found after loading page");
-                  }
-                } else {
-                  throw new Error("No data returned from server");
-                }
-              } catch (e: any) {
-                console.error("Failed to deep load page", e);
-
-                // Show error message to user
-                const loadingOverlay = document.getElementById('tree-loading-overlay');
-                if (loadingOverlay) {
-                  loadingOverlay.innerHTML = `
-                    <div style="text-align: center;">
-                      <div style="font-size: 32px; margin-bottom: 12px; color: var(--red-500);">⚠️</div>
-                      <div style="font-size: 14px; font-weight: 600; color: var(--slate-700); margin-bottom: 8px;">
-                        ${e.name === 'AbortError' ? 'Request timed out' : 'Failed to load page'}
-                      </div>
-                      <div style="font-size: 12px; color: var(--slate-500); margin-bottom: 16px;">
-                        Page ${location.page} is too deep to load quickly
-                      </div>
-                      <button onclick="this.closest('#tree-loading-overlay').remove()" 
-                        style="padding: 8px 16px; background: var(--slate-600); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px;">
-                        Close
-                      </button>
-                    </div>
-                  `;
-
-                  // Auto-remove after 5 seconds
-                  setTimeout(() => {
-                    const overlay = document.getElementById('tree-loading-overlay');
-                    if (overlay) overlay.remove();
-                  }, 5000);
-                }
-              } finally {
-                // Remove loading overlay
-                const loadingOverlay = document.getElementById('tree-loading-overlay');
-                if (loadingOverlay) {
-                  loadingOverlay.remove();
-                }
-
-                if (toggle) {
-                  toggle.classList.remove("loading");
-                  toggle.textContent = "▶";
-                }
-              }
-            } else {
-              // Already loaded, just expand
-              const modelChildren = modelRoot.querySelector('.model-children') as HTMLElement;
-              if (modelChildren) modelChildren.classList.remove('collapsed');
-
-              if (childrenContainer.classList.contains('collapsed')) {
-                childrenContainer.classList.remove('collapsed');
-                const toggle = sNode.querySelector('.tree-toggle-icon');
-                toggle?.classList.add('expanded');
-              }
-
-              (sNode as HTMLElement).scrollIntoView({ block: 'center' });
-
-              // Try to select again
-              const newTarget = await waitForNode(targetId, 3);
-              if (newTarget) {
-                expandAndNavigate(newTarget);
-                return true;
-              }
-            }
-          } else {
-            // Fallback
-            (sNode as HTMLElement).scrollIntoView({ block: 'center' });
-            (sNode as HTMLElement).style.backgroundColor = '#fff3cd';
-            setTimeout(() => (sNode as HTMLElement).style.backgroundColor = '', 2000);
-          }
-          return false;
-        }
-      }
-    }
-    return false;
-  };
-
-
 
   // Helper: select element by localId (highlight + camera + info panel)
   const selectElementByLocalId = async (
@@ -3800,8 +3548,59 @@ export async function initializeViewer(containerId: string = "container") {
     return collected;
   };
 
-  const findSelectedPanelIndex = (modelId: string, panelLocalId: number) =>
-    selectedPanels.findIndex((p) => p.modelId === modelId && p.panelLocalId === panelLocalId);
+  const findSelectedPanelIndex = (modelId: string, panelLocalId: number, bimsfKey?: string) => {
+    if (bimsfKey) {
+      return selectedPanels.findIndex((p) => p.bimsfKey === bimsfKey);
+    }
+    return selectedPanels.findIndex((p) => p.modelId === modelId && p.panelLocalId === panelLocalId);
+  };
+
+  const uniquePanelCount = () => {
+    const keys = new Set<string>();
+    for (const p of selectedPanels) {
+      keys.add(p.bimsfKey || `${p.modelId}:${p.panelLocalId}`);
+    }
+    return keys.size;
+  };
+
+  const selectionInfoEntry = (): PanelSelectionEntry | null => {
+    if (!selectedPanels.length) return null;
+    const keys = [...new Set(selectedPanels.map((p) => p.bimsfKey).filter(Boolean))];
+    if (selectedPanels.length === 1) return selectedPanels[0];
+    if (keys.length === 1 && selectedPanels.every((p) => p.bimsfKey === keys[0])) {
+      return selectedPanels[0];
+    }
+    return null;
+  };
+
+  const authHeaders = (): Record<string, string> => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const token = localStorage.getItem('auth_token');
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return headers;
+  };
+
+  const fetchPanelByExpressId = async (expressId: number): Promise<any | null> => {
+    const cached = localIdPanelMap.get(expressId);
+    if (cached?.id) return cached;
+    if (!projectIdFromUrl) return cached || null;
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/panels/${projectIdFromUrl}/by-express-id/${expressId}`,
+        { method: 'GET', headers: authHeaders() }
+      );
+      if (!response.ok) return cached || null;
+      const panel = await response.json();
+      panel.localId = expressId;
+      panel.type = panel.element?.ifcType || panel.objectType || panel.type;
+      localIdPanelMap.set(expressId, panel);
+      if (panel.id) panelDataCache.set(panel.id, panel);
+      return panel;
+    } catch (e) {
+      console.warn('fetchPanelByExpressId failed', expressId, e);
+      return cached || null;
+    }
+  };
 
   const resolvePanelHighlightIds = async (
     localId: number,
@@ -3811,6 +3610,7 @@ export async function initializeViewer(containerId: string = "container") {
     modelId: string;
     panelLocalId: number;
     fragmentIds: number[];
+    bimsfKey?: string;
   } | null> => {
     let model: FRAGS.FragmentsModel | null = null;
 
@@ -3827,6 +3627,23 @@ export async function initializeViewer(containerId: string = "container") {
     if (!model) {
       console.warn('No model found for localId', localId);
       return null;
+    }
+
+    const resolvedMapId = modelId || getModelMapId(model);
+    if (!resolvedMapId) return null;
+
+    const bimsfKey = findBimsfPanelKey(resolvedMapId, localId);
+    if (bimsfKey) {
+      const panelLocalId = canonicalLocalIdForBimsf(resolvedMapId, bimsfKey, localId);
+      const ids = bimsfIndex.get(bimsfKey)?.get(resolvedMapId) || [panelLocalId];
+      console.log(`ℹ️ Selection: BIMSF panel ${bimsfKey} (${ids.length} members)`);
+      return {
+        model,
+        modelId: resolvedMapId,
+        panelLocalId,
+        fragmentIds: [...new Set(ids)],
+        bimsfKey,
+      };
     }
 
     let panelLocalId = localId;
@@ -3854,9 +3671,6 @@ export async function initializeViewer(containerId: string = "container") {
       console.warn('Could not compute parent/children for localId', panelLocalId, e);
     }
 
-    const resolvedMapId = modelId || getModelMapId(model);
-    if (!resolvedMapId) return null;
-
     return { model, modelId: resolvedMapId, panelLocalId, fragmentIds };
   };
 
@@ -3878,31 +3692,19 @@ export async function initializeViewer(containerId: string = "container") {
     await applyGhostAndHighlights(snapshot);
   };
 
-  const syncTreeSelectionUI = () => {
-    const treeContainer = document.getElementById('tree-container');
-    if (!treeContainer) return;
-    treeContainer.querySelectorAll('.tree-node.selected').forEach((n) => n.classList.remove('selected'));
-    for (const entry of selectedPanels) {
-      const node = treeContainer.querySelector(
-        `.tree-node.panel-node[data-local-id="${entry.panelLocalId}"]`
-      ) as HTMLElement | null;
-      node?.classList.add('selected');
-    }
-  };
-
   const updateSelectionStatusBar = () => {
     const summary = document.getElementById('selection-summary');
     const countText = document.getElementById('selection-count-text');
     if (!summary || !countText) return;
-    if (selectedPanels.length <= 1) {
+    if (uniquePanelCount() <= 1) {
       summary.classList.add('panel-hidden');
       return;
     }
     summary.classList.remove('panel-hidden');
-    countText.textContent = `${selectedPanels.length} panels selected`;
+    countText.textContent = `${uniquePanelCount()} panels selected`;
   };
 
-  const showSelectionInfoPanel = () => {
+  const showSelectionInfoPanel = async () => {
     const infoPanel = document.getElementById('infoPanel');
     const statusPanel = document.getElementById('statusPanel');
     const groupsPanel = document.getElementById('groupsPanel');
@@ -3912,23 +3714,51 @@ export async function initializeViewer(containerId: string = "container") {
       return;
     }
 
-    if (selectedPanels.length === 1) {
-      const entry = selectedPanels[0];
-      const panelData = localIdPanelMap.get(entry.panelLocalId);
-      if (panelData) {
-        updateInfoPanel({
-          localId: entry.panelLocalId,
-          name: panelData.name || panelData.tag || 'Unnamed',
-          type: panelData.type,
-          tag: panelData.tag,
-          id: panelData.id,
-          elementId: panelData.elementId,
-          metadata: panelData.metadata,
-          category: 'element',
-          children: [],
-          panelData,
-        } as any);
+    const entry = selectionInfoEntry();
+    if (entry) {
+      let panelData = localIdPanelMap.get(entry.panelLocalId);
+      if (!panelData?.id) {
+        panelData = await fetchPanelByExpressId(entry.panelLocalId);
       }
+      if (!panelData?.id && entry.bimsfKey) {
+        const ids = bimsfIndex.get(entry.bimsfKey)?.get(entry.modelId) || [];
+        for (const id of ids) {
+          panelData = await fetchPanelByExpressId(id);
+          if (panelData?.id) break;
+        }
+      }
+      if (panelData && entry.bimsfKey) {
+        const byModel = bimsfIndex.get(entry.bimsfKey);
+        if (byModel) {
+          for (const ids of byModel.values()) {
+            for (const id of ids) {
+              if (!localIdPanelMap.get(id)?.id) localIdPanelMap.set(id, panelData);
+            }
+          }
+        }
+      }
+      const displayName =
+        (entry.bimsfKey && bimsfDisplayByKey.get(entry.bimsfKey)) ||
+        panelData?.name ||
+        panelData?.tag ||
+        entry.name ||
+        'Panel';
+      updateInfoPanel({
+        localId: entry.panelLocalId,
+        name: displayName,
+        type: entry.bimsfKey ? 'BIMSF Panel' : (panelData?.type || 'Panel'),
+        tag: panelData?.tag || displayName,
+        id: panelData?.id,
+        elementId: panelData?.elementId,
+        metadata: panelData?.metadata,
+        category: 'element',
+        children: [],
+        panelData: panelData || {
+          name: displayName,
+          tag: displayName,
+          metadata: { BIMSF_Container: entry.bimsfKey },
+        },
+      } as any);
       return;
     }
 
@@ -3947,7 +3777,6 @@ export async function initializeViewer(containerId: string = "container") {
       await m.resetHighlight(undefined);
     }
     await fragments.update(true);
-    syncTreeSelectionUI();
     updateSelectionStatusBar();
     document.getElementById('infoPanel')?.classList.add('panel-hidden');
   };
@@ -3962,19 +3791,49 @@ export async function initializeViewer(containerId: string = "container") {
     const resolved = await resolvePanelHighlightIds(localId, modelId);
     if (!resolved) return;
 
-    const { modelId: mid, panelLocalId, fragmentIds } = resolved;
-    const panelData = localIdPanelMap.get(panelLocalId);
-    const name = panelData?.name || panelData?.tag || `Panel ${panelLocalId}`;
-    const idx = findSelectedPanelIndex(mid, panelLocalId);
+    const { modelId: mid, panelLocalId, fragmentIds, bimsfKey } = resolved;
+    const display =
+      (bimsfKey && bimsfDisplayByKey.get(bimsfKey)) ||
+      localIdPanelMap.get(panelLocalId)?.name ||
+      localIdPanelMap.get(panelLocalId)?.tag ||
+      `Panel ${panelLocalId}`;
+
+    const buildEntries = (): PanelSelectionEntry[] => {
+      if (!bimsfKey) {
+        return [{ modelId: mid, panelLocalId, fragmentIds, name: display }];
+      }
+      const byModel = bimsfIndex.get(bimsfKey);
+      if (!byModel?.size) {
+        return [{ modelId: mid, panelLocalId, fragmentIds, name: display, bimsfKey }];
+      }
+      const entries: PanelSelectionEntry[] = [];
+      for (const [modelKey, ids] of byModel) {
+        if (!ids.length) continue;
+        entries.push({
+          modelId: modelKey,
+          panelLocalId: canonicalLocalIdForBimsf(modelKey, bimsfKey, ids[0]),
+          fragmentIds: [...new Set(ids)],
+          name: display,
+          bimsfKey,
+        });
+      }
+      return entries.length ? entries : [{ modelId: mid, panelLocalId, fragmentIds, name: display, bimsfKey }];
+    };
+
+    const idx = findSelectedPanelIndex(mid, panelLocalId, bimsfKey);
 
     if (options.mode === 'toggle') {
       if (idx >= 0) {
-        selectedPanels.splice(idx, 1);
+        if (bimsfKey) {
+          selectedPanels = selectedPanels.filter((p) => p.bimsfKey !== bimsfKey);
+        } else {
+          selectedPanels.splice(idx, 1);
+        }
       } else {
-        selectedPanels.push({ modelId: mid, panelLocalId, fragmentIds, name });
+        selectedPanels.push(...buildEntries());
       }
     } else {
-      selectedPanels = [{ modelId: mid, panelLocalId, fragmentIds, name }];
+      selectedPanels = buildEntries();
     }
 
     if (selectedPanels.length === 0) {
@@ -3983,19 +3842,14 @@ export async function initializeViewer(containerId: string = "container") {
     }
 
     await applySelectionHighlight();
-    syncTreeSelectionUI();
     updateSelectionStatusBar();
     if (!options.skipInfoPanelRefresh) {
-      showSelectionInfoPanel();
+      void showSelectionInfoPanel();
     }
     if (!options.skipCamera) {
       await focusCameraOnLocalIds(fragmentIds, { closer: 0.9 });
     }
 
-    if ((SYNC_TREE_ON_SELECT || openTreeNextSelection) && options.mode === 'replace') {
-      await selectTreeNodeByLocalId(panelLocalId);
-    }
-    openTreeNextSelection = false;
   };
 
   // Project Browser Tree → 3D panel click (must be after selectPanels exists)
@@ -4149,6 +4003,171 @@ export async function initializeViewer(containerId: string = "container") {
     await fragments.update(true);
   };
 
+  const flyCameraToInstallPanel = async (index: number, quick = false) => {
+    const key = installSequenceKeys[index];
+    if (!key) return;
+    const box = await ensureBimsfPanelBounds(key);
+    if (!box || box.isEmpty()) return;
+
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    const span = Math.max(size.x, size.y, size.z, 0.8);
+    const dist = Math.max(span * 2.05, size.length() * 1.0, 4.5);
+
+    const faceYaw = size.x >= size.z ? Math.PI / 2 : 0;
+    const orbit = ((index % 8) - 3.5) * (Math.PI / 28);
+    const yaw = faceYaw + orbit;
+    const pitch = 0.48;
+    const offset = new THREE.Vector3(
+      Math.sin(yaw) * Math.cos(pitch),
+      Math.sin(pitch) + 0.1,
+      Math.cos(yaw) * Math.cos(pitch)
+    )
+      .normalize()
+      .multiplyScalar(dist);
+
+    const camPos = center.clone().add(offset);
+    const lookAt = center.clone();
+    lookAt.y += size.y * 0.06;
+
+    const controls: any = world.camera.controls as any;
+    const prevSmooth = controls?.smoothTime;
+    if (typeof prevSmooth === 'number') controls.smoothTime = quick ? 0.12 : 0.28;
+    try {
+      const result = controls?.setLookAt?.(
+        camPos.x,
+        camPos.y,
+        camPos.z,
+        lookAt.x,
+        lookAt.y,
+        lookAt.z,
+        true
+      );
+      if (!quick && result && typeof result.then === 'function') await result;
+    } finally {
+      if (typeof prevSmooth === 'number') controls.smoothTime = prevSmooth;
+    }
+  };
+
+  const flyCameraToFullBuilding = async (quick = false) => {
+    const box = new THREE.Box3();
+    for (const [, m] of models.entries()) {
+      const b = new THREE.Box3().setFromObject(m.object);
+      if (!b.isEmpty()) box.union(b);
+    }
+    if (box.isEmpty()) return;
+
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    const dist = Math.max(size.length() * 1.05, Math.max(size.x, size.z) * 1.45, 14);
+    const offset = new THREE.Vector3(0.78, 0.5, 0.72).normalize().multiplyScalar(dist);
+    const camPos = center.clone().add(offset);
+    const lookAt = center.clone();
+    lookAt.y += size.y * 0.02;
+
+    const controls: any = world.camera.controls as any;
+    const prevSmooth = controls?.smoothTime;
+    if (typeof prevSmooth === 'number') controls.smoothTime = quick ? 0.22 : 0.45;
+    try {
+      const result = controls?.setLookAt?.(
+        camPos.x,
+        camPos.y,
+        camPos.z,
+        lookAt.x,
+        lookAt.y,
+        lookAt.z,
+        true
+      );
+      if (result && typeof result.then === 'function') await result;
+    } finally {
+      if (typeof prevSmooth === 'number') controls.smoothTime = prevSmooth;
+    }
+  };
+
+  const emitInstallSequenceState = () => {
+    try {
+      window.dispatchEvent(
+        new CustomEvent('uniqube-install-sequence', { detail: getInstallSequenceState() })
+      );
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const waitInstallPlay = (ms: number, token: number) =>
+    new Promise<boolean>((resolve) => {
+      window.setTimeout(() => {
+        resolve(installPlaying && token === installPlayToken && installSequenceActive);
+      }, ms);
+    });
+
+  const pauseInstallSequence = () => {
+    installPlaying = false;
+    installPlayToken += 1;
+    emitInstallSequenceState();
+    return { ok: true as const, ...getInstallSequenceState() };
+  };
+
+  const playInstallSequence = async () => {
+    if (!installSequenceActive || !installSequenceKeys.length) {
+      return { ok: false as const, error: 'Install sequence not active', ...getInstallSequenceState() };
+    }
+    if (installPlaying) {
+      return pauseInstallSequence();
+    }
+
+    installPlaying = true;
+    const token = ++installPlayToken;
+    emitInstallSequenceState();
+
+    try {
+      if (installSequenceIndex >= installSequenceKeys.length) {
+        installPlayAdvancing = true;
+        await goInstallSequence('goto', 0);
+        installPlayAdvancing = false;
+        if (!(installPlaying && token === installPlayToken)) {
+          return { ok: true as const, ...getInstallSequenceState() };
+        }
+      }
+
+      if (installSequenceIndex < installSequenceKeys.length) {
+        void flyCameraToInstallPanel(installSequenceIndex, true);
+      }
+
+      while (
+        installPlaying &&
+        token === installPlayToken &&
+        installSequenceActive &&
+        installSequenceIndex < installSequenceKeys.length
+      ) {
+        const goingToFinale = installSequenceIndex === installSequenceKeys.length - 1;
+        installPlayAdvancing = true;
+        await goInstallSequence('next', undefined, { fast: !goingToFinale });
+        installPlayAdvancing = false;
+        if (!(installPlaying && token === installPlayToken)) break;
+        if (installSequenceIndex < installSequenceKeys.length) {
+          void flyCameraToInstallPanel(installSequenceIndex, true);
+        }
+        if (!(await waitInstallPlay(goingToFinale ? 320 : 140, token))) break;
+      }
+    } catch (e) {
+      console.warn('playInstallSequence:', e);
+    } finally {
+      if (token === installPlayToken) {
+        installPlaying = false;
+        emitInstallSequenceState();
+      }
+    }
+
+    return { ok: true as const, ...getInstallSequenceState() };
+  };
+
+  (window as any).__uniqubeViewer = {
+    ...((window as any).__uniqubeViewer || {}),
+    playInstallSequence,
+    pauseInstallSequence,
+  };
+
   // Keep the whole model in view but center the framing toward the selected items.
   // Useful when selected panels are spread out: we use the model's distance but aim near the selection.
   const focusCameraForDistributedSelection = async (
@@ -4285,269 +4304,6 @@ export async function initializeViewer(containerId: string = "container") {
     await fragments.update(true);
   };
 
-  const buildTreeStructureForModel = async (
-    model: FRAGS.FragmentsModel,
-    spatialData: any,
-    lazyLoad: boolean = false
-  ): Promise<TreeNodeData[]> => {
-    const processNode = async (node: any, depth: number = 0): Promise<TreeNodeData[]> => {
-      try {
-        const { localId, category, children } = node;
-
-        // If no localId, just flatten and process children
-        if (localId === null || localId === undefined) {
-          const childResults: TreeNodeData[] = [];
-          if (children && Array.isArray(children)) {
-            for (const child of children) {
-              const childNodes = await processNode(child, depth);
-              childResults.push(...childNodes);
-            }
-          }
-          return childResults;
-        }
-
-        // This node has a localId - include it
-        // Get item data to fetch the name and other attributes
-        const [itemData] = await model.getItemsData([localId], {
-          attributesDefault: false,
-          attributes: ["Name", "Tag", "ObjectType"],
-        });
-
-        // Try to get the best name available
-        let name = category || "Unnamed";
-        if (itemData) {
-          if (itemData.Name && "value" in itemData.Name && itemData.Name.value) {
-            name = itemData.Name.value as string;
-          } else if (itemData.Tag && "value" in itemData.Tag && itemData.Tag.value) {
-            name = itemData.Tag.value as string;
-          } else if (itemData.ObjectType && "value" in itemData.ObjectType && itemData.ObjectType.value) {
-            name = itemData.ObjectType.value as string;
-          }
-        }
-
-        const treeNode: TreeNodeData = {
-          localId,
-          name,
-          category: category || "Unknown",
-          children: [],
-          model: model,
-        };
-
-        // LAZY LOADING: Only process children if depth < 2 (storeys only)
-        if (children && Array.isArray(children)) {
-          if (lazyLoad && depth >= 1) {
-            // Don't load children yet - just show count
-            // This prevents the "..." from showing
-            treeNode.children = [];
-            // Store metadata for potential future lazy loading
-            (treeNode as any)._childCount = children.length;
-            (treeNode as any)._lazyChildren = children;
-          } else {
-            // Load children normally
-            for (const child of children) {
-              const childNodes = await processNode(child, depth + 1);
-              treeNode.children.push(...childNodes);
-            }
-          }
-        }
-
-        return [treeNode];
-      } catch (error) {
-        console.warn("Error processing node:", error, node);
-        return [];
-      }
-    };
-
-    const rootNodes: TreeNodeData[] = [];
-    if (Array.isArray(spatialData)) {
-      for (const rootNode of spatialData) {
-        const processed = await processNode(rootNode, 0);
-        rootNodes.push(...processed);
-      }
-    } else if (spatialData) {
-      const processed = await processNode(spatialData);
-      rootNodes.push(...processed);
-    }
-
-    return rootNodes;
-  };
-
-  // Render tree node for a specific model
-  const renderTreeNodeForModel = (
-    model: FRAGS.FragmentsModel,
-    nodeData: TreeNodeData,
-    parentElement: HTMLElement,
-    level: number = 0
-  ) => {
-    const container = document.createElement("div");
-    container.className = "tree-node-container";
-
-    const node = document.createElement("div");
-    node.className = "tree-node";
-    // Fix: Handle null localId from lazy loading
-    if (nodeData.localId !== null && nodeData.localId !== undefined) {
-      node.dataset.localId = nodeData.localId.toString();
-    }
-    node.style.paddingLeft = `${level * 20 + 10}px`;
-
-    // Toggle icon for expandable nodes
-    const hasChildren = nodeData.children.length > 0;
-    if (hasChildren) {
-      const toggleIcon = document.createElement("span");
-      toggleIcon.className = "tree-toggle-icon"; // Start collapsed (no 'expanded' class)
-      toggleIcon.textContent = "▶";
-      toggleIcon.onclick = (e) => {
-        e.stopPropagation();
-        const childrenContainer = container.querySelector(
-          ".tree-children"
-        ) as HTMLElement;
-        if (childrenContainer) {
-          const isCollapsed = childrenContainer.classList.contains("collapsed");
-          childrenContainer.classList.toggle("collapsed", !isCollapsed);
-          toggleIcon.classList.toggle("expanded", isCollapsed);
-        }
-      };
-      node.appendChild(toggleIcon);
-    } else {
-      const spacer = document.createElement("span");
-      spacer.style.width = "16px";
-      spacer.style.display = "inline-block";
-      node.appendChild(spacer);
-    }
-
-    // Icon
-    const icon = document.createElement("span");
-    icon.className = "tree-icon";
-    icon.textContent = getIconForType(nodeData.category);
-    node.appendChild(icon);
-
-    // Label
-    const label = document.createElement("span");
-    label.className = "tree-label";
-    label.textContent = nodeData.name;
-    label.title = `${nodeData.category} - ${nodeData.name}`;
-    node.appendChild(label);
-
-    // Count badge for children
-    if (hasChildren) {
-      const count = document.createElement("span");
-      count.className = "tree-count";
-      count.textContent = nodeData.children.length.toString();
-      node.appendChild(count);
-    }
-
-    // Click handler for parent node - triggers focus/highlight (optimized)
-    node.onclick = async (e) => {
-      e.stopPropagation();
-
-      try {
-        // Update info panel
-        updateInfoPanel(nodeData);
-
-        // Get all IDs for this node and its children
-        const targetIds = collectAllLocalIds(nodeData);
-        console.log("Focusing on:", nodeData.name, "with", targetIds.length, "elements");
-
-        // Batch all highlight operations for better performance
-        const highlightPromises = [];
-
-        // Reset all highlights first (batched)
-        for (const [_, m] of models.entries()) {
-          highlightPromises.push(m.resetHighlight(undefined));
-        }
-        await Promise.all(highlightPromises);
-        highlightPromises.length = 0; // Clear array
-
-        // Make all elements semi-transparent (ghost mode) - batched
-        for (const [_, m] of models.entries()) {
-          highlightPromises.push(
-            m.highlight(undefined, {
-              color: new THREE.Color(0xcccccc),
-              opacity: 0.2,
-              transparent: true,
-              renderedFaces: FRAGS.RenderedFaces.TWO,
-            })
-          );
-        }
-        await Promise.all(highlightPromises);
-
-        // Highlight selected elements with full opacity and color
-        if (targetIds.length > 0) {
-          try {
-            await model.highlight(targetIds, {
-              color: new THREE.Color('#0047AB'),
-              opacity: 1,
-              transparent: false,
-              renderedFaces: FRAGS.RenderedFaces.TWO,
-            });
-            console.log("Highlight applied to", targetIds.length, "elements");
-            const mapId = getModelMapId(model);
-            if (mapId) {
-              selectedPanels = [];
-              updateSelectionStatusBar();
-              saveFragmentHighlightSnapshot([{ modelId: mapId, ids: targetIds }]);
-            }
-          } catch (error) {
-            console.error("Failed to highlight elements:", error);
-          }
-        } else {
-          selectedPanels = [];
-          lastFragmentHighlight = [];
-          updateSelectionStatusBar();
-        }
-
-        // Focus camera precisely on the selected items (a bit closer than perfect fit)
-        await focusCameraOnLocalIds(targetIds, { closer: 0.9 });
-
-        // Single update call at the end for better performance
-        await fragments.update(true);
-      } catch (error) {
-        console.error("Error in node click handler:", error);
-      }
-    };
-
-    container.appendChild(node);
-    treeNodeMap.set(nodeData.localId, node);
-
-    // Render children as nested tree (recursive)
-    if (hasChildren) {
-      const childrenContainer = document.createElement("div");
-      childrenContainer.className = "tree-children collapsed"; // Start collapsed
-      childrenContainer.style.marginLeft = "0";
-
-      for (const child of nodeData.children) {
-        // Recursively render each child as a full tree node
-        renderTreeNodeForModel(model, child, childrenContainer, level + 1);
-      }
-
-      container.appendChild(childrenContainer);
-    }
-
-    parentElement.appendChild(container);
-  };
-
-  // Recursive function to collect all local IDs from a node and its children (optimized with limit)
-  const collectAllLocalIds = (node: TreeNodeData, maxIds: number = 10000): number[] => {
-    const ids: number[] = [];
-    const stack: TreeNodeData[] = [node];
-
-    while (stack.length > 0 && ids.length < maxIds) {
-      const current = stack.pop()!;
-
-      if (current.localId !== null && current.localId !== undefined) {
-        ids.push(current.localId);
-      }
-
-      if (current.children && current.children.length > 0) {
-        // Limit children to prevent memory overflow
-        const childrenToAdd = current.children.slice(0, Math.min(current.children.length, 1000));
-        stack.push(...childrenToAdd);
-      }
-    }
-
-    return ids;
-  };
-
   // Update info panel with node data
   const updateInfoPanel = (nodeData: TreeNodeData) => {
     const infoPanel = document.getElementById("infoPanel");
@@ -4566,6 +4322,8 @@ export async function initializeViewer(containerId: string = "container") {
 
     // Show the info panel
     infoPanel.classList.remove("panel-hidden");
+    const headerTitle = infoPanel.querySelector('#infoPanelHeader h3');
+    if (headerTitle) headerTitle.textContent = 'Panel Information';
 
     // Update basic info in the info section
     const infoSection = infoPanel.querySelector(".info-section");
@@ -4712,8 +4470,10 @@ export async function initializeViewer(containerId: string = "container") {
     return allPanels;
   };
 
-  const isPanelInSelection = (modelId: string, panelLocalId: number) =>
-    findSelectedPanelIndex(modelId, panelLocalId) >= 0;
+  const isPanelInSelection = (modelId: string, panelLocalId: number) => {
+    const key = findBimsfPanelKey(modelId, panelLocalId);
+    return findSelectedPanelIndex(modelId, panelLocalId, key || undefined) >= 0;
+  };
 
   const filterMultiSelectList = (query: string) => {
     const list = document.getElementById('multi-select-checkbox-list');
@@ -4772,17 +4532,15 @@ export async function initializeViewer(containerId: string = "container") {
         skipInfoPanelRefresh: true,
       });
 
-      if (selectedPanels.length <= 1) {
-        showSelectionInfoPanel();
+      if (uniquePanelCount() <= 1) {
+        void showSelectionInfoPanel();
         return;
       }
 
       const countEl = document.getElementById('multi-select-count');
       if (countEl) {
-        countEl.textContent =
-          selectedPanels.length === 1
-            ? '1 panel selected'
-            : `${selectedPanels.length} panels selected`;
+        const n = uniquePanelCount();
+        countEl.textContent = n === 1 ? '1 panel selected' : `${n} panels selected`;
       }
     };
   };
@@ -4797,7 +4555,7 @@ export async function initializeViewer(containerId: string = "container") {
     infoSection.innerHTML = `
       <div class="info-row">
         <div class="info-label">Selection</div>
-        <div class="info-value" id="multi-select-count">${selectedPanels.length} panels selected</div>
+        <div class="info-value" id="multi-select-count">${uniquePanelCount()} panels selected</div>
       </div>
       <div class="multi-select-search-wrap">
         <i class="fas fa-search"></i>
@@ -4930,959 +4688,12 @@ export async function initializeViewer(containerId: string = "container") {
     }
   };
 
-  // Helper to fetch panel location (deep linking)
-  const fetchPanelLocation = async (projectId: string, localId: number) => {
-    try {
-      const token = localStorage.getItem('auth_token');
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      const response = await fetch(`${API_BASE_URL}/panels/${projectId}/panel-location?localId=${localId}`, {
-        method: 'GET',
-        headers: headers,
-      });
-
-      if (!response.ok) {
-        if (response.status === 404) return null;
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      return await response.json(); // { panelId, modelId, storey, page }
-    } catch (error) {
-      console.error('Error fetching panel location:', error);
-      return null;
-    }
-  };
-
-  // Cache for tree structure
-  let treeStructureCache: any = null;
-
-  const fetchTreeStructureFromDatabase = async (projectId: string) => {
-    try {
-      // Return cached structure if available
-      if (treeStructureCache) {
-        console.log('📦 Using cached tree structure');
-        return treeStructureCache;
-      }
-
-      console.log(`🗄️ Fetching tree hierarchy from database for project ${projectId}...`);
-
-      const token = localStorage.getItem('auth_token');
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      console.time('⏱️ Fetch hierarchy from API');
-      // Fetch hierarchy (Models -> Storeys) only
-      const response = await fetch(`${API_BASE_URL}/panels/${projectId}/hierarchy`, {
-        method: 'GET',
-        headers: headers,
-      });
-
-      console.timeEnd('⏱️ Fetch hierarchy from API');
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      const hierarchy = data.hierarchy || [];
-
-      console.log(`✅ Loaded hierarchy for ${hierarchy.length} models`);
-
-      // Convert to tree structure
-      const treeStructure = hierarchy.map((model: any) => ({
-        modelId: model.modelId,
-        modelName: model.modelName || 'Unknown Model',
-        category: model.category || null,
-        displayName: model.displayName || null,
-        storeys: model.storeys.map((storey: any) => ({
-          name: storey.name,
-          type: 'IfcBuildingStorey',
-          elementCount: storey.elementCount,
-          children: [], // Empty initially
-          // Lazy loading metadata
-          _isLazy: true,
-          _childCount: storey.elementCount,
-          _loaded: false,
-          _modelId: model.modelId,
-          _storeyName: storey.name
-        })),
-        totalPanels: model.storeys.reduce((sum: any, s: any) => sum + s.elementCount, 0)
-      }));
-
-      // Cache the result
-      treeStructureCache = treeStructure;
-
-      return treeStructure;
-
-    } catch (error) {
-      console.error('Error fetching tree structure from database:', error);
-      return null;
-    }
-  };
-
-  // Initialize tree for multiple models
-  const initializeObjectTree = async () => {
-    console.log("=== INITIALIZING OBJECT TREE FOR MULTIPLE MODELS ===");
-    const treeContainer = document.getElementById("tree-container");
-    if (!treeContainer) {
-      console.error("Tree container not found");
-      return;
-    }
-
-    // Show loading with progress
-    treeContainer.innerHTML = `
-    <div style="color: #aaa; padding: 20px; text-align: center;">
-      <i class="fas fa-spinner fa-spin" style="font-size: 24px; margin-bottom: 10px;"></i>
-      <div>Loading tree structure from database...</div>
-      <div style="font-size: 12px; margin-top: 10px; opacity: 0.7;">
-        Fast loading - optimized from database
-      </div>
-    </div>
-  `;
-
-    try {
-      // NEW: Fetch from database first (much faster!)
-      // URL format: /projects/5/viewer-engine -> get the project ID (5)
-      const pathParts = window.location.pathname.split('/');
-      const projectsIndex = pathParts.indexOf('projects');
-      const projectIdFromUrl = projectsIndex >= 0 ? pathParts[projectsIndex + 1] : null;
-      console.log(`🔍 Project ID from URL: ${projectIdFromUrl}`);
-
-      if (projectIdFromUrl) {
-        const dbTreeStructure = await fetchTreeStructureFromDatabase(projectIdFromUrl);
-        console.log(`📊 Database tree structure result:`, dbTreeStructure);
-
-        if (dbTreeStructure && dbTreeStructure.length > 0) {
-          console.log(`✅ Using database tree structure (optimized) - ${dbTreeStructure.length} models`);
-
-          // Render database tree structure with separate model folders
-          const fragment = document.createDocumentFragment();
-
-          // Create separate model containers
-          for (const modelData of dbTreeStructure) {
-            // Create model root node
-            const modelContainer = document.createElement("div");
-            modelContainer.className = "tree-node-container model-root";
-            (modelContainer as any)._modelId = modelData.modelId;
-
-            const modelNode = document.createElement("div");
-            modelNode.className = "tree-node model-node";
-            modelNode.dataset.modelId = modelData.modelId;
-            modelNode.style.paddingLeft = "10px";
-            modelNode.style.fontWeight = "600";
-            modelNode.style.cursor = "pointer";
-
-            // Keep discipline map in sync for BIMSF M/S/A controls
-            registerModelDiscipline(
-              modelData.modelId,
-              modelData.category,
-              modelData.modelName || modelData.displayName
-            );
-
-            // Toggle icon
-            const toggleIcon = document.createElement("span");
-            toggleIcon.className = "tree-toggle-icon";
-            toggleIcon.textContent = "▶";
-            modelNode.onclick = (e) => {
-              e.stopPropagation();
-              const childrenContainer = modelContainer.querySelector(".model-children") as HTMLElement;
-              if (childrenContainer) {
-                const isCollapsed = childrenContainer.classList.contains("collapsed");
-                childrenContainer.classList.toggle("collapsed", !isCollapsed);
-                toggleIcon.classList.toggle("expanded", isCollapsed);
-              }
-            };
-            modelNode.appendChild(toggleIcon);
-
-            // Model icon
-            const icon = document.createElement("i");
-            icon.className = "tree-icon";
-            icon.setAttribute("data-lucide", "building-2");
-            modelNode.appendChild(icon);
-
-            // Model name label
-            const label = document.createElement("span");
-            label.className = "tree-label";
-            // Remove .frag extension if present
-            const displayName = modelData.modelName.replace(/\.frag$/i, '');
-            label.textContent = displayName;
-            modelNode.appendChild(label);
-
-            // Count badge - show total panels
-            const count = document.createElement("span");
-            count.className = "tree-count";
-            count.textContent = modelData.totalPanels.toString();
-            modelNode.appendChild(count);
-
-            // Eye icon for show/hide model
-            const eyeIcon = document.createElement("i");
-            eyeIcon.className = "fas fa-eye tree-eye-icon";
-            eyeIcon.title = "Show/Hide Model";
-            eyeIcon.style.cssText = "margin-left: 8px; cursor: pointer; font-size: 12px; opacity: 0.7; transition: opacity 0.2s;";
-
-            // Track visibility state
-            let isModelVisible = true;
-
-            eyeIcon.onclick = async (e) => {
-              e.stopPropagation();
-
-              // Get the target model
-              const targetModel = models.get(modelData.modelId);
-              if (targetModel) {
-                isModelVisible = !isModelVisible;
-
-                // Update eye icon
-                eyeIcon.className = isModelVisible ? "fas fa-eye tree-eye-icon" : "fas fa-eye-slash tree-eye-icon";
-                eyeIcon.style.opacity = isModelVisible ? "0.7" : "0.4";
-
-                // Show/hide the model in 3D viewer
-                if (targetModel.object) {
-                  targetModel.object.visible = isModelVisible;
-                  console.log(`${isModelVisible ? '👁️ Showing' : '🙈 Hiding'} model: ${modelData.modelName}`);
-
-                  // Update the fragments
-                  await fragments.update(true);
-                }
-              }
-            };
-
-            // Hover effects
-            eyeIcon.onmouseenter = () => {
-              eyeIcon.style.opacity = "1";
-            };
-            eyeIcon.onmouseleave = () => {
-              eyeIcon.style.opacity = isModelVisible ? "0.7" : "0.4";
-            };
-
-            modelNode.appendChild(eyeIcon);
-            modelContainer.appendChild(modelNode);
-
-            // Children container for storeys
-            const childrenContainer = document.createElement("div");
-            childrenContainer.className = "model-children collapsed";
-
-            // Render storeys for this model
-            modelData.storeys.forEach((storey: any) => {
-              renderDatabaseStoreyNode(storey, childrenContainer, modelData.modelId);
-            });
-
-            modelContainer.appendChild(childrenContainer);
-            fragment.appendChild(modelContainer);
-          }
-
-          treeContainer.innerHTML = "";
-          treeContainer.appendChild(fragment);
-
-          // Initialize Lucide icons
-          if ((window as any).lucide) {
-            (window as any).lucide.createIcons();
-          }
-
-          console.log("✅ Database tree structure rendered successfully");
-          return;
-        }
-      }
-
-      // FALLBACK: Use old IFC model extraction if database fails (COMMENTED OUT - using database only now)
-      console.log("⚠️ Database tree not available, falling back to IFC model extraction...");
-      // await initializeObjectTreeFromModel();  // OLD METHOD - Commented out, using database tree only
-      treeContainer.innerHTML = '<div style="color: #ff6b6b; padding: 20px; text-align: center;"><i class="fas fa-exclamation-triangle"></i><br/>Database tree not available<br/><small>Please ensure panels are loaded in the database</small></div>';
-
-    } catch (error) {
-      console.error("Error initializing tree:", error);
-      treeContainer.innerHTML = '<div style="color: #ff6b6b; padding: 20px; text-align: center;"><i class="fas fa-exclamation-triangle"></i><br/>Error loading tree structure</div>';
-    }
-  };
-
-  // Helper function to render database storey nodes
-  const renderDatabaseStoreyNode = (storey: any, container: HTMLElement, modelId: string) => {
-    const storeyContainer = document.createElement("div");
-    storeyContainer.className = "tree-node-container";
-
-    const storeyNode = document.createElement("div");
-    storeyNode.className = "tree-node storey-node";
-    storeyNode.style.paddingLeft = "30px";
-    storeyNode.style.cursor = "pointer";
-    // Attach data for deep linking
-    (storeyNode as any)._storeyData = storey;
-    storeyNode.dataset.storeyName = storey.name;
-
-    // Toggle icon
-    const toggleIcon = document.createElement("span");
-    toggleIcon.className = "tree-toggle-icon";
-    toggleIcon.textContent = "▶";
-
-    storeyNode.onclick = async (e) => {
-      e.stopPropagation();
-      const childrenContainer = storeyContainer.querySelector(".storey-children") as HTMLElement;
-
-      if (childrenContainer) {
-        const isCollapsed = childrenContainer.classList.contains("collapsed");
-
-        // LAZY LOADING LOGIC
-        if (isCollapsed && storey._isLazy && !storey._loaded && !storey._loading) {
-          storey._loading = true;
-          toggleIcon.classList.add("loading");
-          toggleIcon.textContent = "⏳";
-
-          try {
-            // Fetch first page of panels
-            const result = await fetchPanelsForStorey(
-              projectIdFromUrl!,
-              modelId,
-              storey.name,
-              1,
-              50
-            );
-
-            if (result && result.panels) {
-              // Update cache
-              result.panels.forEach((panel: any) => {
-                panelDataCache.set(panel.id, panel);
-                // Use expressId (robust) or fallback to metadata
-                const localId = panel.element?.expressId || (panel.metadata?.ifcElementId ? parseInt(panel.metadata.ifcElementId) : null);
-                if (localId) {
-                  localIdPanelMap.set(localId, panel);
-                }
-              });
-
-              storey.children = result.panels;
-              storey._loaded = true;
-              storey._page = 1;
-              storey._hasMore = result.panels.length < result.total;
-
-              // Render the newly fetched children
-              childrenContainer.innerHTML = ""; // Clear loading placeholder
-              storey.children.forEach((panel: any) => {
-                renderDatabasePanelNode(panel, childrenContainer);
-              });
-
-              // Initialize Lucide icons for newly rendered panels
-              if ((window as any).lucide) {
-                (window as any).lucide.createIcons();
-              }
-
-              // Add "Load More" button if needed
-              if (storey._hasMore) {
-                renderStoreyLoadMoreButton(storey, childrenContainer, modelId);
-              }
-            }
-          } catch (err) {
-            console.error("Failed to load storey children", err);
-            childrenContainer.innerHTML = "<div style='padding-left: 50px; color: red;'>Failed to load</div>";
-          } finally {
-            storey._loading = false;
-            toggleIcon.classList.remove("loading");
-            toggleIcon.textContent = "▶";
-          }
-        }
-
-        childrenContainer.classList.toggle("collapsed", !isCollapsed);
-        toggleIcon.classList.toggle("expanded", isCollapsed);
-      }
-    };
-    storeyNode.appendChild(toggleIcon);
-
-    // Icon
-    const icon = document.createElement("i");
-    icon.className = "tree-icon";
-    icon.setAttribute("data-lucide", "layers");
-    storeyNode.appendChild(icon);
-
-    // Label
-    const label = document.createElement("span");
-    label.className = "tree-label";
-    label.textContent = storey.name;
-    storeyNode.appendChild(label);
-
-    // Count badge
-    const count = document.createElement("span");
-    count.className = "tree-count";
-    // Show total count if lazy, otherwise loaded count
-    count.textContent = storey._isLazy
-      ? (storey._childCount || 0).toString()
-      : (storey.children?.length || 0).toString();
-    storeyNode.appendChild(count);
-
-    storeyContainer.appendChild(storeyNode);
-
-    // Children container
-    const childrenContainer = document.createElement("div");
-    childrenContainer.className = "storey-children collapsed";
-
-    // Render panels if already loaded (or not lazy)
-    if (!storey._isLazy || storey._loaded) {
-      if (storey.children && Array.isArray(storey.children)) {
-        storey.children.forEach((panel: any) => {
-          renderDatabasePanelNode(panel, childrenContainer);
-        });
-      }
-    }
-
-    storeyContainer.appendChild(childrenContainer);
-    container.appendChild(storeyContainer);
-  };
-
-  // Helper to render "Load Previous" button for storeys
-  const renderStoreyLoadPreviousButton = (storey: any, container: HTMLElement, modelId: string) => {
-    const loadPrevBtn = document.createElement("div");
-    loadPrevBtn.className = "tree-node load-prev-btn";
-    loadPrevBtn.style.paddingLeft = "50px";
-    loadPrevBtn.style.cursor = "pointer";
-    loadPrevBtn.style.color = "var(--primary)";
-    loadPrevBtn.textContent = "Load previous...";
-
-    loadPrevBtn.onclick = async (e) => {
-      e.stopPropagation();
-      loadPrevBtn.textContent = "Loading...";
-
-      try {
-        const prevPage = (storey._startPage || 1) - 1;
-        if (prevPage < 1) return;
-
-        const result = await fetchPanelsForStorey(
-          projectIdFromUrl!,
-          modelId,
-          storey.name,
-          prevPage,
-          50
-        );
-
-        if (result && result.panels) {
-          loadPrevBtn.remove();
-
-          // Update cache
-          result.panels.forEach((panel: any) => {
-            panelDataCache.set(panel.id, panel);
-            // Use expressId (robust) or fallback to metadata
-            const localId = panel.element?.expressId || (panel.metadata?.ifcElementId ? parseInt(panel.metadata.ifcElementId) : null);
-            if (localId) {
-              localIdPanelMap.set(localId, panel);
-            }
-          });
-
-          // Prepend to existing children
-          storey.children.unshift(...result.panels);
-          storey._startPage = prevPage;
-
-          // Render new children at the top (after where the button was)
-          // We need to insert them before the first panel node
-          const firstPanelNode = container.querySelector('.panel-node');
-
-          // Create a temporary container to render nodes
-          const tempContainer = document.createElement('div');
-          result.panels.forEach((panel: any) => {
-            renderDatabasePanelNode(panel, tempContainer);
-          });
-
-          // Move nodes from temp container to real container
-          while (tempContainer.firstChild) {
-            container.insertBefore(tempContainer.firstChild, firstPanelNode);
-          }
-
-          // Re-add button if there are more previous pages
-          if (prevPage > 1) {
-            renderStoreyLoadPreviousButton(storey, container, modelId);
-          }
-        }
-      } catch (error) {
-        console.error("Failed to load previous panels:", error);
-        loadPrevBtn.textContent = "Retry load previous";
-      }
-    };
-
-    container.prepend(loadPrevBtn);
-  };
-
-  // Helper to render "Load More" button for storeys
-  const renderStoreyLoadMoreButton = (storey: any, container: HTMLElement, modelId: string) => {
-    const loadMoreBtn = document.createElement("div");
-    loadMoreBtn.className = "tree-node load-more-btn";
-    loadMoreBtn.style.paddingLeft = "50px";
-    loadMoreBtn.style.cursor = "pointer";
-    loadMoreBtn.style.color = "var(--primary)";
-    loadMoreBtn.textContent = "Load more...";
-
-    loadMoreBtn.onclick = async (e) => {
-      e.stopPropagation();
-      loadMoreBtn.textContent = "Loading...";
-
-      try {
-        const nextPage = (storey._page || 1) + 1;
-        const result = await fetchPanelsForStorey(
-          projectIdFromUrl!,
-          modelId,
-          storey.name,
-          nextPage,
-          50
-        );
-
-        if (result && result.panels) {
-          loadMoreBtn.remove();
-
-          // Update cache
-          result.panels.forEach((panel: any) => {
-            panelDataCache.set(panel.id, panel);
-            // Use expressId (robust) or fallback to metadata
-            const localId = panel.element?.expressId || (panel.metadata?.ifcElementId ? parseInt(panel.metadata.ifcElementId) : null);
-            if (localId) {
-              localIdPanelMap.set(localId, panel);
-            }
-          });
-
-          // Append to existing children
-          storey.children.push(...result.panels);
-          storey._page = nextPage;
-          storey._hasMore = (result.total > (nextPage * 50));
-
-          // Render new children
-          result.panels.forEach((panel: any) => {
-            renderDatabasePanelNode(panel, container);
-          });
-
-          // Initialize Lucide icons for newly added panels
-          if ((window as any).lucide) {
-            (window as any).lucide.createIcons();
-          }
-
-          // Add button again if more
-          if (storey._hasMore) {
-            renderStoreyLoadMoreButton(storey, container, modelId);
-          }
-        }
-      } catch (err) {
-        console.error("Failed to load more panels", err);
-        loadMoreBtn.textContent = "Failed to load (retry)";
-      }
-    };
-
-    container.appendChild(loadMoreBtn);
-  };
-
-  // Helper function to render database panel nodes
-  const renderDatabasePanelNode = (panel: any, container: HTMLElement) => {
-    const panelNode = document.createElement("div");
-    panelNode.className = "tree-node panel-node";
-    panelNode.style.paddingLeft = "50px";
-
-    if (panel.localId) {
-      panelNode.dataset.localId = panel.localId.toString();
-      // Debug log to verify rendering
-      // console.log(`Rendering panel node: ${panel.localId}`);
-    } else {
-      console.warn("Panel missing localId:", panel);
-    }
-
-    // Panel icon
-    const icon = document.createElement("i");
-    icon.className = "tree-icon";
-    icon.setAttribute("data-lucide", "box");
-    panelNode.appendChild(icon);
-
-    // Panel name
-    const label = document.createElement("span");
-    label.className = "tree-label";
-    label.textContent = panel.name || panel.tag || "Unnamed Panel";
-    panelNode.appendChild(label);
-
-    // Type badge
-    const typeBadge = document.createElement("span");
-    typeBadge.className = "tree-type-badge";
-    if (panel.type) {
-      typeBadge.textContent = panel.type.replace('Ifc', '');
-    } else {
-      typeBadge.textContent = "Unknown";
-    }
-    typeBadge.style.cssText = "font-size: 10px; color: #64748b; margin-left: 8px;";
-    panelNode.appendChild(typeBadge);
-
-    // Add to tree node map for filtering
-    if (panel.localId) {
-      treeNodeMap.set(panel.localId, panelNode);
-    }
-
-    // Click handler for highlighting and showing element info
-    panelNode.onclick = async (ev: MouseEvent) => {
-      if (!panel.localId) return;
-      const additive = ev.ctrlKey || ev.metaKey;
-      console.log(`Clicked panel: ${panel.name}, localId: ${panel.localId}, modelId: ${panel.modelId}`);
-      await selectPanels(panel.localId, panel.modelId, { mode: additive ? 'toggle' : 'replace' });
-    };
-
-    container.appendChild(panelNode);
-  };
-
-  // Setup search functionality
-  const setupSearch = (projectId: string) => {
-    const searchInput = document.getElementById('tree-search') as HTMLInputElement;
-    if (!searchInput) return;
-
-    // Remove existing listeners (by cloning)
-    const newSearchInput = searchInput.cloneNode(true) as HTMLInputElement;
-    searchInput.parentNode?.replaceChild(newSearchInput, searchInput);
-
-    let debounceTimer: any;
-
-    newSearchInput.addEventListener('input', (e) => {
-      const query = (e.target as HTMLInputElement).value.trim();
-
-      clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(async () => {
-        const treeContainer = document.getElementById("tree-container");
-        if (!treeContainer) return;
-
-        if (query.length === 0) {
-          // Reset to hierarchy view by re-fetching
-          treeContainer.innerHTML = '<div style="padding: 20px; text-align: center;"><i class="fas fa-spinner fa-spin"></i> Reloading tree...</div>';
-          const dbTreeStructure = await fetchTreeStructureFromDatabase(projectId);
-
-          if (dbTreeStructure && dbTreeStructure.length > 0) {
-            treeContainer.innerHTML = "";
-            const fragment = document.createDocumentFragment();
-
-            // Re-render hierarchy (duplicated logic, but necessary for reset)
-            for (const modelData of dbTreeStructure) {
-              const modelContainer = document.createElement("div");
-              modelContainer.className = "tree-node-container model-root";
-
-              const modelNode = document.createElement("div");
-              modelNode.className = "tree-node model-node";
-              modelNode.style.paddingLeft = "10px";
-              modelNode.style.fontWeight = "600";
-
-              // Toggle icon
-              const toggleIcon = document.createElement("span");
-              toggleIcon.className = "tree-toggle-icon";
-              toggleIcon.textContent = "▶";
-              toggleIcon.onclick = (e) => {
-                e.stopPropagation();
-                const childrenContainer = modelContainer.querySelector(".model-children") as HTMLElement;
-                if (childrenContainer) {
-                  const isCollapsed = childrenContainer.classList.contains("collapsed");
-                  childrenContainer.classList.toggle("collapsed", !isCollapsed);
-                  toggleIcon.classList.toggle("expanded", isCollapsed);
-                }
-              };
-              modelNode.appendChild(toggleIcon);
-
-              const icon = document.createElement("i");
-              icon.className = "tree-icon";
-              icon.setAttribute("data-lucide", "building-2");
-              modelNode.appendChild(icon);
-
-              const label = document.createElement("span");
-              label.className = "tree-label";
-              label.textContent = modelData.modelName.replace(/\.frag$/i, '');
-              modelNode.appendChild(label);
-
-              const count = document.createElement("span");
-              count.className = "tree-count";
-              count.textContent = modelData.totalPanels.toString();
-              modelNode.appendChild(count);
-
-              modelContainer.appendChild(modelNode);
-
-              const childrenContainer = document.createElement("div");
-              childrenContainer.className = "model-children collapsed";
-
-              modelData.storeys.forEach((storey: any) => {
-                renderDatabaseStoreyNode(storey, childrenContainer, modelData.modelId);
-              });
-
-              modelContainer.appendChild(childrenContainer);
-              fragment.appendChild(modelContainer);
-            }
-            treeContainer.appendChild(fragment);
-          }
-          return;
-        }
-
-        if (query.length < 2) return;
-
-        // Show loading
-        treeContainer.innerHTML = '<div style="padding: 20px; text-align: center;"><i class="fas fa-spinner fa-spin"></i> Searching...</div>';
-
-        try {
-          const token = localStorage.getItem('auth_token');
-          const headers: Record<string, string> = {
-            'Content-Type': 'application/json',
-          };
-          if (token) {
-            headers['Authorization'] = `Bearer ${token}`;
-          }
-
-          const response = await fetch(`${API_BASE_URL}/panels/${projectId}?search=${encodeURIComponent(query)}&limit=100`, {
-            method: 'GET',
-            headers: headers
-          });
-          const data = await response.json();
-
-          // Map backend data to frontend model
-          if (data.panels) {
-            data.panels = data.panels.map((p: any) => ({
-              ...p,
-              type: p.objectType || p.element?.ifcType || p.type || 'Unknown',
-              localId: p.metadata?.ifcElementId ? parseInt(p.metadata.ifcElementId) : (p.element?.id || null)
-            }));
-          }
-
-          treeContainer.innerHTML = '';
-          if (data.panels && data.panels.length > 0) {
-            const resultsHeader = document.createElement('div');
-            resultsHeader.style.padding = '10px';
-            resultsHeader.style.fontWeight = 'bold';
-            resultsHeader.style.borderBottom = '1px solid var(--slate-200)';
-            const totalCount = data.pagination ? data.pagination.total : (data.total || data.panels.length);
-            resultsHeader.textContent = `Found ${totalCount} results for "${query}"`;
-            treeContainer.appendChild(resultsHeader);
-
-            const resultsContainer = document.createElement('div');
-            resultsContainer.className = 'search-results';
-
-            data.panels.forEach((panel: any) => {
-              renderDatabasePanelNode(panel, resultsContainer);
-            });
-            treeContainer.appendChild(resultsContainer);
-          } else {
-            treeContainer.innerHTML = '<div style="padding: 20px; text-align: center;">No results found</div>';
-          }
-        } catch (error) {
-          console.error('Search failed', error);
-          treeContainer.innerHTML = '<div style="color: red; padding: 20px; text-align: center;">Search failed</div>';
-        }
-      }, 300);
-    });
-  };
-
-  if (projectIdFromUrl) {
-    setupSearch(projectIdFromUrl);
-  }
-
-  // OLD: Initialize tree from IFC model (commented out - kept as fallback)
-  const initializeObjectTreeFromModel = async () => {
-    console.log("=== INITIALIZING OBJECT TREE FROM IFC MODEL (FALLBACK) ===");
-    const treeContainer = document.getElementById("tree-container");
-    if (!treeContainer) {
-      console.error("Tree container not found");
-      return;
-    }
-
-    // Show loading with progress
-    treeContainer.innerHTML = `
-    <div style="color: #aaa; padding: 20px; text-align: center;">
-      <i class="fas fa-spinner fa-spin" style="font-size: 24px; margin-bottom: 10px;"></i>
-      <div>Loading tree structure...</div>
-      <div style="font-size: 12px; margin-top: 10px; opacity: 0.7;">
-        This may take 10-30 seconds for large models
-      </div>
-    </div>
-  `;
-
-    try {
-      // Use DocumentFragment for better performance
-      const fragment = document.createDocumentFragment();
-
-      // Fetch model info once for efficient lookup
-      const modelInfo = await fetchProjectModels(projectIdFromUrl);
-      const modelLookup = new Map(modelInfo.map(m => [m.id, m]));
-
-      // Process each model with timeout
-      for (const [modelId, model] of models.entries()) {
-        // Get the original filename for display
-        const modelData = modelLookup.get(modelId);
-        const modelName = modelData ? modelData.name : modelId;
-
-        console.log(`📦 Processing model: ${modelName} (ID: ${modelId})`);
-
-        // Update progress
-        treeContainer.innerHTML = `
-        <div style="color: #aaa; padding: 20px; text-align: center;">
-          <i class="fas fa-spinner fa-spin" style="font-size: 24px; margin-bottom: 10px;"></i>
-          <div>Extracting spatial structure...</div>
-          <div style="font-size: 12px; margin-top: 10px; opacity: 0.7;">
-            Processing: ${modelName}
-          </div>
-        </div>
-      `;
-
-        try {
-          console.time(`getSpatialStructure-${modelName}`);
-
-          // Get spatial structure with timeout (30 seconds max)
-          const spatialDataPromise = model.getSpatialStructure();
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Timeout: Model is too large or complex')), 30000)
-          );
-
-          const spatialData = await Promise.race([spatialDataPromise, timeoutPromise]);
-          console.timeEnd(`getSpatialStructure-${modelName}`);
-          console.log(`✅ Spatial structure for ${modelName}:`, spatialData);
-
-          if (!spatialData) {
-            console.warn(`⚠️ No spatial structure for ${modelName}`);
-            treeContainer.innerHTML = '<div style="color: #ff6b6b; padding: 20px; text-align: center;">No spatial structure found in model</div>';
-            continue;
-          }
-
-          // Check if spatialData is empty or invalid
-          if (Array.isArray(spatialData) && spatialData.length === 0) {
-            console.warn(`⚠️ Empty spatial structure array for ${modelName}`);
-            treeContainer.innerHTML = '<div style="color: #ff6b6b; padding: 20px; text-align: center;">Model has no spatial hierarchy</div>';
-            continue;
-          }
-
-          console.log(`🔨 Building tree structure for ${modelName}...`);
-          console.time(`buildTree-${modelName}`);
-
-          // Build tree structure for this model
-          const treeData = await buildTreeStructureForModel(model, spatialData);
-
-          console.timeEnd(`buildTree-${modelName}`);
-          console.log(`✅ Tree data for ${modelName}:`, treeData);
-          console.log(`📊 Tree has ${treeData.length} root nodes`);
-
-          // Create model root node
-          const modelContainer = document.createElement("div");
-          modelContainer.className = "tree-node-container model-root";
-
-          const modelNode = document.createElement("div");
-          modelNode.className = "tree-node model-node";
-          modelNode.style.paddingLeft = "10px";
-          modelNode.style.fontWeight = "600";
-
-          // Toggle icon
-          const toggleIcon = document.createElement("span");
-          toggleIcon.className = "tree-toggle-icon";
-          toggleIcon.textContent = "▶";
-          toggleIcon.onclick = (e) => {
-            e.stopPropagation();
-            const childrenContainer = modelContainer.querySelector(".model-children") as HTMLElement;
-            if (childrenContainer) {
-              const isCollapsed = childrenContainer.classList.contains("collapsed");
-              childrenContainer.classList.toggle("collapsed", !isCollapsed);
-              toggleIcon.classList.toggle("expanded", isCollapsed);
-            }
-          };
-          modelNode.appendChild(toggleIcon);
-
-          // Model icon based on category
-          const icon = document.createElement("i");
-          icon.className = "tree-icon";
-
-          // Get category-specific icon
-          const category = modelData?.category || 'OTHER';
-          switch (category) {
-            case 'STRUCTURE':
-              icon.setAttribute("data-lucide", "building");
-              break;
-            case 'MEP':
-              icon.setAttribute("data-lucide", "wrench");
-              break;
-            case 'ELECTRICAL':
-              icon.setAttribute("data-lucide", "zap");
-              break;
-            default:
-              icon.setAttribute("data-lucide", "building-2");
-          }
-          modelNode.appendChild(icon);
-
-          // Model name label with category
-          const label = document.createElement("span");
-          label.className = "tree-label";
-
-          // Create a more descriptive name
-          const baseName = modelName.replace(/\.(ifc|frag)$/i, '');
-          const categoryLabel = category !== 'OTHER' ? ` (${category})` : '';
-          label.textContent = `${baseName}${categoryLabel}`;
-          modelNode.appendChild(label);
-
-          // Count badge
-          const count = document.createElement("span");
-          count.className = "tree-count";
-          count.textContent = treeData.length.toString();
-          modelNode.appendChild(count);
-
-          modelContainer.appendChild(modelNode);
-
-          // Children container
-          const childrenContainer = document.createElement("div");
-          childrenContainer.className = "model-children collapsed";
-
-          // Render storeys for this model using fragment
-          for (const storeyNode of treeData) {
-            renderTreeNodeForModel(model, storeyNode, childrenContainer, 1);
-          }
-
-          modelContainer.appendChild(childrenContainer);
-          fragment.appendChild(modelContainer);
-
-        } catch (error) {
-          console.error(`Error processing ${modelName}:`, error);
-          // Show error in tree container
-          const errorDiv = document.createElement('div');
-          errorDiv.style.cssText = 'color: #ff6b6b; padding: 20px; text-align: center;';
-          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-          errorDiv.innerHTML = `<i class="fas fa-exclamation-triangle"></i><br/>Error loading tree for ${modelName}<br/><small>${errorMessage}</small>`;
-          fragment.appendChild(errorDiv);
-        }
-      }
-
-      // Append all at once for better performance
-      treeContainer.innerHTML = "";
-
-      if (fragment.childNodes.length === 0) {
-        treeContainer.innerHTML = '<div style="color: #ff6b6b; padding: 20px; text-align: center;"><i class="fas fa-exclamation-triangle"></i><br/>No tree data available<br/><small>Model may not have spatial structure</small></div>';
-      } else {
-        treeContainer.appendChild(fragment);
-        console.log("=== TREE INITIALIZED FOR ALL MODELS ===");
-      }
-    } catch (error) {
-      console.error("Error initializing tree:", error);
-      treeContainer.innerHTML = '<div style="color: #ff6b6b; padding: 20px; text-align: center;"><i class="fas fa-exclamation-triangle"></i><br/>Error loading tree<br/><small>Check console for details</small></div>';
-    }
-  };
-
-  // Tree panel toggle functionality
-  const treePanel = document.getElementById("tree-panel");
-  const treeToggleBtn = document.getElementById("tree-toggle-btn");
-  const treeCloseBtn = document.getElementById("tree-close-btn");
   const treeResetBtn = document.getElementById("tree-reset-btn");
-
-  console.log("Tree panel elements:", { treePanel, treeToggleBtn, treeCloseBtn });
-
-  if (treeToggleBtn && treePanel) {
-    treeToggleBtn.addEventListener("click", () => {
-      console.log("Tree toggle button clicked!");
-      console.log("Panel classes before toggle:", treePanel.className);
-      treePanel.classList.toggle("panel-hidden");
-      console.log("Panel classes after toggle:", treePanel.className);
-    });
-    console.log("✅ Tree toggle button event listener attached");
-  } else {
-    console.error("❌ Tree toggle button or panel not found!", { treeToggleBtn, treePanel });
-  }
-
-  if (treeCloseBtn && treePanel) {
-    treeCloseBtn.addEventListener("click", () => {
-      treePanel.classList.add("panel-hidden");
-    });
-  }
 
   // Selection tool toggle and picking
   const selectionBtn = document.getElementById('selection-tool-btn');
   let selectionActive = false;
   let selectionHandler: any = null;
-  let openTreeNextSelection = false;
   if (selectionBtn) {
     const casters = components.get(OBC.Raycasters);
     const caster = casters.get(world);
@@ -5904,7 +4715,6 @@ export async function initializeViewer(containerId: string = "container") {
           console.log(
             `🖱️ Double-click for selection at ${ev.clientX}, ${ev.clientY}${additive ? ' (add/remove)' : ''}`
           );
-          openTreeNextSelection = !!ev.shiftKey;
           const rect = canvas.getBoundingClientRect();
           const ndc = new THREE.Vector2(
             ((ev.clientX - rect.left) / rect.width) * 2 - 1,
@@ -6416,6 +5226,106 @@ export async function initializeViewer(containerId: string = "container") {
     return total;
   };
 
+  reapplyHiddenLayers = async () => {
+    const layers = (Object.keys(hideLayerState) as Array<keyof typeof hideLayerState>).filter(
+      (layer) => hideLayerState[layer]
+    );
+    if (!layers.length) return;
+    for (const layer of layers) {
+      await applyLayerVisibility(layer, true);
+    }
+  };
+
+  restoreInstallBuildFilters = async () => {
+    const saved = installSavedHideLayers;
+    if (!saved) return;
+    for (const layer of Object.keys(saved) as Array<keyof typeof hideLayerState>) {
+      if (saved[layer] && !hideLayerState[layer]) {
+        await applyLayerVisibility(layer, true);
+        hideLayerState[layer] = true;
+      }
+    }
+    updateHideLayersButtonUi();
+    try {
+      window.dispatchEvent(
+        new CustomEvent('uniqube-hide-layers-sync', { detail: { ...hideLayerState } })
+      );
+    } catch {
+      /* ignore */
+    }
+  };
+
+  applyInstallCompleteStage = async (quick = false) => {
+    installSavedHideLayers = { ...hideLayerState };
+
+    await setAllInstallPanelsVisible(true);
+    await setAllConnectorsVisible(true);
+    await restoreNonSequenceGeometry(true);
+
+    for (const layer of Object.keys(hideLayerState) as Array<keyof typeof hideLayerState>) {
+      if (!hideLayerState[layer]) continue;
+      await applyLayerVisibility(layer, false);
+      hideLayerState[layer] = false;
+    }
+    updateHideLayersButtonUi();
+    try {
+      window.dispatchEvent(new CustomEvent('uniqube-hide-layers-reset'));
+    } catch {
+      /* ignore */
+    }
+
+    for (const disc of ['mep', 'structure', 'architecture'] as DisciplineKey[]) {
+      if (!disciplineVisible[disc]) {
+        await setDisciplineVisible(disc, true);
+      }
+    }
+
+    const tasks: Promise<any>[] = [];
+    for (const [, m] of models.entries()) tasks.push(m.resetHighlight(undefined));
+    await Promise.all(tasks);
+    try {
+      await reapplyRevitColors();
+    } catch {
+      /* optional */
+    }
+    try {
+      await fragments.update(true);
+    } catch {
+      /* ignore */
+    }
+
+    const projectConnectors = installProjectConnectorTotals.length
+      ? installProjectConnectorTotals
+      : [];
+    const byMark: Record<string, number> = {};
+    for (const row of projectConnectors) byMark[row.mark] = row.count;
+    installCurrentDetails = {
+      key: '__complete__',
+      display: 'Complete building',
+      container: 'All systems',
+      elementCount: 0,
+      structureCount: 0,
+      mepCount: 0,
+      architectureCount: 0,
+      disciplines: ['architecture', 'mep', 'structure'],
+      sizeLabel: null,
+      adjacentCount: 0,
+      adjacentNames: [],
+      pallet: null,
+      material: null,
+      weight: null,
+      location: null,
+      objectType: null,
+      floor: 0,
+      connectors: {
+        total: Object.values(byMark).reduce((s, n) => s + n, 0),
+        byMark,
+      },
+    };
+
+    await flyCameraToFullBuilding(quick);
+  };
+
   const setHideLayer = async (layer: HideLayer, hidden: boolean) => {
     if (hidden) await clearCategoryFiltersLight();
     const count = await applyLayerVisibility(layer, hidden);
@@ -6549,37 +5459,6 @@ export async function initializeViewer(containerId: string = "container") {
     });
   }
 
-  // Search functionality
-  const treeSearchInput = document.getElementById("tree-search") as HTMLInputElement;
-  if (treeSearchInput) {
-    treeSearchInput.addEventListener("input", (e) => {
-      const searchTerm = (e.target as HTMLInputElement).value.toLowerCase();
-      const allNodes = document.querySelectorAll(".tree-node");
-
-      allNodes.forEach((node) => {
-        const label = node.querySelector(".tree-label");
-        if (label) {
-          const text = label.textContent?.toLowerCase() || "";
-          const container = node.closest(".tree-node-container") as HTMLElement;
-          if (container) {
-            if (text.includes(searchTerm) || searchTerm === "") {
-              container.style.display = "";
-              node.classList.toggle("highlighted", searchTerm !== "" && text.includes(searchTerm));
-            } else {
-              container.style.display = "none";
-              node.classList.remove("highlighted");
-            }
-          }
-        }
-      });
-    });
-  }
-
-  // Initialize tree after model loads (non-blocking - runs in background)
-  initializeObjectTree().catch(error => {
-    console.error('Failed to initialize tree:', error);
-  });
-
   // Update object count in status bar
   const updateObjectCount = () => {
     const objectCountEl = document.getElementById('objectCount');
@@ -6666,6 +5545,44 @@ export async function initializeViewer(containerId: string = "container") {
     return getIconComponent(iconName);
   };
 
+  const extractPanelMark = (panel: { name?: string; tag?: string; objectType?: string; metadata?: Record<string, unknown> }): string | null => {
+    const meta = panel.metadata || {};
+    const fromMeta = String(meta.BIMSF_Container || meta.bimsf || meta.mark || meta.Mark || "")
+      .replace(/^\*/, "")
+      .trim();
+    if (fromMeta) return fromMeta;
+
+    const name = String(panel.name || panel.tag || "");
+    const objectType = String(panel.objectType || "");
+    const assembly = name.match(/Assembly:([^:]+)/i);
+    if (assembly?.[1]) return assembly[1].replace(/-\d+$/, "").trim();
+
+    const mark = name.match(/\b((?:NLB|ELB|LB|CD|FT|RT)[-_]?\d+[A-Z0-9-]*)\b/i);
+    if (mark?.[1]) return mark[1].replace(/-\d+$/, "").toUpperCase();
+
+    if (/foundation/i.test(name) || /IfcFooting/i.test(objectType) || /^Floor:/i.test(name) || /IfcSlab/i.test(objectType)) {
+      return "Foundation";
+    }
+    if (/^Basic Wall:/i.test(name) || /IfcWall/i.test(objectType)) return "Wall Panel";
+    if (/IfcDoor/i.test(objectType) || /^Door:/i.test(name)) return "Door Panel";
+    if (/IfcWindow/i.test(objectType) || /^Window:/i.test(name)) return "Window Panel";
+    if (/IfcFlow/i.test(objectType) || /^Pipe /i.test(name) || /Duct/i.test(name)) return "MEP Panel";
+    return null;
+  };
+
+  const collapseMembersToPanels = (panels: any[]) => {
+    const map = new Map<string, any>();
+    for (const panel of panels) {
+      const mark = extractPanelMark(panel);
+      if (!mark) continue;
+      const key = mark.toLowerCase();
+      if (!map.has(key)) {
+        map.set(key, { ...panel, name: mark, tag: mark });
+      }
+    }
+    return [...map.values()];
+  };
+
   // Render status list (read-only)
   const renderStatusList = () => {
     const statusListContent = document.getElementById("statusListContent");
@@ -6691,10 +5608,10 @@ export async function initializeViewer(containerId: string = "container") {
       statusItem.dataset.statusId = status.id;
 
       const iconClass = getIconClass(status.icon);
-      const panelCount = status.panelCount || 0;
-
-      // Get panels from the status
-      const panels = status.panelStatuses?.map((ps: any) => ps.panel) || [];
+      const panels = collapseMembersToPanels(
+        status.panelStatuses?.map((ps: any) => ps.panel).filter(Boolean) || []
+      );
+      const panelCount = panels.length;
 
       statusItem.innerHTML = `
       <div class="status-item-header">
@@ -6717,7 +5634,7 @@ export async function initializeViewer(containerId: string = "container") {
               <i class="fas fa-cube" style="font-size: 14px; color: ${status.color};"></i>
               <div class="panel-item-info">
                 <div class="panel-item-name">${panel.name}</div>
-                ${panel.tag ? `<div class="panel-item-tag">${panel.tag}</div>` : ''}
+                ${panel.tag && panel.tag !== panel.name ? `<div class="panel-item-tag">${panel.tag}</div>` : ''}
               </div>
             </div>
           `).join('') : '<div class="empty-state" style="grid-column: 1 / -1; padding: 20px;"><p style="font-size: 13px; color: var(--slate-500);">No panels with this status</p></div>'}
@@ -6968,10 +5885,9 @@ export async function initializeViewer(containerId: string = "container") {
       groupItem.style.borderLeftColor = group.color || '#0047AB';
       groupItem.dataset.groupId = group.id;
 
-      const panelCount = group._count?.panelGroups || group._count?.panels || group.metadata?.panelCount || 0;
-
-      // Get panels from the group
-      const panels = group.panelGroups?.map(pg => pg.panel) || group.panels || [];
+      const rawPanels = group.panelGroups?.map(pg => pg.panel) || group.panels || [];
+      const panels = collapseMembersToPanels(rawPanels);
+      const panelCount = panels.length;
 
       groupItem.innerHTML = `
       <div class="group-item-header">
@@ -6994,7 +5910,7 @@ export async function initializeViewer(containerId: string = "container") {
               <i class="fas fa-cube" style="font-size: 14px; color: ${group.color || '#0047AB'};"></i>
               <div class="panel-item-info">
                 <div class="panel-item-name">${panel.name}</div>
-                ${panel.tag ? `<div class="panel-item-tag">${panel.tag}</div>` : ''}
+                ${panel.tag && panel.tag !== panel.name ? `<div class="panel-item-tag">${panel.tag}</div>` : ''}
               </div>
             </div>
           `).join('') : '<div class="empty-state" style="grid-column: 1 / -1; padding: 20px;"><p style="font-size: 13px; color: var(--slate-500);">No panels in this group</p></div>'}
@@ -9103,6 +8019,7 @@ export async function initializeViewer(containerId: string = "container") {
     qrModal.classList.add("show");
 
     try {
+      const panelRecord = await fetchPanelByExpressId(elementId);
       // Get auth token
       const token = localStorage.getItem('auth_token');
       const headers: Record<string, string> = {
@@ -9118,7 +8035,7 @@ export async function initializeViewer(containerId: string = "container") {
         method: 'POST',
         headers: headers,
         body: JSON.stringify({
-          panelId: elementId.toString(),
+          panelId: panelRecord?.id || localIdPanelMap.get(elementId)?.id || elementId.toString(),
           projectId: parseInt(projectId)
         })
       });
@@ -9798,6 +8715,31 @@ export async function initializeViewer(containerId: string = "container") {
     }
   };
 
+  const showQRForBimsfMark = async (panelKey: string) => {
+    const key = String(panelKey || "").toLowerCase();
+    const byModel = bimsfIndex.get(key);
+    let localId: number | undefined;
+    if (byModel) {
+      for (const ids of byModel.values()) {
+        if (ids?.length) {
+          localId = ids[0];
+          break;
+        }
+      }
+    }
+    if (localId == null) {
+      console.warn("showQRForBimsfMark: no geometry for", key);
+      return;
+    }
+    await showQRCode(localId);
+  };
+
+  (window as any).__uniqubeViewer = {
+    ...(window as any).__uniqubeViewer,
+    showQRCode,
+    showQRForBimsfMark,
+  };
+
   if (showQrBtn) {
     showQrBtn.addEventListener("click", () => {
       if (currentElementId !== null) {
@@ -10246,6 +9188,8 @@ export async function initializeViewer(containerId: string = "container") {
     setDisciplineVisible,
     getDisciplineVisible: () => ({ ...disciplineVisible }),
     getModelDisciplines: () => Object.fromEntries(modelDisciplineById),
+    showQRCode,
+    showQRForBimsfMark,
   };
 
   console.log('🎉 That Open Engine viewer initialized successfully!');

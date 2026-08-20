@@ -21,7 +21,6 @@ import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { useNotifications } from '@/hooks/useNotifications'
 import type { Notification } from '@/services/api'
-import { de } from 'date-fns/locale'
 
 // const mockNotifications: Notification[] = [
 //   {
@@ -168,30 +167,20 @@ export default function NotificationsPage() {
   }
 
   return (
-    <div className="w-full h-full space-y-4 sm:space-y-6">
-      {/* Header */}
-      <Card className="border-slate-200">
-        <CardContent className="p-6">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <div className="p-3 rounded-lg bg-slate-700">
-                <Bell className="h-8 w-8 text-white" />
-              </div>
-              <div>
-                <div className="flex items-center gap-3">
-                  <h1 className="text-2xl font-bold text-slate-900">Notifications</h1>
-                  {unreadCount > 0 && (
-                    <Badge variant="destructive" className="text-xs">
-                      {unreadCount} New
-                    </Badge>
-                  )}
-                </div>
-                <p className="text-slate-600 text-sm">Stay updated with your project activities and alerts</p>
-              </div>
-            </div>
-            <div className="flex flex-col sm:flex-row gap-3 items-center justify-end">
+    <div className="w-full max-w-[1400px] mx-auto space-y-4 sm:space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-[var(--uq-ink)]">Alerts</h1>
+          <p className="text-sm text-[var(--uq-muted)] mt-1">Stay updated with project activities</p>
+        </div>
+        <div className="flex flex-col sm:flex-row gap-3 items-center">
               {unreadCount > 0 && (
-                <Button 
+                <Badge variant="destructive" className="text-xs">
+                  {unreadCount} New
+                </Badge>
+              )}
+              {unreadCount > 0 && (
+                <Button
                   variant="default"
                   size="sm"
                   onClick={markAllAsRead}
@@ -200,7 +189,7 @@ export default function NotificationsPage() {
                   Mark All Read
                 </Button>
               )}
-              <div className="flex gap-2 border border-slate-200 rounded-lg p-1 bg-slate-50">
+              <div className="flex gap-2 border border-slate-200 rounded-lg p-1 bg-white">
                 <Button 
                   variant={filter === 'all' ? 'default' : 'ghost'}
                   onClick={() => setFilter('all')}
@@ -218,10 +207,8 @@ export default function NotificationsPage() {
                   Unread ({unreadCount})
                 </Button>
               </div>
-            </div>
           </div>
-        </CardContent>
-      </Card>
+      </div>
 
       {/* Error Message */}
       {error && (
@@ -253,7 +240,7 @@ export default function NotificationsPage() {
             <Card 
               key={notification.id} 
               className={`transition-all duration-200 hover:border-slate-300 border-slate-200 cursor-pointer ${
-                !notification.read ? 'border-l-4 border-l-blue-500 bg-blue-50' : ''
+                !notification.read ? 'border-l-4 border-l-[var(--uq-orange)] bg-[var(--uq-orange-soft)]' : ''
               }`}
               onClick={() => {
                 if (notification.read) {

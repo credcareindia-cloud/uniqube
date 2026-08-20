@@ -1,423 +1,420 @@
-import { useState, useEffect } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Progress } from '@/components/ui/progress'
-import { 
-  Building2, 
-  Plus, 
-  Package, 
-  Activity, 
-  Zap,
-  Eye,
-  Clock,
-  Upload,
-  AlertTriangle
-} from 'lucide-react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
+import {
+  CalendarDays,
+  MapPin,
+  Ship,
+  Package,
+  Ruler,
+  CheckCircle2,
+  HardHat,
+} from 'lucide-react'
 import { api, type Project } from '@/services/api'
-import { ModelCreation } from '@/components/projects/ModelCreation'
+import { cn } from '@/lib/utils'
 
-// Mock data for development
-const mockProjects: Project[] = [
-  {
-    id: '1',
-    name: 'Downtown Office Complex',
-    description: 'Modern 15-story office building with retail space',
-    status: 'active',
-    totalPanels: 450,
-    completedPanels: 387,
-    lastUpdated: '2024-01-15T10:30:00Z',
-    createdAt: '2024-01-01T00:00:00Z',
-    updatedAt: '2024-01-15T10:30:00Z',
-    stats: { totalModels: 125 }
-  },
-  {
-    id: '2', 
-    name: 'Residential Tower A',
-    description: '32-floor luxury residential building',
-    status: 'planning',
-    totalPanels: 680,
-    completedPanels: 45,
-    lastUpdated: '2024-01-14T16:45:00Z',
-    createdAt: '2024-01-01T00:00:00Z',
-    updatedAt: '2024-01-14T16:45:00Z',
-    stats: { totalModels: 89 }
-  },
-  {
-    id: '3',
-    name: 'Shopping Mall Renovation',
-    description: 'Complete renovation of existing shopping center',
-    status: 'completed',
-    totalPanels: 320,
-    completedPanels: 320,
-    lastUpdated: '2024-01-10T09:15:00Z',
-    createdAt: '2024-01-01T00:00:00Z',
-    updatedAt: '2024-01-10T09:15:00Z',
-    stats: { totalModels: 67 }
+type ProgressStep = {
+  id: number
+  label: string
+  pct: number
+  tone: string
+  done: boolean
+}
+
+function deriveOps(project: Project | null) {
+  const total = project?.totalPanels || 395
+  const installed = project?.completedPanels ?? Math.round(total * 0.83)
+  const received = Math.min(total, Math.max(installed, Math.round(total * 0.95)))
+  const remaining = Math.max(0, total - installed)
+  const receivedPct = total ? Math.round((received / total) * 100) : 0
+  const installedPct = total ? Math.round((installed / total) * 100) : 0
+
+  const steps: ProgressStep[] = [
+    { id: 1, label: 'DESIGN', pct: 100, tone: '#3b82f6', done: true },
+    { id: 2, label: 'PRODUCTION', pct: 100, tone: '#22c55e', done: true },
+    { id: 3, label: 'SHIPMENT', pct: 100, tone: '#8b5cf6', done: true },
+    {
+      id: 4,
+      label: 'RECEIVED ON SITE',
+      pct: receivedPct,
+      tone: '#fdaa48',
+      done: receivedPct >= 100,
+    },
+    {
+      id: 5,
+      label: 'INSTALLATION',
+      pct: installedPct,
+      tone: '#0ea5e9',
+      done: installedPct >= 100,
+    },
+  ]
+
+  return {
+    total,
+    installed,
+    received,
+    remaining,
+    receivedPct,
+    installedPct,
+    projectSize: '20,000 sq ft',
+    vessel: 'MSC MAERSK VIII',
+    container: 'TRLU 4567890',
+    departure: '20 MAY 2025',
+    eta: '25 MAY 2025',
+    etaCountdown: '5 DAYS REMAINING',
+    port: 'Khalifa Port, Abu Dhabi, UAE',
+    factory: 'Shanghai, China (Factory)',
+    dailyRate: 12,
+    forecast: '28 MAY 2025',
+    steps,
   }
-]
+}
 
 export default function Dashboard() {
-  const [projects, setProjects] = useState<Project[]>(mockProjects)
-  const [loading, setLoading] = useState(false)
-  const [showModelCreation, setShowModelCreation] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [projects, setProjects] = useState<Project[]>([])
+  const [loading, setLoading] = useState(true)
   const navigate = useNavigate()
 
   useEffect(() => {
-    const loadProjects = async () => {
+    let cancelled = false
+    ;(async () => {
       try {
-        setLoading(true)
-        setError(null)
-        const response = await api.getProjects()
-        setProjects(response.projects)
-      } catch (err) {
-        console.error('Failed to load projects:', err)
-        setError('Failed to load projects. Using mock data for development.')
-        setProjects(mockProjects)
+        const res = await api.getProjects()
+        if (!cancelled) setProjects(res.projects || [])
+      } catch {
+        if (!cancelled) setProjects([])
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
+    })()
+    return () => {
+      cancelled = true
     }
-
-    loadProjects()
   }, [])
 
-  const handleCreateProject = () => {
-    setShowModelCreation(true)
-  }
+  const active = useMemo(() => {
+    if (!projects.length) return null
+    const sorted = [...projects].sort((a, b) => {
+      const ta = new Date(a.updatedAt || a.createdAt || 0).getTime()
+      const tb = new Date(b.updatedAt || b.createdAt || 0).getTime()
+      return tb - ta
+    })
+    return sorted[0]
+  }, [projects])
 
-  const handleProjectCreated = (newProject: any) => {
-    setProjects(prev => [newProject, ...prev])
-    setShowModelCreation(false)
-    navigate(`/projects/${newProject.id}`)
-  }
-
-  const handleViewAllProjects = () => {
-    navigate('/projects')
-  }
-
-  const handleViewProject = (projectId: string) => {
-    navigate(`/projects/${projectId}`)
-  }
-
-  // Calculate stats
-  const totalProjects = projects.length
-  const activeProjects = projects.filter(p => p.status === 'active').length
-  const totalModels = projects.reduce((sum, p) => sum + (p.stats?.totalModels || 0), 0)
-  const avgCompletion = projects.length > 0 
-    ? Math.round(projects.reduce((sum, p) => sum + (p.completedPanels / p.totalPanels * 100), 0) / projects.length)
-    : 0
-
-  if (loading) {
-    return (
-      <div className="w-full h-full space-y-6">
-        {/* Loading Header */}
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-6">
-              <div className="w-12 h-12 bg-slate-200 rounded-lg animate-pulse"></div>
-              <div className="space-y-2 flex-1">
-                <div className="h-6 bg-slate-200 rounded w-48 animate-pulse"></div>
-                <div className="h-4 bg-slate-100 rounded w-64 animate-pulse"></div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Loading Stats */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((i) => (
-            <Card key={i}>
-              <CardContent className="pt-6">
-                <div className="animate-pulse space-y-3">
-                  <div className="h-8 bg-slate-200 rounded w-16"></div>
-                  <div className="h-4 bg-slate-100 rounded w-24"></div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-
-        <div className="flex items-center justify-center mt-8 p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-6 h-6 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></div>
-            <span className="text-slate-600 text-sm">Loading projects...</span>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="w-full h-full">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex flex-col items-center gap-4 text-center">
-              <AlertTriangle className="h-12 w-12 text-amber-500" />
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900 mb-2">Connection Issue</h3>
-                <p className="text-slate-600 mb-4">{error}</p>
-                <Button onClick={() => window.location.reload()}>
-                  Retry
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
+  const ops = deriveOps(active)
+  const title = active?.name || 'ADNOC SHARJAH'
 
   return (
-    <div className="w-full space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="w-14 h-14 bg-gradient-to-br from-slate-100 to-slate-50 border border-slate-200 rounded-xl flex items-center justify-center shadow-sm">
-            <Building2 className="h-7 w-7 text-slate-700" />
-          </div>
-          <div>
-            <h1 className="text-3xl font-bold text-slate-900">Project Dashboard</h1>
-            <p className="text-slate-600 mt-1">Manage your 3D IFC projects</p>
-          </div>
-        </div>
-        <Button onClick={handleCreateProject} className="flex items-center gap-2">
-          <Plus className="h-4 w-4" />
-          New Project
-        </Button>
-      </div>
+    <div className="max-w-[1400px] mx-auto">
+      <h1 className="text-2xl font-bold text-[var(--uq-ink)] mb-1">{title}</h1>
+      <p className="text-sm text-[var(--uq-muted)] mb-5">Project Dashboard</p>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="hover:shadow-md transition-shadow">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between mb-3">
-              <div className="w-12 h-12 bg-slate-100 rounded-lg flex items-center justify-center">
-                <Building2 className="h-6 w-6 text-slate-700" />
-              </div>
-            </div>
-            <div className="text-3xl font-bold text-slate-900 mb-1">{totalProjects}</div>
-            <div className="text-sm text-slate-600">Total Projects</div>
-          </CardContent>
-        </Card>
-
-        <Card className="hover:shadow-md transition-shadow">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between mb-3">
-              <div className="w-12 h-12 bg-slate-100 rounded-lg flex items-center justify-center">
-                <Activity className="h-6 w-6 text-slate-700" />
-              </div>
-            </div>
-            <div className="text-3xl font-bold text-slate-900 mb-1">{activeProjects}</div>
-            <div className="text-sm text-slate-600">Active Projects</div>
-          </CardContent>
-        </Card>
-
-        <Card className="hover:shadow-md transition-shadow">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between mb-3">
-              <div className="w-12 h-12 bg-slate-100 rounded-lg flex items-center justify-center">
-                <Zap className="h-6 w-6 text-slate-700" />
-              </div>
-            </div>
-            <div className="text-3xl font-bold text-slate-900 mb-1">{avgCompletion}%</div>
-            <div className="text-sm text-slate-600">Completion Rate</div>
-          </CardContent>
-        </Card>
-
-        <Card className="hover:shadow-md transition-shadow">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between mb-3">
-              <div className="w-12 h-12 bg-slate-100 rounded-lg flex items-center justify-center">
-                <Package className="h-6 w-6 text-slate-700" />
-              </div>
-            </div>
-            <div className="text-3xl font-bold text-slate-900 mb-1">{totalModels}</div>
-            <div className="text-sm text-slate-600">Total Models</div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Quick Actions */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-xl">Quick Actions</CardTitle>
-              <CardDescription>Manage your IFC projects and models</CardDescription>
-            </div>
-            <Badge variant="success" className="flex items-center gap-1.5">
-              <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
-              System Active
-            </Badge>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Button 
-              onClick={handleCreateProject} 
-              className="flex items-center justify-center gap-2 h-12"
-            >
-              <Plus className="h-4 w-4" />
-              Create Project
-            </Button>
-            <Button 
-              variant="outline"
-              className="flex items-center justify-center gap-2 h-12"
-            >
-              <Upload className="h-4 w-4" />
-              Upload Model
-            </Button>
-          </div>
-          
-          <div className="pt-4 border-t border-slate-200">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm font-medium text-slate-900">System Status</span>
-              <Badge variant="outline" className="text-xs">All Systems Operational</Badge>
-            </div>
-            <div className="grid grid-cols-3 gap-2 text-xs text-slate-600">
-              <div className="flex items-center gap-1.5">
-                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                <span>Upload</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                <span>Processing</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                <span>Analytics</span>
+      {loading ? (
+        <div className="text-sm text-[var(--uq-muted)]">Loading project metrics…</div>
+      ) : (
+        <>
+          {/* KPI row */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 mb-5">
+            <KpiCard
+              icon={<Package className="h-4 w-4 text-sky-600" />}
+              label="Total Panels"
+              value={`${ops.total}`}
+              unit="Panels"
+            />
+            <KpiCard
+              icon={<Ruler className="h-4 w-4 text-violet-600" />}
+              label="Project Size"
+              value={ops.projectSize.split(' ')[0]}
+              unit={ops.projectSize.replace(/^[^\s]+\s/, '')}
+            />
+            <KpiCard
+              icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />}
+              label="Received on Site"
+              value={`${ops.received}`}
+              unit="Panels"
+              badge={`${ops.receivedPct}%`}
+              badgeTone="emerald"
+            />
+            <KpiCard
+              icon={<HardHat className="h-4 w-4 text-sky-600" />}
+              label="Installed on Site"
+              value={`${ops.installed}`}
+              unit="Panels"
+              badge={`${ops.installedPct}%`}
+              badgeTone="emerald"
+            />
+            <div className="rounded-2xl border-2 border-[var(--uq-orange)] bg-[var(--uq-orange-soft)] p-4 min-h-[108px]">
+              <div className="flex items-start gap-3">
+                <div className="h-10 w-10 rounded-xl bg-[var(--uq-orange)] text-white flex items-center justify-center shrink-0">
+                  <CalendarDays className="h-5 w-5" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold tracking-wide text-[var(--uq-orange)] uppercase">
+                    Expected Arrival
+                  </p>
+                  <p className="text-lg font-bold text-[var(--uq-ink)] mt-0.5">{ops.eta}</p>
+                  <p className="text-xs text-[var(--uq-muted)] mt-1 flex items-center gap-1">
+                    <MapPin className="h-3 w-3" />
+                    {ops.port}
+                  </p>
+                  <p className="text-[11px] font-bold text-[var(--uq-orange)] mt-2 tracking-wide">
+                    {ops.etaCountdown}
+                  </p>
+                </div>
               </div>
             </div>
           </div>
-        </CardContent>
-      </Card>
 
-      {/* Project Management Center */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>Project Management Center</CardTitle>
-              <CardDescription>Create and manage your IFC projects</CardDescription>
-            </div>
-            <Badge variant="success" className="flex items-center gap-1">
-              <Activity className="h-3 w-3" />
-              Active
-            </Badge>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <Button 
-            variant="outline"
-            onClick={handleCreateProject} 
-            className="w-full flex items-center justify-center gap-2"
-          >
-            <Plus className="h-4 w-4" />
-            Create New Project
-          </Button>
-          
-          <div className="pt-4 border-t border-slate-200">
-            <div className="text-sm text-slate-600 mb-2">System Status</div>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-slate-600">Project Management System</span>
-                <Badge variant="info">Operational</Badge>
-              </div>
-              <div className="text-xs text-slate-500">
-                FRAG Upload • Real-time Processing • Project Analytics
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Recent Projects */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>Recent Projects</CardTitle>
-              <CardDescription>Your latest IFC projects</CardDescription>
-            </div>
-            <Button variant="outline" onClick={handleViewAllProjects}>
-              View All Projects
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {projects.length === 0 ? (
-            <div className="text-center py-12">
-              <Package className="h-12 w-12 text-slate-200 mx-auto mb-4" />
-              <h3 className="text-lg font-semibold text-slate-900 mb-2">No Projects Yet</h3>
-              <p className="text-slate-600 mb-4">Get started by creating your first project</p>
-              <Button variant="outline" onClick={handleCreateProject} className="flex items-center gap-2 mx-auto">
-                <Plus className="h-4 w-4" />
-                Create Project
-              </Button>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {projects.slice(0, 3).map((project) => {
-                const completionPercentage = Math.round((project.completedPanels / project.totalPanels) * 100)
-                const statusVariant = 
-                  project.status === 'active' ? 'success' :
-                  project.status === 'planning' ? 'warning' :
-                  project.status === 'completed' ? 'info' : 'default'
-
-                return (
-                  <div
-                    key={project.id}
-                    className="p-4 border border-slate-200 rounded-lg hover:border-slate-300 hover:shadow-md transition-all cursor-pointer"
-                    onClick={() => handleViewProject(project.id)}
-                  >
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex-1">
-                        <h3 className="font-semibold text-slate-900 mb-1">{project.name}</h3>
-                        <p className="text-sm text-slate-600">{project.description}</p>
-                      </div>
-                      <Badge variant={statusVariant} className="ml-4">
-                        {project.status}
-                      </Badge>
+          {/* Progress stepper */}
+          <div className="rounded-2xl bg-white border border-slate-200 shadow-sm p-5 sm:p-6 mb-5">
+            <h2 className="text-xs font-bold tracking-[0.16em] text-[var(--uq-muted)] mb-6">
+              PROJECT PROGRESS
+            </h2>
+            <div className="relative">
+              <div className="absolute left-6 right-6 top-[18px] h-[3px] bg-slate-100 hidden sm:block" />
+              <div className="grid grid-cols-1 sm:grid-cols-5 gap-4 sm:gap-2">
+                {ops.steps.map((step, idx) => (
+                  <div key={step.id} className="relative flex sm:flex-col items-center sm:items-center gap-3 sm:gap-0">
+                    {idx < ops.steps.length - 1 && (
+                      <div
+                        className="hidden sm:block absolute left-[calc(50%+18px)] right-[-50%] top-[18px] h-[3px]"
+                        style={{
+                          background: step.done
+                            ? `linear-gradient(90deg, ${step.tone}, ${ops.steps[idx + 1].tone})`
+                            : '#e5e7eb',
+                        }}
+                      />
+                    )}
+                    <div
+                      className="relative z-10 h-9 w-9 rounded-full flex items-center justify-center text-sm font-bold text-white shadow-sm shrink-0"
+                      style={{ background: step.tone }}
+                    >
+                      {step.id}
                     </div>
-                    
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-slate-600">
-                          {project.completedPanels} / {project.totalPanels} panels
-                        </span>
-                        <span className="font-medium text-slate-900">{completionPercentage}%</span>
-                      </div>
-                      <Progress value={completionPercentage} className="h-2" />
-                    </div>
-
-                    <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
-                      <div className="flex items-center gap-4 text-xs text-slate-500">
-                        <span>{project.stats?.totalModels || 0} models</span>
-                        <span>Updated {new Date(project.lastUpdated).toLocaleDateString()}</span>
-                      </div>
-                      <Button variant="ghost" size="sm" className="flex items-center gap-1">
-                        <Eye className="h-3 w-3" />
-                        View
-                      </Button>
+                    <div className="sm:mt-3 sm:text-center">
+                      <p className="text-[11px] font-bold tracking-wide text-[var(--uq-ink)]">
+                        {step.label}
+                      </p>
+                      <p
+                        className="text-xs font-semibold mt-1"
+                        style={{ color: step.tone }}
+                      >
+                        {step.pct}% {step.done ? 'Complete' : 'In Progress'}
+                      </p>
                     </div>
                   </div>
-                )
-              })}
+                ))}
+              </div>
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </div>
 
-      {/* Model Creation Modal */}
-      {showModelCreation && (
-        <ModelCreation
-          onClose={() => setShowModelCreation(false)}
-        />
+          {/* Bottom widgets */}
+          <div className="grid grid-cols-1 xl:grid-cols-[1.35fr_1fr] gap-5">
+            <div className="rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden">
+              <div className="px-5 pt-5 pb-3 flex items-center justify-between">
+                <h2 className="text-xs font-bold tracking-[0.16em] text-[var(--uq-muted)]">
+                  SHIPMENT OVERVIEW
+                </h2>
+                <Ship className="h-4 w-4 text-[var(--uq-orange)]" />
+              </div>
+              <div className="px-5 pb-4">
+                <div className="relative h-[220px] rounded-xl bg-[#eef2f7] overflow-hidden border border-slate-100">
+                  <svg viewBox="0 0 640 220" className="absolute inset-0 w-full h-full" aria-hidden>
+                    <defs>
+                      <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
+                        <path d="M 24 0 L 0 0 0 24" fill="none" stroke="#dbe3ee" strokeWidth="1" />
+                      </pattern>
+                    </defs>
+                    <rect width="640" height="220" fill="url(#grid)" />
+                    <path
+                      d="M90 140 C 220 40, 400 40, 540 130"
+                      fill="none"
+                      stroke="#94a3b8"
+                      strokeWidth="2"
+                      strokeDasharray="7 7"
+                    />
+                    <circle cx="90" cy="140" r="7" fill="#fdaa48" />
+                    <circle cx="540" cy="130" r="7" fill="#0ea5e9" />
+                    <g transform="translate(300,70)">
+                      <rect x="-18" y="-8" width="36" height="16" rx="4" fill="#1a2436" />
+                      <polygon points="18,-2 28,0 18,2" fill="#1a2436" />
+                    </g>
+                  </svg>
+                  <div className="absolute left-4 bottom-4 bg-white/95 rounded-lg px-3 py-2 text-xs shadow-sm border border-slate-200">
+                    <p className="font-semibold text-[var(--uq-ink)]">{ops.factory}</p>
+                    <p className="text-[var(--uq-muted)] mt-0.5">Origin</p>
+                  </div>
+                  <div className="absolute right-4 top-4 bg-white/95 rounded-lg px-3 py-2 text-xs shadow-sm border border-slate-200 max-w-[200px]">
+                    <p className="font-semibold text-[var(--uq-ink)]">{ops.port}</p>
+                    <p className="text-[var(--uq-muted)] mt-0.5">Destination</p>
+                  </div>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 px-5 py-4 border-t border-slate-100 bg-slate-50/80">
+                <Meta label="Vessel" value={ops.vessel} />
+                <Meta label="Container No." value={ops.container} />
+                <Meta label="Departure" value={ops.departure} />
+                <Meta label="ETA" value={ops.eta} />
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-white border border-slate-200 shadow-sm p-5">
+              <h2 className="text-xs font-bold tracking-[0.16em] text-[var(--uq-muted)] mb-4">
+                SITE PROGRESS
+              </h2>
+              <div className="flex gap-4">
+                <div className="w-[120px] h-[150px] rounded-xl overflow-hidden bg-slate-200 shrink-0 relative">
+                  <div className="absolute inset-0 bg-gradient-to-br from-slate-300 via-slate-200 to-[var(--uq-orange)]/40" />
+                  <div className="absolute inset-0 flex items-end p-2">
+                    <span className="text-[10px] font-semibold text-white bg-black/40 rounded px-1.5 py-0.5">
+                      Site photo
+                    </span>
+                  </div>
+                </div>
+                <div className="flex-1 space-y-3 min-w-0">
+                  <StatRow label="Total Panels" value={`${ops.total}`} />
+                  <ProgressRow
+                    label="Panels Installed"
+                    value={`${ops.installed}`}
+                    pct={ops.installedPct}
+                    color="#22c55e"
+                  />
+                  <ProgressRow
+                    label="Panels Received"
+                    value={`${ops.received}`}
+                    pct={ops.receivedPct}
+                    color="#fdaa48"
+                  />
+                  <StatRow label="Panels Remaining" value={`${ops.remaining} (${Math.round((ops.remaining / ops.total) * 100)}%)`} />
+                  <StatRow label="Daily Installation Rate" value={`${ops.dailyRate} Panels / Day`} />
+                  <StatRow label="Forecast Completion" value={ops.forecast} emphasize />
+                </div>
+              </div>
+              {!active && (
+                <button
+                  type="button"
+                  onClick={() => navigate('/projects')}
+                  className="mt-4 text-sm font-semibold text-[var(--uq-orange)] hover:underline"
+                >
+                  Open a project to bind live panel counts →
+                </button>
+              )}
+            </div>
+          </div>
+        </>
       )}
+    </div>
+  )
+}
+
+function KpiCard({
+  icon,
+  label,
+  value,
+  unit,
+  badge,
+  badgeTone = 'emerald',
+}: {
+  icon: ReactNode
+  label: string
+  value: string
+  unit: string
+  badge?: string
+  badgeTone?: 'emerald' | 'orange'
+}) {
+  return (
+    <div className="rounded-2xl bg-white border border-slate-200 shadow-sm p-4 min-h-[108px]">
+      <div className="flex items-center justify-between mb-3">
+        <div className="h-8 w-8 rounded-lg bg-slate-100 flex items-center justify-center">
+          {icon}
+        </div>
+        {badge && (
+          <span
+            className={cn(
+              'text-[11px] font-bold px-2 py-0.5 rounded-full',
+              badgeTone === 'emerald'
+                ? 'bg-emerald-50 text-emerald-700'
+                : 'bg-orange-50 text-orange-700'
+            )}
+          >
+            {badge}
+          </span>
+        )}
+      </div>
+      <p className="text-[11px] font-semibold tracking-wide text-[var(--uq-muted)] uppercase">
+        {label}
+      </p>
+      <p className="mt-1 text-2xl font-bold text-[var(--uq-ink)] leading-none">
+        {value}{' '}
+        <span className="text-sm font-semibold text-[var(--uq-muted)]">{unit}</span>
+      </p>
+    </div>
+  )
+}
+
+function Meta({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[10px] font-semibold tracking-wide text-[var(--uq-muted)] uppercase">
+        {label}
+      </p>
+      <p className="text-sm font-semibold text-[var(--uq-ink)] mt-0.5">{value}</p>
+    </div>
+  )
+}
+
+function StatRow({
+  label,
+  value,
+  emphasize,
+}: {
+  label: string
+  value: string
+  emphasize?: boolean
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 text-sm">
+      <span className="text-[var(--uq-muted)]">{label}</span>
+      <span
+        className={cn(
+          'font-semibold',
+          emphasize ? 'text-[var(--uq-orange)]' : 'text-[var(--uq-ink)]'
+        )}
+      >
+        {value}
+      </span>
+    </div>
+  )
+}
+
+function ProgressRow({
+  label,
+  value,
+  pct,
+  color,
+}: {
+  label: string
+  value: string
+  pct: number
+  color: string
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-3 text-sm mb-1.5">
+        <span className="text-[var(--uq-muted)]">{label}</span>
+        <span className="font-semibold text-[var(--uq-ink)]">
+          {value}{' '}
+          <span className="text-xs" style={{ color }}>
+            ({pct}%)
+          </span>
+        </span>
+      </div>
+      <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+        <div
+          className="h-full rounded-full transition-all"
+          style={{ width: `${Math.min(100, pct)}%`, background: color }}
+        />
+      </div>
     </div>
   )
 }

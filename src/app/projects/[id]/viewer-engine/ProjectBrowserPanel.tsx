@@ -44,6 +44,8 @@ export type BrowserSelection =
   | { kind: 'detail'; title: string; data: Record<string, any> }
   | null;
 
+export type TabId = '2d' | 'tree' | 'views' | 'sheets' | 'schedules' | 'links' | 'info';
+
 type Props = {
   open: boolean;
   onClose: () => void;
@@ -59,6 +61,8 @@ type Props = {
     modelId?: string | null;
     expressId?: number | null;
   }) => void;
+  activeTab?: TabId;
+  onTabChange?: (tab: TabId) => void;
 };
 
 type TreePanel = {
@@ -79,9 +83,15 @@ type BimsfTreePanel = {
   disciplines: DiscKey[];
 };
 
-type TabId = 'tree' | 'views' | 'sheets' | 'schedules' | 'links' | 'info';
+const TWO_D_VIEW_TYPES = new Set([
+  'FloorPlan',
+  'EngineeringPlan',
+  'CeilingPlan',
+  'AreaPlan',
+]);
 
 const TABS: Array<{ id: TabId; label: string; icon: string }> = [
+  { id: '2d', label: '2D', icon: 'fa-map' },
   { id: 'tree', label: 'Tree', icon: 'fa-sitemap' },
   { id: 'views', label: 'Views', icon: 'fa-eye' },
   { id: 'sheets', label: 'Sheets', icon: 'fa-file-alt' },
@@ -284,6 +294,8 @@ export function ProjectBrowserPanel({
   onOpenSchedule,
   onOpenDetail,
   onSelectPanel,
+  activeTab,
+  onTabChange,
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -296,11 +308,20 @@ export function ProjectBrowserPanel({
   const [bimsfConnectorFocus, setBimsfConnectorFocus] = useState<Record<string, boolean>>(
     {}
   );
-  const [tab, setTab] = useState<TabId>('tree');
+  const [tab, setTab] = useState<TabId>(activeTab || 'tree');
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [selectedKey, setSelectedKey] = useState('');
   const [selection, setSelection] = useState<BrowserSelection>(null);
+
+  useEffect(() => {
+    if (activeTab && activeTab !== tab) setTab(activeTab);
+  }, [activeTab]);
+
+  const selectTab = (next: TabId) => {
+    setTab(next);
+    onTabChange?.(next);
+  };
 
   useEffect(() => {
     if (!open || !projectId) return;
@@ -654,6 +675,22 @@ export function ProjectBrowserPanel({
     setSelectedKey(`bimsf:${panelKey}`);
   };
 
+  const showPanelQr = (panel: BimsfTreePanel, ev: React.MouseEvent) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const api = (window as any).__uniqubeViewer;
+    if (api?.showQRForBimsfMark) {
+      void api.showQRForBimsfMark(panel.key);
+      return;
+    }
+    const match = treePanels.find(
+      (p) => p.mark.replace(/^\*/, '').trim().toLowerCase() === panel.key
+    );
+    if (match?.expressId != null && api?.showQRCode) {
+      void api.showQRCode(match.expressId);
+    }
+  };
+
   const selectPanelAllDisciplines = async (panel: BimsfTreePanel, exclusive: boolean) => {
     const api = (window as any).__uniqubeViewer;
     if (api?.selectBimsfPanelAllDisciplines) {
@@ -693,6 +730,27 @@ export function ProjectBrowserPanel({
     return groups;
   }, [snapshot, search]);
 
+  const plans2dByType = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const groups: Record<string, NonNullable<BrowserSnapshot['views']>> = {};
+    for (const v of snapshot?.views || []) {
+      if (!TWO_D_VIEW_TYPES.has(v.viewType || '')) continue;
+      if (q && !v.name.toLowerCase().includes(q) && !(v.viewType || '').toLowerCase().includes(q)) {
+        continue;
+      }
+      const folder = VIEW_TYPE_FOLDERS[v.viewType] || v.viewType || 'Plans';
+      if (!groups[folder]) groups[folder] = [];
+      groups[folder].push(v);
+    }
+    return groups;
+  }, [snapshot, search]);
+
+  const plans2dCount = useMemo(
+    () =>
+      (snapshot?.views || []).filter((v) => TWO_D_VIEW_TYPES.has(v.viewType || '')).length,
+    [snapshot]
+  );
+
   const filteredSheets = useMemo(() => {
     const q = search.trim().toLowerCase();
     return (snapshot?.sheets || []).filter((s) => {
@@ -714,6 +772,7 @@ export function ProjectBrowserPanel({
   }, [snapshot, search]);
 
   const counts = {
+    '2d': plans2dCount,
     views: snapshot?.views?.length || 0,
     sheets: snapshot?.sheets?.length || 0,
     schedules: (snapshot?.schedules || []).filter((s) => !s.name.startsWith('<Revision Schedule'))
@@ -758,7 +817,9 @@ export function ProjectBrowserPanel({
       <nav className="pb-tabs" role="tablist" aria-label="Browser sections">
         {TABS.map((t) => {
           const count =
-            t.id === 'views'
+            t.id === '2d'
+              ? counts['2d']
+              : t.id === 'views'
               ? counts.views
               : t.id === 'sheets'
                 ? counts.sheets
@@ -774,8 +835,8 @@ export function ProjectBrowserPanel({
               role="tab"
               aria-selected={tab === t.id}
               className={`pb-tab ${tab === t.id ? 'active' : ''}`}
-              onClick={() => setTab(t.id)}
-              title={t.label}
+              onClick={() => selectTab(t.id)}
+              title={t.id === '2d' ? '2D Plan Mode' : t.label}
             >
               <i className={`fas ${t.icon}`} />
               <span className="pb-tab-label">{t.label}</span>
@@ -801,11 +862,64 @@ export function ProjectBrowserPanel({
       <div className="pb-body" role="tabpanel">
         {loading && <div className="pb-status">Loading…</div>}
         {error && <div className="pb-error">{error}</div>}
-        {!loading && !error && !snapshot && drawings.length === 0 && tab !== 'tree' && (
+        {!loading && !error && !snapshot && drawings.length === 0 && tab !== 'tree' && tab !== '2d' && (
           <div className="pb-empty">
             <i className="fas fa-folder-open" />
             <p>No browser data for this revision.</p>
             <span>Republish from Revit to capture views and sheets.</span>
+          </div>
+        )}
+
+        {!loading && !error && tab === '2d' && (
+          <div className="pb-list">
+            {Object.keys(plans2dByType).length === 0 && (
+              <div className="pb-empty-inline">No 2D plans in this revision</div>
+            )}
+            {Object.entries(plans2dByType).map(([folder, list]) => (
+              <div key={folder} className="pb-group">
+                <button
+                  type="button"
+                  className="pb-group-btn"
+                  onClick={() => toggleGroup(`2d:${folder}`)}
+                >
+                  <i className={`fas fa-chevron-${isGroupOpen(`2d:${folder}`) ? 'down' : 'right'}`} />
+                  <span>{folder}</span>
+                  <span className="pb-group-count">{list.length}</span>
+                </button>
+                {isGroupOpen(`2d:${folder}`) && (
+                  <div className="pb-group-items">
+                    {list.map((v) => {
+                      const drawing = drawingByRevitId.get(v.id);
+                      return (
+                        <button
+                          key={v.id}
+                          type="button"
+                          className={`pb-item ${selectedKey === `2d:${v.id}` ? 'active' : ''}`}
+                          onClick={() => {
+                            if (drawing) selectDrawing(drawing, v);
+                            else {
+                              selectDetail(v.name, { ...v, hasDrawing: false }, `2d:${v.id}`);
+                            }
+                          }}
+                        >
+                          <span className="pb-item-main">
+                            <span className="pb-item-title">{v.name}</span>
+                            {v.discipline && (
+                              <span className="pb-item-meta">{v.discipline}</span>
+                            )}
+                          </span>
+                          {drawing?.hasDxf ? (
+                            <span className="pb-chip cad">CAD</span>
+                          ) : (
+                            <span className="pb-chip muted">Plan</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         )}
 
@@ -907,6 +1021,14 @@ export function ProjectBrowserPanel({
                                             }}
                                           >
                                             <span className="pb-item-title">{p.displayName}</span>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className="pb-bimsf-qr"
+                                            title="Show QR code"
+                                            onClick={(e) => showPanelQr(p, e)}
+                                          >
+                                            <i className="fas fa-qrcode" aria-hidden />
                                           </button>
                                           {!isConnItem && (
                                             <button

@@ -9,12 +9,15 @@ import { EditPanelModal } from '@/components/modals/EditPanelModal'
 import { authenticatedFetch } from '@/utils/authenticatedFetch'
 import { toast } from '@/components/ui/use-toast'
 import { getApiUrl } from '@/config/api'
+import { collapseMembersToPanels } from '@/utils/panelMark'
 
 interface Panel {
   id: string
   name: string
   tag?: string
+  objectType?: string
   location?: string
+  metadata?: Record<string, unknown> | null
   statuses?: Array<{
     id: string
     status: {
@@ -57,8 +60,6 @@ export function GroupDetailModal({ isOpen, onClose, group, projectId }: GroupDet
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [page, setPage] = useState(1)
-  const [totalPages, setTotalPages] = useState(1)
-  const [totalCount, setTotalCount] = useState(0)
   const limit = 10
   const [selectedPanel, setSelectedPanel] = useState<Panel | null>(null)
   const [showPanelDetail, setShowPanelDetail] = useState(false)
@@ -68,36 +69,38 @@ export function GroupDetailModal({ isOpen, onClose, group, projectId }: GroupDet
 
   useEffect(() => {
     if (isOpen && group) {
+      setPage(1)
       loadPanels()
       loadStatuses()
       loadGroups()
     }
-  }, [isOpen, group, page])
+  }, [isOpen, group])
 
   const loadPanels = async () => {
     if (!group) return
 
     try {
       setLoading(true)
-      const url = `/groups/${projectId}/${group.id}/panels?page=${page}&limit=${limit}`
-      console.log('🔍 Fetching group panels from:', url)
-      console.log('📦 Group ID:', group.id)
-      console.log('📦 Project ID:', projectId)
+      const collected: Panel[] = []
+      let pageNum = 1
+      let pages = 1
 
-      const response = await authenticatedFetch(url)
-      console.log('📡 Response status:', response.status)
-
-      if (response.ok) {
+      do {
+        const response = await authenticatedFetch(
+          `/groups/${projectId}/${group.id}/panels?page=${pageNum}&limit=100`
+        )
+        if (!response.ok) {
+          const errorText = await response.text()
+          console.error('❌ Error response:', errorText)
+          break
+        }
         const data = await response.json()
-        console.log('✅ Group panels data:', data)
-        console.log('📊 Panels count:', data.panels?.length)
-        setPanels(data.panels || [])
-        setTotalPages(data.pagination?.totalPages || 1)
-        setTotalCount(data.pagination?.total || 0)
-      } else {
-        const errorText = await response.text()
-        console.error('❌ Error response:', errorText)
-      }
+        collected.push(...(data.panels || []))
+        pages = data.pagination?.totalPages || 1
+        pageNum += 1
+      } while (pageNum <= pages)
+
+      setPanels(collected)
     } catch (error) {
       console.error('❌ Error loading group panels:', error)
     } finally {
@@ -129,9 +132,11 @@ export function GroupDetailModal({ isOpen, onClose, group, projectId }: GroupDet
     }
   }
 
-  const filteredPanels = panels.filter(panel => {
+  const uniquePanels = collapseMembersToPanels(panels)
+  const filteredPanels = uniquePanels.filter(panel => {
+    const mark = (panel.panelMark || panel.name || '').toLowerCase()
     const matchesSearch = searchTerm === '' ||
-      panel.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      mark.includes(searchTerm.toLowerCase()) ||
       panel.tag?.toLowerCase().includes(searchTerm.toLowerCase())
 
     const matchesStatus = statusFilter === 'all' ||
@@ -139,6 +144,10 @@ export function GroupDetailModal({ isOpen, onClose, group, projectId }: GroupDet
 
     return matchesSearch && matchesStatus
   })
+  const displayTotal = filteredPanels.length
+  const displayPages = Math.max(1, Math.ceil(displayTotal / limit))
+  const currentPage = Math.min(page, displayPages)
+  const pagedPanels = filteredPanels.slice((currentPage - 1) * limit, currentPage * limit)
 
   // Get icon component (matching StatusDetailModal)
   const getIconComponent = (iconName: string) => {
@@ -236,7 +245,7 @@ export function GroupDetailModal({ isOpen, onClose, group, projectId }: GroupDet
               <div>
                 <h2 className="text-xl font-semibold text-slate-900">{group.name}</h2>
                 <p className="text-sm text-slate-500">
-                  {totalCount} panel{totalCount !== 1 ? 's' : ''}
+                  {displayTotal} panel{displayTotal !== 1 ? 's' : ''}
                 </p>
               </div>
             </div>
@@ -296,18 +305,16 @@ export function GroupDetailModal({ isOpen, onClose, group, projectId }: GroupDet
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {filteredPanels.length > 0 ? (
-                    filteredPanels.map((panel) => {
+                  {pagedPanels.length > 0 ? (
+                    pagedPanels.map((panel) => {
                       const otherGroups = panel.groups?.filter(pg => pg.group.id !== group.id) || []
+                      const panelId = panel.panelMark || panel.name
 
                       return (
-                        <tr key={panel.id} className="hover:bg-slate-50 transition-colors">
+                        <tr key={`${panelId}-${panel.id}`} className="hover:bg-slate-50 transition-colors">
                           <td className="py-4 px-6">
                             <div>
-                              <p className="font-medium text-slate-900">{panel.name}</p>
-                              {panel.tag && (
-                                <p className="text-xs text-slate-500">{panel.tag}</p>
-                              )}
+                              <p className="font-medium text-slate-900">{panelId}</p>
                             </div>
                           </td>
                           <td className="py-4 px-6">
@@ -387,25 +394,25 @@ export function GroupDetailModal({ isOpen, onClose, group, projectId }: GroupDet
           {/* Pagination */}
           <div className="flex items-center justify-between px-6 py-4 border-t border-slate-200 bg-white">
             <div className="text-sm text-slate-600">
-              Showing {((page - 1) * limit) + 1}-{Math.min(page * limit, totalCount)} of {totalCount} {totalCount === 1 ? 'panel' : 'panels'}
+              Showing {displayTotal === 0 ? 0 : ((currentPage - 1) * limit) + 1}-{Math.min(currentPage * limit, displayTotal)} of {displayTotal} {displayTotal === 1 ? 'panel' : 'panels'}
             </div>
             <div className="flex items-center gap-3">
-              {totalPages > 1 && (
+              {displayPages > 1 && (
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => setPage(page - 1)}
-                    disabled={page === 1}
+                    onClick={() => setPage(currentPage - 1)}
+                    disabled={currentPage === 1}
                     className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     title="Previous page"
                   >
                     <ChevronLeft className="w-4 h-4" />
                   </button>
                   <span className="text-sm text-slate-600">
-                    Page {page} of {totalPages}
+                    Page {currentPage} of {displayPages}
                   </span>
                   <button
-                    onClick={() => setPage(page + 1)}
-                    disabled={page === totalPages}
+                    onClick={() => setPage(currentPage + 1)}
+                    disabled={currentPage === displayPages}
                     className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     title="Next page"
                   >

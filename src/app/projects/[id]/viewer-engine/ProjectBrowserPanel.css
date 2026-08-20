@@ -11,7 +11,7 @@
   border-left: 1px solid #e2e8f0;
   box-shadow: -8px 0 24px rgba(15, 23, 42, 0.08);
   overflow: hidden;
-  font-family: "Segoe UI", system-ui, sans-serif;
+  font-family: var(--uq-font, "Inter", "Segoe UI", system-ui, sans-serif);
   animation: pb-slide-in 0.2s ease-out;
 }
 
@@ -73,7 +73,7 @@
 
 .pb-tabs {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(7, 1fr);
   gap: 0;
   background: #fff;
   border-bottom: 1px solid #e2e8f0;
@@ -369,6 +369,7 @@
   white-space: nowrap;
 }
 
+.pb-bimsf-qr,
 .pb-bimsf-branch {
   width: 22px;
   height: 22px;
@@ -383,6 +384,11 @@
   justify-content: center;
   padding: 0;
   font-size: 11px;
+}
+
+.pb-bimsf-qr:hover {
+  border-color: #1e3a5f;
+  color: #1e3a5f;
 }
 
 .pb-bimsf-branch:hover {
@@ -626,7 +632,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  font-family: "Segoe UI", system-ui, sans-serif;
+  font-family: var(--uq-font, "Inter", "Segoe UI", system-ui, sans-serif);
   animation: pb-slide-in 0.18s ease-out;
 }
 

@@ -616,14 +616,14 @@ export function QRModal({ isOpen, onClose, panelId, panelName, projectId }: QRMo
               <div className="flex gap-2">
                 <button
                   onClick={downloadStickerJPG}
-                  className="flex-1 py-3 px-4 bg-slate-700 hover:bg-slate-600 text-white border-none rounded-lg text-sm font-semibold cursor-pointer transition-colors flex items-center justify-center gap-2"
+                  className="flex-1 py-3 px-4 uq-btn border-none rounded-lg text-sm font-semibold cursor-pointer transition-colors flex items-center justify-center gap-2"
                 >
                   <Download className="w-4 h-4" />
                   JPG
                 </button>
                 <button
                   onClick={downloadStickerPDF}
-                  className="flex-1 py-3 px-4 bg-slate-700 hover:bg-slate-600 text-white border-none rounded-lg text-sm font-semibold cursor-pointer transition-colors flex items-center justify-center gap-2"
+                  className="flex-1 py-3 px-4 uq-btn border-none rounded-lg text-sm font-semibold cursor-pointer transition-colors flex items-center justify-center gap-2"
                 >
                   <FileText className="w-4 h-4" />
                   PDF
