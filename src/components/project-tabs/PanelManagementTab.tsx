@@ -182,6 +182,8 @@ interface Panel {
   groups?: any[]
   statuses?: any[]
   totalPanels?: number
+  memberIds?: string[]
+  memberCount?: number
   metadata?: any
   model?: {
     id: string
@@ -251,6 +253,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({})
   // Toggle: include "Structural Connections Assembly" panels. Default: off (hidden).
   const [includeConnections, setIncludeConnections] = useState(false)
+  const [groupedBy, setGroupedBy] = useState<'bimsf' | 'members'>('members')
   // Inline rename state
   const [editingPanelId, setEditingPanelId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
@@ -344,6 +347,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
         setPanels(data.panels || [])
         setTotalPanels(data.pagination?.total || 0)
         setTotalPages(data.pagination?.totalPages || 1)
+        setGroupedBy(data.groupedBy === 'bimsf' ? 'bimsf' : 'members')
         console.log(`✅ Loaded ${data.panels?.length || 0} panels (page ${page}/${data.pagination?.totalPages || 1})`)
       } else {
         console.error('❌ Response not OK:', response.status, response.statusText)
@@ -525,6 +529,16 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
     setSelectedPanels(new Set())
   }
 
+  const collectSelectedMemberIds = () => {
+    const ids = new Set<string>()
+    for (const panel of panels) {
+      if (!selectedPanels.has(panel.id)) continue
+      const members = panel.memberIds?.length ? panel.memberIds : [panel.id]
+      for (const id of members) ids.add(id)
+    }
+    return [...ids]
+  }
+
   // Check if all panels on current page are selected
   const areAllCurrentPagePanelsSelected = () => {
     if (filteredPanels.length === 0) return false
@@ -578,7 +592,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
     if (selectedPanels.size === 0 || statusIds.length === 0) return
 
     try {
-      const panelIds = Array.from(selectedPanels)
+      const panelIds = collectSelectedMemberIds()
 
       // Assign each selected status to the panels
       for (const statusId of statusIds) {
@@ -598,7 +612,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
       setShowAssignStatusModal(false)
       toast({
         title: "Success",
-        description: `Successfully assigned ${statusIds.length} status(es) to ${panelIds.length} panel(s)`,
+        description: `Successfully assigned ${statusIds.length} status(es) to ${selectedPanels.size} panel(s)`,
       })
     } catch (error) {
       console.error('Error assigning status:', error)
@@ -614,7 +628,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
     if (selectedPanels.size === 0 || groupIds.length === 0) return
 
     try {
-      const panelIds = Array.from(selectedPanels)
+      const panelIds = collectSelectedMemberIds()
 
       // Add panels to each selected group
       for (const groupId of groupIds) {
@@ -630,7 +644,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
       setShowAddToGroupModal(false)
       toast({
         title: "Success",
-        description: `Successfully added ${panelIds.length} panel(s) to ${groupIds.length} group(s)`,
+        description: `Successfully added ${selectedPanels.size} panel(s) to ${groupIds.length} group(s)`,
       })
     } catch (error) {
       console.error('Error adding to group:', error)
@@ -646,7 +660,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
     if (selectedPanels.size === 0 || statusIds.length === 0) return
 
     try {
-      const panelIds = Array.from(selectedPanels)
+      const panelIds = collectSelectedMemberIds()
 
       // Remove each selected status from the panels
       for (const statusId of statusIds) {
@@ -666,7 +680,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
       setShowRemoveStatusModal(false)
       toast({
         title: "Success",
-        description: `Successfully removed ${statusIds.length} status(es) from ${panelIds.length} panel(s)`,
+        description: `Successfully removed ${statusIds.length} status(es) from ${selectedPanels.size} panel(s)`,
       })
     } catch (error) {
       console.error('Error removing status:', error)
@@ -682,7 +696,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
     if (selectedPanels.size === 0 || groupIds.length === 0) return
 
     try {
-      const panelIds = Array.from(selectedPanels)
+      const panelIds = collectSelectedMemberIds()
 
       // Remove panels from each selected group
       for (const groupId of groupIds) {
@@ -698,7 +712,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
       setShowRemoveGroupModal(false)
       toast({
         title: "Success",
-        description: `Successfully removed ${panelIds.length} panel(s) from ${groupIds.length} group(s)`,
+        description: `Successfully removed ${selectedPanels.size} panel(s) from ${groupIds.length} group(s)`,
       })
     } catch (error) {
       console.error('Error removing from group:', error)
@@ -721,7 +735,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
           <div>
             <h2 className="text-lg font-semibold text-slate-900">Panel Management</h2>
             <p className="text-sm text-slate-500 mt-1">
-              {totalPanels.toLocaleString()} panels in project
+              {totalPanels.toLocaleString()} {groupedBy === 'bimsf' ? 'BIMSF panels' : 'panels'} in project
               {!includeConnections && (
                 <span className="ml-2 text-xs text-slate-400">
                   (Connections Assembly hidden)
@@ -766,7 +780,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
               type="text"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Search panels by name, tag, location, or type..."
+              placeholder={groupedBy === 'bimsf' ? 'Search BIMSF marks (e.g. LB1001)...' : 'Search panels by name, tag, location, or type...'}
               className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:border-slate-500 focus:outline-none"
             />
           </div>
@@ -1162,7 +1176,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
                   Model
                 </th>
                 <th className="text-left py-3 px-4 text-xs font-medium text-slate-600 uppercase tracking-wider">
-                  Type
+                  {groupedBy === 'bimsf' ? 'Members' : 'Type'}
                 </th>
                 <th className="text-left py-3 px-4 text-xs font-medium text-slate-600 uppercase tracking-wider">
                   Group
@@ -1321,7 +1335,9 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
                       </div>
                     </td>
                     <td className="py-3 px-4 text-sm text-slate-700">
-                      {panel.objectType || 'Unknown'}
+                      {groupedBy === 'bimsf' || panel.memberCount
+                        ? `${panel.memberCount || 1} member${(panel.memberCount || 1) === 1 ? '' : 's'}`
+                        : panel.objectType || 'Unknown'}
                     </td>
                     <td className="py-3 px-4">
                       {panel.groups && panel.groups.length > 0 ? (
@@ -1559,20 +1575,21 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
           availableGroups={groups as any}
           onUpdate={async (panelId: string, updates: any) => {
             try {
-              const response = await authenticatedFetch(getApiUrl(`panels/${panelId}`), {
-                method: 'PATCH',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  // notes: updates.description,
-                  statusIds: updates.customStatusIds,
-                  groupIds: updates.groupIds,
-                }),
-              })
-
-              if (!response.ok) {
-                throw new Error('Failed to update panel')
+              const memberIds = selectedPanel?.memberIds?.length ? selectedPanel.memberIds : [panelId]
+              for (const id of memberIds) {
+                const response = await authenticatedFetch(getApiUrl(`panels/${id}`), {
+                  method: 'PATCH',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    statusIds: updates.customStatusIds,
+                    groupIds: updates.groupIds,
+                  }),
+                })
+                if (!response.ok) {
+                  throw new Error('Failed to update panel')
+                }
               }
 
               await handlePanelUpdate()

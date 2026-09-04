@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import './ProjectBrowserPanel.css';
 import { getBrowserApiBase } from '@/config/browserApi';
+import { extractPanelMark as extractRealBimsfMark } from '@/utils/panelMark';
 
 export type BrowserDrawing = {
   id: string;
@@ -171,7 +172,7 @@ function isArchitectureFloorPlanPrefix(name: string | undefined): boolean {
 function compareTreeViewNames(a: string, b: string): number {
   const rank = (name: string): [number, number] => {
     const n = name.toLowerCase();
-    if (/foundation/i.test(n)) return [0, 0];
+    if (/\bfoundations?\b|\bfootings?\b|\bfooting\s*walls?\b|\bwall\s*foundations?\b/i.test(n)) return [0, 0];
     const m = n.match(/level\s*(\d+)/i);
     if (m) return [1, parseInt(m[1], 10)];
     return [2, 0];
@@ -203,46 +204,20 @@ function isBimsfConnectorMark(displayOrKey: string): boolean {
     .trim();
   if (!name) return false;
   if (/^[a-z]{1,4}[-_]?\d{2,8}$/i.test(name)) return false;
-  if (/foundation/i.test(name)) return false;
+  if (/\bfoundations?\b|\bfootings?\b|\bfooting\s*walls?\b|\bwall\s*foundations?\b/i.test(name)) return false;
   if (/\banchor\s*bolts?\b/i.test(name)) return true;
   if (/^connectors?$/i.test(name)) return true;
   if (/\bconnectors?\b/i.test(name)) return true;
   return false;
 }
 
-/** Prefer short marks like LB1001 from name/tag/metadata */
+/** Prefer real BIMSF marks like LB1001; keep the row name only as a last resort. */
 function extractPanelMark(p: {
   name?: string | null;
   tag?: string | null;
   metadata?: Record<string, any> | null;
 }): string {
-  const meta = p.metadata || {};
-  const candidates = [
-    meta.BIMSF_Container,
-    meta.bimsf,
-    meta.mark,
-    meta.Mark,
-    meta.panelMark,
-    meta.PanelMark,
-    p.tag,
-    p.name,
-  ]
-    .filter(Boolean)
-    .map((x) => String(x).trim());
-
-  for (const c of candidates) {
-    if (/^[A-Z]{1,4}\d{2,8}$/i.test(c)) return c.toUpperCase();
-    const m = c.match(/\b([A-Z]{1,4}\d{2,8})\b/i);
-    if (m) return m[1].toUpperCase();
-  }
-
-  // Revit-style Family:Type:Id — keep readable tail when no mark
-  const parts = (p.name || '').split(':').map((s) => s.trim()).filter(Boolean);
-  if (parts.length >= 2) {
-    const maybe = parts[parts.length - 2];
-    if (/^[A-Z]{1,4}\d/i.test(maybe)) return maybe.toUpperCase();
-  }
-  return (p.name || p.tag || 'Panel').trim();
+  return extractRealBimsfMark(p) || (p.name || p.tag || 'Panel').trim();
 }
 
 function isShortPanelMark(mark: string): boolean {

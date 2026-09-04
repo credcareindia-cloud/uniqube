@@ -8,6 +8,7 @@ import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment
 import { Views2DManager } from './views2d';
 import { localId } from "three/src/nodes/TSL.js";
 import { getBrowserApiBase } from '../../../../config/browserApi';
+import { canonicalBimsfMark, collapseMembersToPanels, extractPanelMark, isFoundationMark } from '../../../../utils/panelMark';
 
 /** Stainless steel albedo used for BIMSF Structure selection (darker so it reads on white bg) */
 const BIMSF_STAINLESS_COLOR = "#7A848E";
@@ -410,7 +411,7 @@ export async function initializeViewer(containerId: string = "container") {
     if (!name) return false;
     // Panel marks like CD-1001 / LB1001 stay as panels
     if (/^[a-z]{1,4}[-_]?\d{2,8}$/i.test(name)) return false;
-    if (/foundation/i.test(name)) return false;
+    if (isFoundationMark(name)) return false;
     if (/\banchor\s*bolts?\b/i.test(name)) return true;
     if (/^connectors?$/i.test(name)) return true;
     if (/\bconnectors?\b/i.test(name)) return true;
@@ -857,6 +858,10 @@ export async function initializeViewer(containerId: string = "container") {
         if (!raw && objectType) {
           const hit = byMark.get(objectType.replace(/^\*/, '').trim().toLowerCase());
           if (hit) raw = hit;
+        }
+        if (!raw) {
+          const fromName = canonicalBimsfMark(name) || canonicalBimsfMark(tag) || canonicalBimsfMark(objectType);
+          if (fromName) raw = fromName;
         }
 
         if (!raw) continue;
@@ -1338,13 +1343,48 @@ export async function initializeViewer(containerId: string = "container") {
 
   /** Foundation → per floor: LB/NLB → CD → FT → … */
   const isFoundationPanelKey = (key: string): boolean => {
-    const name = (bimsfDisplayByKey.get(key) || key || '').toLowerCase().trim();
-    return (
-      name === 'foundation' ||
-      /^foundation\b/i.test(name) ||
-      /\bfoundation\b/i.test(name) ||
-      /uq[_-]?foundation/i.test(name)
-    );
+    return isFoundationMark(bimsfDisplayByKey.get(key) || key || '');
+  };
+
+  /** IfcFooting / "Footing wall" / Wall Foundation — keep visible for the whole sequence. */
+  const collectFoundationGeometryIds = async (
+    model: FRAGS.FragmentsModel
+  ): Promise<Set<number>> => {
+    const found = new Set<number>();
+    try {
+      const byCat = await model.getItemsOfCategories([/IFCFOOTING/i, /IFCFOUNDATION/i]);
+      for (const ids of Object.values(byCat || {})) {
+        for (const id of ids || []) found.add(Number(id));
+      }
+    } catch {
+      /* optional */
+    }
+    const queries = [
+      { name: /^Name$/i, value: /footing/i },
+      { name: /^ObjectType$/i, value: /footing/i },
+      { name: /^Name$/i, value: /foundation/i },
+      { name: /^ObjectType$/i, value: /foundation/i },
+      { name: /^Name$/i, value: /^IfcFooting/i },
+    ];
+    for (const q of queries) {
+      try {
+        const ids = await model.getItemsByQuery({
+          attributes: { aggregation: 'inclusive', queries: [q] },
+        });
+        for (const id of ids || []) found.add(Number(id));
+      } catch {
+        /* attr missing */
+      }
+    }
+    if (found.size) {
+      try {
+        const children = await model.getItemsChildren([...found]);
+        for (const id of children || []) found.add(Number(id));
+      } catch {
+        /* optional */
+      }
+    }
+    return found;
   };
 
   const isFloorTrussPanelKey = (key: string): boolean => {
@@ -1355,7 +1395,7 @@ export async function initializeViewer(containerId: string = "container") {
   const isInstallPanelMarkKey = (key: string): boolean => {
     if (isFoundationPanelKey(key) || isFloorTrussPanelKey(key)) return true;
     const name = (bimsfDisplayByKey.get(key) || key || '').toLowerCase().trim();
-    return /^[a-z]{1,4}[-_]?\d{1,8}$/i.test(name);
+    return /^[a-z]{1,4}[-_]?\d{1,8}(?:-\d+)?$/i.test(name);
   };
 
   /**
@@ -1391,6 +1431,9 @@ export async function initializeViewer(containerId: string = "container") {
     } else if (/^ft[-_]?/i.test(name)) {
       kind = 2;
       rest = name.replace(/^ft[-_]?/i, '');
+    } else if (/^rt[-_]?/i.test(name)) {
+      kind = 3;
+      rest = name.replace(/^rt[-_]?/i, '');
     } else {
       const levelWord = name.match(/level\s*(\d+)/i);
       if (levelWord) {
@@ -1933,7 +1976,8 @@ export async function initializeViewer(containerId: string = "container") {
         continue;
       }
       const installSet = new Set(installAllIdsByModel.get(modelId) || []);
-      const other = geomIds.filter((id) => !installSet.has(id));
+      const foundationIds = await collectFoundationGeometryIds(model);
+      const other = geomIds.filter((id) => !installSet.has(id) && !foundationIds.has(id));
       if (!other.length) continue;
       installOtherIdsByModel.set(modelId, other);
       await setModelIdsVisible(modelId, other, false);
@@ -5545,43 +5589,6 @@ export async function initializeViewer(containerId: string = "container") {
     return getIconComponent(iconName);
   };
 
-  const extractPanelMark = (panel: { name?: string; tag?: string; objectType?: string; metadata?: Record<string, unknown> }): string | null => {
-    const meta = panel.metadata || {};
-    const fromMeta = String(meta.BIMSF_Container || meta.bimsf || meta.mark || meta.Mark || "")
-      .replace(/^\*/, "")
-      .trim();
-    if (fromMeta) return fromMeta;
-
-    const name = String(panel.name || panel.tag || "");
-    const objectType = String(panel.objectType || "");
-    const assembly = name.match(/Assembly:([^:]+)/i);
-    if (assembly?.[1]) return assembly[1].replace(/-\d+$/, "").trim();
-
-    const mark = name.match(/\b((?:NLB|ELB|LB|CD|FT|RT)[-_]?\d+[A-Z0-9-]*)\b/i);
-    if (mark?.[1]) return mark[1].replace(/-\d+$/, "").toUpperCase();
-
-    if (/foundation/i.test(name) || /IfcFooting/i.test(objectType) || /^Floor:/i.test(name) || /IfcSlab/i.test(objectType)) {
-      return "Foundation";
-    }
-    if (/^Basic Wall:/i.test(name) || /IfcWall/i.test(objectType)) return "Wall Panel";
-    if (/IfcDoor/i.test(objectType) || /^Door:/i.test(name)) return "Door Panel";
-    if (/IfcWindow/i.test(objectType) || /^Window:/i.test(name)) return "Window Panel";
-    if (/IfcFlow/i.test(objectType) || /^Pipe /i.test(name) || /Duct/i.test(name)) return "MEP Panel";
-    return null;
-  };
-
-  const collapseMembersToPanels = (panels: any[]) => {
-    const map = new Map<string, any>();
-    for (const panel of panels) {
-      const mark = extractPanelMark(panel);
-      if (!mark) continue;
-      const key = mark.toLowerCase();
-      if (!map.has(key)) {
-        map.set(key, { ...panel, name: mark, tag: mark });
-      }
-    }
-    return [...map.values()];
-  };
 
   // Render status list (read-only)
   const renderStatusList = () => {
@@ -5661,6 +5668,17 @@ export async function initializeViewer(containerId: string = "container") {
           }
         });
       }
+
+      statusItem.querySelectorAll(".status-panel-item").forEach((el) => {
+        el.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const mark = el.querySelector(".panel-item-name")?.textContent?.trim() || "";
+          const key = mark.replace(/^\*/, "").toLowerCase();
+          if (key && bimsfIndex.has(key)) {
+            selectBimsfPanelAllDisciplines(key, true);
+          }
+        });
+      });
 
       // Add click handler for highlight button to highlight all status panels (original behavior)
       const highlightBtn = statusItem.querySelector(".status-highlight-btn");
@@ -5938,6 +5956,17 @@ export async function initializeViewer(containerId: string = "container") {
         });
       }
 
+      groupItem.querySelectorAll(".group-panel-item").forEach((el) => {
+        el.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const mark = el.querySelector(".panel-item-name")?.textContent?.trim() || "";
+          const key = mark.replace(/^\*/, "").toLowerCase();
+          if (key && bimsfIndex.has(key)) {
+            selectBimsfPanelAllDisciplines(key, true);
+          }
+        });
+      });
+
       // Add click handler for highlight button to highlight all group panels (original behavior)
       const highlightBtn = groupItem.querySelector(".group-highlight-btn");
       if (highlightBtn) {
@@ -6003,10 +6032,40 @@ export async function initializeViewer(containerId: string = "container") {
     return resolvedIds;
   };
 
+  const collectBimsfKeysFromDbPanels = (panels: any[]): string[] => {
+    const keys = new Set<string>();
+    for (const panel of panels || []) {
+      const mark = extractPanelMark(panel);
+      if (!mark) continue;
+      const key = mark.replace(/^\*/, "").trim().toLowerCase();
+      if (bimsfIndex.has(key)) keys.add(key);
+    }
+    return [...keys];
+  };
+
+  const highlightBimsfPanelKeys = async (keys: string[]) => {
+    if (!keys.length) return false;
+    bimsfChecked.clear();
+    bimsfNeighborFocusKey = null;
+    bimsfConnectorFocusKeys.clear();
+    for (const key of keys) {
+      const discs = getDisciplinesForPanel(key);
+      if (discs.size) bimsfChecked.set(key, discs);
+    }
+    if (!bimsfChecked.size) return false;
+    await applyBimsfCheckedSelection(true);
+    return true;
+  };
+
   // Highlight panels in a group and make others transparent
   const highlightGroupPanels = async (group: DatabaseGroup) => {
     try {
       console.log(`Highlighting panels for group: ${group.name}`);
+      const rawGroupPanels =
+        group.panelGroups?.map((pg) => pg.panel).filter(Boolean) || group.panels || [];
+      if (await highlightBimsfPanelKeys(collectBimsfKeysFromDbPanels(rawGroupPanels))) {
+        return;
+      }
 
       // Get panel element IDs from the group (using elementId as the unique identifier)
       const panelElementIds: string[] = []; // These are likely LocalIds (ifcElementId)
@@ -6167,29 +6226,7 @@ export async function initializeViewer(containerId: string = "container") {
         }
       }
 
-      // frame entire model with fixed diagonal angle
-      {
-        const combinedBbox = new THREE.Box3();
-        models.forEach((m) => {
-          const bbox = new THREE.Box3().setFromObject(m.object);
-          if (!bbox.isEmpty()) combinedBbox.union(bbox);
-        });
-        if (!combinedBbox.isEmpty()) {
-          const center = new THREE.Vector3();
-          combinedBbox.getCenter(center);
-          const size = new THREE.Vector3();
-          combinedBbox.getSize(size);
-          const maxDim = Math.max(size.x, size.y, size.z);
-          const distance = maxDim * 1.2;
-          world.camera.controls.setLookAt(
-            center.x + distance * 0.7,
-            center.y + distance * 0.5,
-            center.z + distance * 0.7,
-            center.x, center.y, center.z,
-            true
-          );
-        }
-      }
+      await focusCameraOnLocalIds([...new Set(localIds)], { closer: 0.9 });
 
       // Update fragments (same as tree structure)
       await fragments.update(true);
@@ -6204,6 +6241,10 @@ export async function initializeViewer(containerId: string = "container") {
   const highlightStatusPanels = async (status: any) => {
     try {
       console.log(`Highlighting panels for status: ${status.name}`);
+      const rawPanels = status.panelStatuses?.map((ps: any) => ps.panel).filter(Boolean) || [];
+      if (await highlightBimsfPanelKeys(collectBimsfKeysFromDbPanels(rawPanels))) {
+        return;
+      }
 
       // Get panel element IDs from the status (using elementId as the unique identifier)
       const panelElementIds: string[] = []; // LocalIds
@@ -6346,31 +6387,7 @@ export async function initializeViewer(containerId: string = "container") {
         }
       }
 
-      // OLD FIXED-ANGLE METHOD (requested): frame entire model with fixed diagonal angle
-      {
-        const combinedBbox = new THREE.Box3();
-        models.forEach((m) => {
-          const bbox = new THREE.Box3().setFromObject(m.object);
-          if (!bbox.isEmpty()) combinedBbox.union(bbox);
-        });
-        if (!combinedBbox.isEmpty()) {
-          const center = new THREE.Vector3();
-          combinedBbox.getCenter(center);
-          const size = new THREE.Vector3();
-          combinedBbox.getSize(size);
-          const maxDim = Math.max(size.x, size.y, size.z);
-          const distance = maxDim * 1.2;
-          world.camera.controls.setLookAt(
-            center.x + distance * 0.7,
-            center.y + distance * 0.5,
-            center.z + distance * 0.7,
-            center.x, center.y, center.z,
-            true
-          );
-        }
-      }
-
-      // Update fragments (same as tree structure)
+      await focusCameraOnLocalIds([...new Set(localIds)], { closer: 0.9 });
       await fragments.update(true);
 
       console.log("Status panels highlighted successfully");

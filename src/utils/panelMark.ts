@@ -1,4 +1,39 @@
-/** Turn IFC member/family names into a BIMSF-style panel mark. Returns null for members. */
+/** Foundation / footing marks — first install step, stay visible as the sequence base. */
+export function isFoundationMark(raw: string | null | undefined): boolean {
+  const name = String(raw || '')
+    .toLowerCase()
+    .replace(/^\*/, '')
+    .trim()
+  if (!name) return false
+  return (
+    /\bfoundations?\b/i.test(name) ||
+    /uq[_-]?foundation/i.test(name) ||
+    /\bfootings?\b/i.test(name) ||
+    /\bfooting\s*walls?\b/i.test(name) ||
+    /\bwall\s*foundations?\b/i.test(name) ||
+    /\bbearing\s*footings?\b/i.test(name)
+  )
+}
+
+export function canonicalBimsfMark(raw: string | null | undefined): string | null {
+  const name = String(raw || '')
+    .replace(/^\*/, '')
+    .trim()
+  if (!name) return null
+  if (isFoundationMark(name)) return 'Foundation'
+  if (/^anchor\s*bolts?$/i.test(name)) return 'Anchor Bolt'
+  if (/^connectors?$/i.test(name)) return 'Connectors'
+  if (/^[A-Za-z]{1,4}[-_]?\d{1,8}(?:-\d+)?$/.test(name)) return name
+  const embedded = name.match(/\b((?:NLB|ELB|ILB|LB|CD|FT|RT)[-_]?\d{1,8}(?:-\d+)?)\b/i)
+  return embedded ? embedded[1].toUpperCase() : null
+}
+
+/** Real BIMSF marks only — not IFC member names or invented "Wall Panel" labels. */
+export function isRealBimsfMark(raw: string | null | undefined): boolean {
+  return canonicalBimsfMark(raw) !== null
+}
+
+/** Turn a row into its BIMSF mark. Returns null for IFC members with no real mark. */
 export function extractPanelMark(panel: {
   name?: string | null
   tag?: string | null
@@ -6,47 +41,14 @@ export function extractPanelMark(panel: {
   metadata?: Record<string, unknown> | null
 }): string | null {
   const meta = panel.metadata || {}
-  const fromMeta = String(meta.BIMSF_Container || meta.bimsf || meta.mark || meta.Mark || '')
-    .replace(/^\*/, '')
-    .trim()
-  if (fromMeta) return fromMeta
+  for (const raw of [meta.BIMSF_Container, meta.bimsf, meta.mark, meta.Mark, meta.panelMark]) {
+    const mark = canonicalBimsfMark(typeof raw === 'string' ? raw : '')
+    if (mark) return mark
+  }
 
   const name = String(panel.name || panel.tag || '')
-  const objectType = String(panel.objectType || '')
-
-  const assembly = name.match(/Assembly:([^:]+)/i)
-  if (assembly?.[1]) {
-    return assembly[1].replace(/-\d+$/, '').trim()
-  }
-
-  const mark = name.match(/\b((?:NLB|ELB|LB|CD|FT|RT)[-_]?\d+[A-Z0-9-]*)\b/i)
-  if (mark?.[1]) {
-    return mark[1].replace(/-\d+$/, '').toUpperCase()
-  }
-
-  if (
-    /foundation/i.test(name) ||
-    /IfcFooting/i.test(objectType) ||
-    /^Floor:/i.test(name) ||
-    /IfcSlab/i.test(objectType)
-  ) {
-    return 'Foundation'
-  }
-
-  if (/^Basic Wall:/i.test(name) || /IfcWall/i.test(objectType)) {
-    return 'Wall Panel'
-  }
-
-  if (/IfcDoor/i.test(objectType) || /^Door:/i.test(name)) return 'Door Panel'
-  if (/IfcWindow/i.test(objectType) || /^Window:/i.test(name)) return 'Window Panel'
-
-  if (
-    /IfcFlow/i.test(objectType) ||
-    /^Pipe /i.test(name) ||
-    /Duct/i.test(name)
-  ) {
-    return 'MEP Panel'
-  }
+  const own = canonicalBimsfMark(name)
+  if (own) return own
 
   return null
 }
@@ -57,8 +59,8 @@ export function collapseMembersToPanels<T extends {
   tag?: string | null
   objectType?: string | null
   metadata?: Record<string, unknown> | null
-}>(panels: T[]): Array<T & { panelMark: string; memberCount: number }> {
-  const map = new Map<string, T & { panelMark: string; memberCount: number }>()
+}>(panels: T[]): Array<T & { panelMark: string; memberCount: number; memberIds: string[] }> {
+  const map = new Map<string, T & { panelMark: string; memberCount: number; memberIds: string[] }>()
   for (const panel of panels) {
     const mark = extractPanelMark(panel)
     if (!mark) continue
@@ -66,6 +68,7 @@ export function collapseMembersToPanels<T extends {
     const existing = map.get(key)
     if (existing) {
       existing.memberCount += 1
+      existing.memberIds.push(panel.id)
     } else {
       map.set(key, {
         ...panel,
@@ -73,6 +76,7 @@ export function collapseMembersToPanels<T extends {
         tag: mark,
         panelMark: mark,
         memberCount: 1,
+        memberIds: [panel.id],
       })
     }
   }
