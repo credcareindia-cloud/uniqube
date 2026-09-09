@@ -1666,6 +1666,23 @@ export async function initializeViewer(containerId: string = "container") {
     }
   };
 
+  /** Floor/footing ids must never be hidden during install — otherwise they flicker every step. */
+  const excludePersistentInstallIds = async (
+    modelId: string,
+    ids: number[]
+  ): Promise<number[]> => {
+    if (!ids.length) return ids;
+    const model = models.get(modelId);
+    if (!model || modelDisciplineById.get(modelId) !== 'structure') return ids;
+    const persistent = await collectPersistentInstallGeometryIds(modelId, model);
+    if (!persistent.length) return ids;
+    const blocked = new Set(persistent);
+    return ids.filter((id) => !blocked.has(id));
+  };
+
+  /** Last panel index whose visibility was applied (for incremental next/prev). */
+  let installAppliedVisibilityIndex = -1;
+
   const isFloorTrussPanelKey = (key: string): boolean => {
     const name = (bimsfDisplayByKey.get(key) || key || '').toLowerCase().trim();
     return /^ft[-_]?\d/i.test(name) || /^ft[-_]/i.test(name);
@@ -1811,9 +1828,10 @@ export async function initializeViewer(containerId: string = "container") {
         if (foundationOnly && disc && disc !== 'structure') continue;
         if (disc && !disciplineVisible[disc]) continue;
       }
-      const toApply = visible ? excludeHiddenLayerIds(modelId, ids) : ids;
+      let toApply = visible ? excludeHiddenLayerIds(modelId, ids) : ids;
+      if (!visible) toApply = await excludePersistentInstallIds(modelId, toApply);
       if (!toApply.length) continue;
-      const CHUNK = 400;
+      const CHUNK = 800;
       for (let i = 0; i < toApply.length; i += CHUNK) {
         await model.setVisible(toApply.slice(i, i + CHUNK), visible);
       }
@@ -1824,9 +1842,11 @@ export async function initializeViewer(containerId: string = "container") {
     for (const [modelId, ids] of installAllIdsByModel) {
       const model = models.get(modelId);
       if (!model || !ids.length) continue;
-      const CHUNK = 400;
-      for (let i = 0; i < ids.length; i += CHUNK) {
-        await model.setVisible(ids.slice(i, i + CHUNK), visible);
+      const toApply = visible ? ids : await excludePersistentInstallIds(modelId, ids);
+      if (!toApply.length) continue;
+      const CHUNK = 800;
+      for (let i = 0; i < toApply.length; i += CHUNK) {
+        await model.setVisible(toApply.slice(i, i + CHUNK), visible);
       }
     }
   };
@@ -2236,9 +2256,14 @@ export async function initializeViewer(containerId: string = "container") {
   const setModelIdsVisible = async (modelId: string, ids: number[], visible: boolean) => {
     const model = models.get(modelId);
     if (!model || !ids.length) return;
-    const CHUNK = 500;
-    for (let i = 0; i < ids.length; i += CHUNK) {
-      await model.setVisible(ids.slice(i, i + CHUNK), visible);
+    const toApply =
+      !visible && installSequenceActive
+        ? await excludePersistentInstallIds(modelId, ids)
+        : ids;
+    if (!toApply.length) return;
+    const CHUNK = 800;
+    for (let i = 0; i < toApply.length; i += CHUNK) {
+      await model.setVisible(toApply.slice(i, i + CHUNK), visible);
     }
   };
 
@@ -2261,8 +2286,14 @@ export async function initializeViewer(containerId: string = "container") {
         continue;
       }
       const installSet = new Set(installAllIdsByModel.get(modelId) || []);
-      const foundationIds = await collectFoundationGeometryIds(model);
-      const floorSlabIds = await collectFloorSlabGeometryIds(model);
+      const foundationIds =
+        modelDisciplineById.get(modelId) === 'structure'
+          ? await collectFoundationGeometryIds(model)
+          : new Set<number>();
+      const floorSlabIds =
+        modelDisciplineById.get(modelId) === 'structure'
+          ? await collectFloorSlabGeometryIds(model)
+          : new Set<number>();
       // Hide ACP, doors, windows, site context, etc. — only sequence panels + footing + floor slabs stay
       const other = geomIds.filter(
         (id) =>
@@ -2270,13 +2301,9 @@ export async function initializeViewer(containerId: string = "container") {
           !foundationIds.has(id) &&
           !floorSlabIds.has(id)
       );
-      if (!other.length) {
-        await ensurePersistentInstallGeometryVisible();
-        continue;
-      }
+      if (!other.length) continue;
       installOtherIdsByModel.set(modelId, other);
       await setModelIdsVisible(modelId, other, false);
-      await ensurePersistentInstallGeometryVisible();
     }
   };
 
@@ -2310,23 +2337,36 @@ export async function initializeViewer(containerId: string = "container") {
         model.object.visible = disciplineVisible[disc];
       }
     }
-    try {
-      await fragments.update(true);
-    } catch {
-      /* optional */
-    }
   };
 
-  const syncInstallVisibilityUpTo = async (index: number) => {
+  const syncInstallVisibilityUpTo = async (index: number, forceFull = false) => {
+    if (
+      !forceFull &&
+      installAppliedVisibilityIndex >= 0 &&
+      index !== installAppliedVisibilityIndex
+    ) {
+      if (index > installAppliedVisibilityIndex) {
+        for (let i = installAppliedVisibilityIndex + 1; i <= index; i++) {
+          await setBimsfPanelVisible(installSequenceKeys[i], true);
+        }
+      } else {
+        for (let i = index + 1; i <= installAppliedVisibilityIndex; i++) {
+          await setBimsfPanelVisible(installSequenceKeys[i], false);
+        }
+      }
+      installAppliedVisibilityIndex = index;
+      return;
+    }
     for (let i = 0; i < installSequenceKeys.length; i++) {
       await setBimsfPanelVisible(installSequenceKeys[i], i <= index);
     }
+    installAppliedVisibilityIndex = index;
   };
 
   /** Fast step: show panels up to index with metallic / MEP colours. Camera stays put. */
-  const applyInstallStep = async (index: number) => {
+  const applyInstallStep = async (index: number, opts?: { forceFullVisibility?: boolean }) => {
     await syncInstallDisciplineMaskForStep(index);
-    await syncInstallVisibilityUpTo(index);
+    await syncInstallVisibilityUpTo(index, !!opts?.forceFullVisibility);
     await syncInstallConnectorsUpTo(index);
 
     const highlights: {
@@ -2425,8 +2465,7 @@ export async function initializeViewer(containerId: string = "container") {
     }
 
     await fragments.update(true);
-    await reapplyHiddenLayers();
-    await ensurePersistentInstallGeometryVisible();
+    // Do not reapply hide-layers / re-force floor here — that made the slab flicker every Next.
 
     const key = installSequenceKeys[index];
     if (key) {
@@ -2472,18 +2511,34 @@ export async function initializeViewer(containerId: string = "container") {
 
     installSequenceKeys = keys;
     installSequenceIndex = 0;
+    installAppliedVisibilityIndex = -1;
     installSequenceActive = true;
     bimsfChecked.clear();
     bimsfNeighborFocusKey = null;
     lastFragmentHighlight = [];
     collectInstallIdsByModel();
 
-    // Hide all non-sequence geometry + all sequence panels, then show step 0 only
+    // Blank the viewport first so the user doesn't watch thousands of items vanish one-by-one
+    for (const model of models.values()) {
+      if (model?.object) model.object.visible = false;
+    }
+    try {
+      await fragments.update(true);
+    } catch {
+      /* optional */
+    }
+
     await hideNonSequenceGeometry();
     await setAllInstallPanelsVisible(false);
+    // Warm persistent floor/footing cache before first reveal
+    for (const [modelId, model] of models.entries()) {
+      if (modelDisciplineById.get(modelId) === 'structure') {
+        await collectPersistentInstallGeometryIds(modelId, model);
+      }
+    }
     await ensurePersistentInstallGeometryVisible();
     await buildInstallConnectorCaches();
-    await applyInstallStep(0);
+    await applyInstallStep(0, { forceFullVisibility: true });
 
     const state = getInstallSequenceState();
     try {
@@ -2568,12 +2623,13 @@ export async function initializeViewer(containerId: string = "container") {
     }
   };
 
-  /** Play mode: reveal only the newly added panel (no full re-hide / re-color). */
+  /** Play / Next: reveal only the newly added panel (no full re-hide / re-color). */
   const revealInstallStepFast = async (index: number) => {
     const key = installSequenceKeys[index];
     if (!key) return;
     await syncInstallDisciplineMaskForStep(index);
     await setBimsfPanelVisible(key, true);
+    installAppliedVisibilityIndex = index;
     const conn = installConnectorCache.get(key);
     if (conn?.byModel) {
       for (const [modelId, ids] of conn.byModel) {
@@ -2665,10 +2721,28 @@ export async function initializeViewer(containerId: string = "container") {
 
     if (enteringFinale) {
       await applyInstallCompleteStage(!!opts?.fast);
-    } else if (opts?.fast && direction === 'next') {
+    } else if (direction === 'next') {
       await revealInstallStepFast(nextIndex);
+    } else if (direction === 'prev') {
+      // Hide only panels after the new index — avoid full re-hide of 100+ panels
+      await syncInstallDisciplineMaskForStep(nextIndex);
+      await syncInstallVisibilityUpTo(nextIndex);
+      await syncInstallConnectorsUpTo(nextIndex);
+      try {
+        await fragments.update(true);
+      } catch {
+        /* ignore */
+      }
+      const key = installSequenceKeys[nextIndex];
+      if (key) {
+        try {
+          installCurrentDetails = await buildInstallPanelDetails(key);
+        } catch {
+          installCurrentDetails = null;
+        }
+      }
     } else {
-      await applyInstallStep(nextIndex);
+      await applyInstallStep(nextIndex, { forceFullVisibility: true });
     }
 
     const state = getInstallSequenceState();
@@ -2686,6 +2760,7 @@ export async function initializeViewer(containerId: string = "container") {
     installPlayAdvancing = false;
     installSequenceActive = false;
     installSequenceIndex = 0;
+    installAppliedVisibilityIndex = -1;
     installCurrentDetails = null;
 
     await setAllInstallPanelsVisible(true);
@@ -3124,7 +3199,7 @@ export async function initializeViewer(containerId: string = "container") {
     updateDisciplineButtonsUi();
     if (installSequenceActive) {
       await syncInstallDisciplineMaskForStep(installSequenceIndex);
-      await applyInstallStep(installSequenceIndex);
+      await applyInstallStep(installSequenceIndex, { forceFullVisibility: true });
       console.log(`${visible ? '👁️ Show' : '🙈 Hide'} ${disc} model(s) (install sequence)`);
       return;
     }
