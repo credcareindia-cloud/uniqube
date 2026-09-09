@@ -935,6 +935,55 @@ export async function initializeViewer(containerId: string = "container") {
       }
     }
 
+    // Third pass: publish-sidecar byPanel Revit ElementId lists (ACP walls often miss Tag/Name)
+    const sidecarByPanel = payload.bimsfMap?.byPanel;
+    if (sidecarByPanel && typeof sidecarByPanel === 'object') {
+      const elementToPanelKey = new Map<string, string>();
+      for (const [panelId, info] of Object.entries(sidecarByPanel as Record<string, any>)) {
+        const display = normalizeBimsfId((info as any)?.displayName || panelId) || String(panelId);
+        const key = display.toLowerCase();
+        if (isBimsfConnectorKey(key)) continue;
+        bimsfDisplayByKey.set(key, display);
+        for (const eid of (info as any)?.elementIds || []) {
+          elementToPanelKey.set(String(eid).trim(), key);
+        }
+      }
+      const stillUnmapped = geomIds.filter((id) => !bimsfLocalToKey.has(bimsfLocalKey(modelId, id)));
+      for (let i = 0; i < stillUnmapped.length; i += BATCH) {
+        const batch = stillUnmapped.slice(i, i + BATCH);
+        let rows: any[] = [];
+        try {
+          rows = await model.getItemsData(batch, {
+            attributesDefault: false,
+            attributes: ['Tag', 'Name'],
+          });
+        } catch {
+          continue;
+        }
+        for (let j = 0; j < rows.length; j++) {
+          const row = rows[j];
+          if (!row) continue;
+          const tag = row.Tag && 'value' in row.Tag ? String(row.Tag.value) : '';
+          const name = row.Name && 'value' in row.Name ? String(row.Name.value) : '';
+          const idFromName = name.match(/:(\d+)\s*$/)?.[1] || '';
+          const revitId = (tag && /^\d+$/.test(tag) ? tag : null) || idFromName;
+          if (!revitId) continue;
+          const panelKey = elementToPanelKey.get(revitId);
+          if (!panelKey) continue;
+          let byModel = bimsfIndex.get(panelKey);
+          if (!byModel) {
+            byModel = new Map();
+            bimsfIndex.set(panelKey, byModel);
+          }
+          const list = byModel.get(modelId) || [];
+          list.push(batch[j]);
+          byModel.set(modelId, list);
+          bimsfLocalToKey.set(bimsfLocalKey(modelId, batch[j]), panelKey);
+          matched += 1;
+        }
+      }
+    }
+
     console.log(`🧩 Indexed BIMSF for ${matched} localIds in model ${modelId}`);
   };
 
@@ -1020,10 +1069,8 @@ export async function initializeViewer(containerId: string = "container") {
         if (disc) found.add(disc);
       }
     }
-    if (!found.size) {
-      const hint = bimsfPanelDisciplineHints.get(panelKey);
-      if (hint) hint.forEach((d) => found.add(d));
-    }
+    const hint = bimsfPanelDisciplineHints.get(panelKey);
+    if (hint) hint.forEach((d) => found.add(d));
     if (!found.size && ARCH_LAYER_PANEL_KEYS[panelKey]) {
       found.add('architecture');
     }
@@ -1560,7 +1607,6 @@ export async function initializeViewer(containerId: string = "container") {
       { name: /^Name$/i, value: /^Floor\b/i },
       { name: /^Name$/i, value: /^IfcSlab/i },
       { name: /^Name$/i, value: /Generic 150mm/i },
-      { name: /^Name$/i, value: /concrete/i },
       { name: /^ObjectType$/i, value: /Slab/i },
       { name: /^ObjectType$/i, value: /Floor/i },
     ];
@@ -1594,6 +1640,11 @@ export async function initializeViewer(containerId: string = "container") {
   ): Promise<number[]> => {
     const cached = installPersistentIdsByModel.get(modelId);
     if (cached) return cached;
+    // Footings and floor slabs live on the structure model only — never force MEP/arch geometry visible.
+    if (modelDisciplineById.get(modelId) !== 'structure') {
+      installPersistentIdsByModel.set(modelId, []);
+      return [];
+    }
     const foundationIds = await collectFoundationGeometryIds(model);
     const floorSlabIds = await collectFloorSlabGeometryIds(model);
     const ids = [...new Set([...foundationIds, ...floorSlabIds])];
@@ -1603,6 +1654,7 @@ export async function initializeViewer(containerId: string = "container") {
 
   const ensurePersistentInstallGeometryVisible = async () => {
     for (const [modelId, model] of models.entries()) {
+      if (modelDisciplineById.get(modelId) !== 'structure') continue;
       const ids = await collectPersistentInstallGeometryIds(modelId, model);
       if (!ids.length) continue;
       await setModelIdsVisible(modelId, ids, true);
@@ -1750,9 +1802,15 @@ export async function initializeViewer(containerId: string = "container") {
   const setBimsfPanelVisible = async (panelKey: string, visible: boolean) => {
     const byModel = bimsfIndex.get(panelKey);
     if (!byModel) return;
+    const foundationOnly = visible && isFoundationPanelKey(panelKey);
     for (const [modelId, ids] of byModel) {
       const model = models.get(modelId);
       if (!model || !ids.length) continue;
+      const disc = modelDisciplineById.get(modelId);
+      if (visible) {
+        if (foundationOnly && disc && disc !== 'structure') continue;
+        if (disc && !disciplineVisible[disc]) continue;
+      }
       const toApply = visible ? excludeHiddenLayerIds(modelId, ids) : ids;
       if (!toApply.length) continue;
       const CHUNK = 400;
@@ -2239,6 +2297,26 @@ export async function initializeViewer(containerId: string = "container") {
     }
   };
 
+  /** Foundation step = structure only; later steps follow ARCH/MEP/STR toolbar toggles. */
+  const syncInstallDisciplineMaskForStep = async (stepIndex: number) => {
+    const panelKey = installSequenceKeys[stepIndex];
+    const foundationStep = panelKey ? isFoundationPanelKey(panelKey) : stepIndex === 0;
+    for (const [modelId, disc] of modelDisciplineById) {
+      const model = models.get(modelId);
+      if (!model?.object) continue;
+      if (foundationStep) {
+        model.object.visible = disc === 'structure';
+      } else {
+        model.object.visible = disciplineVisible[disc];
+      }
+    }
+    try {
+      await fragments.update(true);
+    } catch {
+      /* optional */
+    }
+  };
+
   const syncInstallVisibilityUpTo = async (index: number) => {
     for (let i = 0; i < installSequenceKeys.length; i++) {
       await setBimsfPanelVisible(installSequenceKeys[i], i <= index);
@@ -2247,6 +2325,7 @@ export async function initializeViewer(containerId: string = "container") {
 
   /** Fast step: show panels up to index with metallic / MEP colours. Camera stays put. */
   const applyInstallStep = async (index: number) => {
+    await syncInstallDisciplineMaskForStep(index);
     await syncInstallVisibilityUpTo(index);
     await syncInstallConnectorsUpTo(index);
 
@@ -2260,8 +2339,11 @@ export async function initializeViewer(containerId: string = "container") {
       const panelKey = installSequenceKeys[i];
       const byModel = bimsfIndex.get(panelKey);
       if (!byModel) continue;
+      const foundationOnly = isFoundationPanelKey(panelKey);
       for (const [modelId, ids] of byModel) {
         const disc = modelDisciplineById.get(modelId);
+        if (disc && !disciplineVisible[disc]) continue;
+        if (foundationOnly && disc && disc !== 'structure') continue;
         highlights.push({
           modelId,
           ids,
@@ -2414,12 +2496,15 @@ export async function initializeViewer(containerId: string = "container") {
 
   const highlightInstallPanelFast = async (panelKey: string) => {
     const byModel = bimsfIndex.get(panelKey);
+    const foundationOnly = isFoundationPanelKey(panelKey);
     if (byModel) {
       for (const [modelId, rawIds] of byModel) {
         const model = models.get(modelId);
+        const disc = modelDisciplineById.get(modelId);
+        if (disc && !disciplineVisible[disc]) continue;
+        if (foundationOnly && disc && disc !== 'structure') continue;
         const ids = excludeHiddenLayerIds(modelId, rawIds);
         if (!model || !ids.length) continue;
-        const disc = modelDisciplineById.get(modelId);
         const style = disc ? styleForDiscipline(disc) : 'default';
         if (style === 'structure') {
           await model.highlight(ids, {
@@ -2487,6 +2572,7 @@ export async function initializeViewer(containerId: string = "container") {
   const revealInstallStepFast = async (index: number) => {
     const key = installSequenceKeys[index];
     if (!key) return;
+    await syncInstallDisciplineMaskForStep(index);
     await setBimsfPanelVisible(key, true);
     const conn = installConnectorCache.get(key);
     if (conn?.byModel) {
@@ -3035,6 +3121,13 @@ export async function initializeViewer(containerId: string = "container") {
 
   const setDisciplineVisible = async (disc: DisciplineKey, visible: boolean) => {
     disciplineVisible[disc] = visible;
+    updateDisciplineButtonsUi();
+    if (installSequenceActive) {
+      await syncInstallDisciplineMaskForStep(installSequenceIndex);
+      await applyInstallStep(installSequenceIndex);
+      console.log(`${visible ? '👁️ Show' : '🙈 Hide'} ${disc} model(s) (install sequence)`);
+      return;
+    }
     for (const [id, d] of modelDisciplineById.entries()) {
       if (d !== disc) continue;
       const model = models.get(id);
@@ -3043,7 +3136,6 @@ export async function initializeViewer(containerId: string = "container") {
     try {
       await fragments.update(true);
     } catch { /* ignore */ }
-    updateDisciplineButtonsUi();
     console.log(`${visible ? '👁️ Show' : '🙈 Hide'} ${disc} model(s)`);
   };
 
