@@ -24,7 +24,6 @@ import {
   BarChart3,
   X
 } from 'lucide-react'
-import * as LucideIcons from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -34,6 +33,7 @@ import { CreateGroupModal } from '@/components/modals/CreateGroupModal'
 import { EditPanelModal } from '@/components/modals/EditPanelModal'
 import { PanelDetailModal } from '@/components/modals/PanelDetailModal'
 import { DashboardTab } from '@/components/project-tabs/DashboardTab'
+import { PanelStatusOverview } from '@/components/project-tabs/PanelStatusOverview'
 import { OverviewTab } from '@/components/project-tabs/OverviewTab'
 import { StatusManagementTab } from '@/components/project-tabs/StatusManagementTab'
 import { GroupManagementTab } from '@/components/project-tabs/GroupManagementTab'
@@ -151,90 +151,6 @@ const statusConfig = {
 }
 
 
-const getIconComponent = (iconName: string) => {
-  // Map FontAwesome/kebab-case names to Lucide PascalCase names (matching CreateStatusModal)
-  const iconNameMap: Record<string, string> = {
-    'angle-double-down': 'ChevronsDown',
-    'angle-double-left': 'ChevronsLeft',
-    'angle-double-right': 'ChevronsRight',
-    'angle-double-up': 'ChevronsUp',
-    'angle-down': 'ChevronDown',
-    'angle-left': 'ChevronLeft',
-    'angle-right': 'ChevronRight',
-    'angle-up': 'ChevronUp',
-    'bell': 'Bell',
-    'bookmark': 'Bookmark',
-    'box': 'Box',
-    'check': 'Check',
-    'circle': 'Circle',
-    'clock': 'Clock',
-    'code': 'Code',
-    'exclamation': 'AlertTriangle',
-    'eye': 'Eye',
-    'file': 'File',
-    'folder': 'Folder',
-    'forward': 'Forward',
-    'hashtag': 'Hash',
-    'info': 'Info',
-    'lightbulb': 'Lightbulb',
-    'lock': 'Lock',
-    'lock-open': 'LockOpen',
-    'map-marker': 'MapPin',
-    'minus': 'Minus',
-    'pause': 'Pause',
-    'pen-to-square': 'Edit',
-    'phone': 'Phone',
-    'play': 'Play',
-    'plus': 'Plus',
-    'reply': 'Reply',
-    'save': 'Save',
-    'search': 'Search',
-    'send': 'Send',
-    'server': 'Server',
-    'share-alt': 'Share2',
-    'shield': 'Shield',
-    'shop': 'ShoppingBag',
-    'sign-in': 'LogIn',
-    'sign-out': 'LogOut',
-    'sliders-h': 'SlidersHorizontal',
-    'sort': 'ArrowUpDown',
-    'spinner': 'Loader',
-    'star': 'Star',
-    'stop-circle': 'StopCircle',
-    'stopwatch': 'Timer',
-    'tag': 'Tag',
-    'thumbs-down': 'ThumbsDown',
-    'thumbs-up': 'ThumbsUp',
-    'thumbtack': 'Pin',
-    'th-large': 'Grid3x3',
-    'ticket': 'Ticket',
-    'times': 'X',
-    'times-circle': 'XCircle',
-    'trash': 'Trash2',
-    'undo': 'Undo',
-    'unlock': 'Unlock',
-    'user': 'User',
-    'users': 'Users',
-    'verified': 'BadgeCheck',
-    'warehouse': 'Warehouse',
-    'maximize': 'Maximize',
-    'minimize': 'Minimize',
-    'wrench': 'Wrench',
-    'package': 'Package',
-  }
-
-  // Convert icon name to Lucide format
-  const lucideIconName = iconNameMap[iconName.toLowerCase()] || iconName
-
-  // Try to get icon from Lucide
-  const LucideIcon = (LucideIcons as any)[lucideIconName]
-  if (LucideIcon) {
-    return LucideIcon
-  }
-
-  // Default fallback
-  return (LucideIcons as any).Circle
-}
 // Helper function to get status config
 const getStatusConfig = (status: string) => {
   return statusConfig[status as keyof typeof statusConfig] || statusConfig.PLANNING
@@ -1461,49 +1377,13 @@ export default function ProjectDetailPage() {
         </div>
       </div>
 
-      {/* Minimal Panel Status Overview - Only on Overview Tab */}
+      {/* Panel status counts — Overview tab header */}
       {activeTab === 'overview' && (
         <div className="bg-white border-b border-slate-200 px-8 py-6">
-          <div className="flex items-start gap-8 overflow-x-auto pb-2">
-            {/* Total Panels */}
-            <div className="flex-shrink-0 pt-1">
-              <div className="text-xs text-slate-500 mb-1">Total Panels</div>
-              <div className="text-2xl font-semibold text-slate-900">{totalPanelCount > 0 ? totalPanelCount : panels.length}</div>
-            </div>
-
-            {/* Status Cards - Horizontal */}
-            {customStatuses.length > 0 ? customStatuses.map((status) => {
-              const panelCount = status.panelCount || 0;
-              const percentage = totalPanelCount > 0 ? Math.round((panelCount / totalPanelCount) * 100) : 0;
-              const IconComponent = getIconComponent(status.icon);
-
-              return (
-                <div key={status.id} className="flex-shrink-0 min-w-[160px] pt-1">
-                  <div className="flex items-center gap-2 mb-2">
-                    <IconComponent className="w-5 h-5" style={{ color: status.color }} />
-                    <div className="text-xs text-slate-500">{status.name}</div>
-                  </div>
-                  <div className="flex items-baseline gap-2 mb-2">
-                    <div className="text-2xl font-semibold text-slate-900">{panelCount}</div>
-                    <div className="text-xs text-slate-500">{percentage}%</div>
-                  </div>
-                  <div className="w-full bg-slate-100 rounded-full h-1.5">
-                    <div
-                      className="h-1.5 rounded-full transition-all duration-500"
-                      style={{
-                        backgroundColor: status.color,
-                        width: `${percentage}%`
-                      }}
-                    />
-                  </div>
-                </div>
-              );
-            }) : (
-              <div className="flex-1 py-8 text-center text-slate-500 text-sm">
-                No status data available. Create statuses in Status Management.
-              </div>
-            )}
-          </div>
+          <PanelStatusOverview
+            totalPanels={totalPanelCount > 0 ? totalPanelCount : panels.length}
+            statuses={customStatuses}
+          />
         </div>
       )}
 
@@ -1514,6 +1394,7 @@ export default function ProjectDetailPage() {
             <DashboardTab
               totalPanels={totalPanelCount > 0 ? totalPanelCount : panels.length}
               completedPanels={panelStatuses.find((s) => /install|complete/i.test(s.label))?.count || 0}
+              statuses={customStatuses}
             />
           )}
 

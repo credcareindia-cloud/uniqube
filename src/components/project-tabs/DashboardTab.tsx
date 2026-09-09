@@ -9,18 +9,12 @@ import {
   HardHat,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-type ProgressStep = {
-  id: number
-  label: string
-  pct: number
-  tone: string
-  done: boolean
-}
+import { PanelStatusOverview, type StatusOverviewItem } from './PanelStatusOverview'
 
 type Props = {
   totalPanels?: number
   completedPanels?: number
+  statuses?: StatusOverviewItem[]
 }
 
 function deriveOps(totalPanels = 0, completedPanels = 0) {
@@ -30,26 +24,6 @@ function deriveOps(totalPanels = 0, completedPanels = 0) {
   const remaining = Math.max(0, total - installed)
   const receivedPct = total ? Math.round((received / total) * 100) : 0
   const installedPct = total ? Math.round((installed / total) * 100) : 0
-
-  const steps: ProgressStep[] = [
-    { id: 1, label: 'DESIGN', pct: 100, tone: '#3b82f6', done: true },
-    { id: 2, label: 'PRODUCTION', pct: 100, tone: '#22c55e', done: true },
-    { id: 3, label: 'SHIPMENT', pct: 100, tone: '#8b5cf6', done: true },
-    {
-      id: 4,
-      label: 'RECEIVED ON SITE',
-      pct: receivedPct,
-      tone: '#fdaa48',
-      done: receivedPct >= 100,
-    },
-    {
-      id: 5,
-      label: 'INSTALLATION',
-      pct: installedPct,
-      tone: '#0ea5e9',
-      done: installedPct >= 100,
-    },
-  ]
 
   return {
     total,
@@ -68,11 +42,14 @@ function deriveOps(totalPanels = 0, completedPanels = 0) {
     factory: 'Shanghai, China (Factory)',
     dailyRate: 12,
     forecast: '28 MAY 2025',
-    steps,
   }
 }
 
-export function DashboardTab({ totalPanels = 0, completedPanels = 0 }: Props) {
+export function DashboardTab({
+  totalPanels = 0,
+  completedPanels = 0,
+  statuses = [],
+}: Props) {
   const ops = deriveOps(totalPanels, completedPanels)
 
   return (
@@ -129,42 +106,7 @@ export function DashboardTab({ totalPanels = 0, completedPanels = 0 }: Props) {
       </div>
 
       <div className="rounded-2xl bg-white border border-slate-200 shadow-sm p-5 sm:p-6">
-        <h2 className="text-xs font-bold tracking-[0.16em] text-[var(--uq-muted)] mb-6">
-          PROJECT PROGRESS
-        </h2>
-        <div className="relative">
-          <div className="absolute left-6 right-6 top-[18px] h-[3px] bg-slate-100 hidden sm:block" />
-          <div className="grid grid-cols-1 sm:grid-cols-5 gap-4 sm:gap-2">
-            {ops.steps.map((step, idx) => (
-              <div key={step.id} className="relative flex sm:flex-col items-center sm:items-center gap-3 sm:gap-0">
-                {idx < ops.steps.length - 1 && (
-                  <div
-                    className="hidden sm:block absolute left-[calc(50%+18px)] right-[-50%] top-[18px] h-[3px]"
-                    style={{
-                      background: step.done
-                        ? `linear-gradient(90deg, ${step.tone}, ${ops.steps[idx + 1].tone})`
-                        : '#e5e7eb',
-                    }}
-                  />
-                )}
-                <div
-                  className="relative z-10 h-9 w-9 rounded-full flex items-center justify-center text-sm font-bold text-white shadow-sm shrink-0"
-                  style={{ background: step.tone }}
-                >
-                  {step.id}
-                </div>
-                <div className="sm:mt-3 sm:text-center">
-                  <p className="text-[11px] font-bold tracking-wide text-[var(--uq-ink)]">
-                    {step.label}
-                  </p>
-                  <p className="text-xs font-semibold mt-1" style={{ color: step.tone }}>
-                    {step.pct}% {step.done ? 'Complete' : 'In Progress'}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+        <PanelStatusOverview totalPanels={ops.total} statuses={statuses} />
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-[1.35fr_1fr] gap-5">

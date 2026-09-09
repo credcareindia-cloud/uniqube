@@ -709,6 +709,18 @@ export async function initializeViewer(containerId: string = "container") {
   const bimsfLocalToKey = new Map<string, string>();
   /** panelKey → checked disciplines (M/S/A) for cross-model highlight */
   const bimsfChecked = new Map<string, Set<DisciplineKey>>();
+  /** Fallback when bimsfIndex is empty — from GET /projects/:id/bimsf-panels */
+  const bimsfPanelDisciplineHints = new Map<string, Set<DisciplineKey>>();
+  /** Aggregate architecture marks resolved via hide-layer scans when not in bimsfIndex */
+  const ARCH_LAYER_PANEL_KEYS: Record<string, 'acp' | 'doorsWindows'> = {
+    acp: 'acp',
+    doors_windows: 'doorsWindows',
+    doorswindows: 'doorsWindows',
+  };
+  /** Assigned after hide-layer helpers initialize (used by BIMSF selection fallback). */
+  let resolveArchLayerPanelIds:
+    | ((panelKey: string) => Promise<Map<string, number[]> | null>)
+    | null = null;
   /** Cached world AABB per BIMSF panel (for adjacency) */
   const bimsfBoundsCache = new Map<string, THREE.Box3>();
   /** Panel whose connected neighbors are shown in yellow (toggle) */
@@ -743,17 +755,22 @@ export async function initializeViewer(containerId: string = "container") {
   /** All connector localIds (to hide/show during sequence) */
   const installAllConnectorIdsByModel = new Map<string, number[]>();
 
-  const indexBimsfMapForModel = async (modelId: string, model: FRAGS.FragmentsModel) => {
+  const indexBimsfMapForModel = async (
+    modelId: string,
+    model: FRAGS.FragmentsModel,
+    apiModelId?: string
+  ) => {
+    const mapSourceId = apiModelId || modelId;
     const token = localStorage.getItem('auth_token');
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    const res = await fetch(`${API_BASE_URL}/models/${modelId}/bimsf-map`, {
+    const res = await fetch(`${API_BASE_URL}/models/${mapSourceId}/bimsf-map`, {
       headers,
       cache: 'no-store',
     });
     if (!res.ok) {
-      console.warn(`bimsf-map HTTP ${res.status} for model ${modelId}`);
+      console.warn(`bimsf-map HTTP ${res.status} for model ${mapSourceId}`);
       return;
     }
     const payload = await res.json();
@@ -881,7 +898,79 @@ export async function initializeViewer(containerId: string = "container") {
       }
     }
 
+    // Second pass: GlobalId remap when Tag/Name missed (common on ACP cladding walls)
+    const unmapped = geomIds.filter((id) => !bimsfLocalToKey.has(bimsfLocalKey(modelId, id)));
+    for (let i = 0; i < unmapped.length; i += BATCH) {
+      const batch = unmapped.slice(i, i + BATCH);
+      let rows: any[] = [];
+      try {
+        rows = await model.getItemsData(batch, {
+          attributesDefault: false,
+          attributes: ['GlobalId'],
+        });
+      } catch {
+        continue;
+      }
+      for (let j = 0; j < rows.length; j++) {
+        const row = rows[j];
+        if (!row) continue;
+        const gid =
+          row.GlobalId && 'value' in row.GlobalId ? String(row.GlobalId.value) : '';
+        const raw = gid && byGlobalId[gid] ? byGlobalId[gid] : null;
+        if (!raw) continue;
+        const display = normalizeBimsfId(raw) || raw;
+        const key = display.toLowerCase();
+        if (isBimsfConnectorKey(key)) continue;
+        bimsfDisplayByKey.set(key, display);
+        let byModel = bimsfIndex.get(key);
+        if (!byModel) {
+          byModel = new Map();
+          bimsfIndex.set(key, byModel);
+        }
+        const list = byModel.get(modelId) || [];
+        list.push(batch[j]);
+        byModel.set(modelId, list);
+        bimsfLocalToKey.set(bimsfLocalKey(modelId, batch[j]), key);
+        matched += 1;
+      }
+    }
+
     console.log(`🧩 Indexed BIMSF for ${matched} localIds in model ${modelId}`);
+  };
+
+  const loadBimsfPanelDisciplineHints = async () => {
+    bimsfPanelDisciplineHints.clear();
+    if (!projectIdFromUrl) return;
+    try {
+      const token = localStorage.getItem('auth_token');
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch(`${API_BASE_URL}/projects/${projectIdFromUrl}/bimsf-panels`, {
+        headers,
+        cache: 'no-store',
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      for (const p of data.panels || []) {
+        const key = String(p.displayName || p.id || '')
+          .replace(/^\*/, '')
+          .trim()
+          .toLowerCase();
+        if (!key) continue;
+        const discs = new Set<DisciplineKey>();
+        for (const [cat, count] of Object.entries(p.byCategory || {})) {
+          if (!count) continue;
+          const c = String(cat).toUpperCase();
+          if (c === 'STRUCTURE' || c === 'STRUCTURAL') discs.add('structure');
+          else if (c === 'ARCHITECTURE' || c === 'ARCHITECTURAL' || c === 'ARCH') {
+            discs.add('architecture');
+          } else if (c === 'MEP' || c === 'ELECTRICAL') discs.add('mep');
+        }
+        if (discs.size) bimsfPanelDisciplineHints.set(key, discs);
+      }
+    } catch (e) {
+      console.warn('loadBimsfPanelDisciplineHints:', e);
+    }
   };
 
   const mergeHighlightEntries = (
@@ -925,10 +1014,18 @@ export async function initializeViewer(containerId: string = "container") {
   const getDisciplinesForPanel = (panelKey: string): Set<DisciplineKey> => {
     const found = new Set<DisciplineKey>();
     const byModel = bimsfIndex.get(panelKey);
-    if (!byModel) return found;
-    for (const modelId of byModel.keys()) {
-      const disc = modelDisciplineById.get(modelId);
-      if (disc) found.add(disc);
+    if (byModel) {
+      for (const modelId of byModel.keys()) {
+        const disc = modelDisciplineById.get(modelId);
+        if (disc) found.add(disc);
+      }
+    }
+    if (!found.size) {
+      const hint = bimsfPanelDisciplineHints.get(panelKey);
+      if (hint) hint.forEach((d) => found.add(d));
+    }
+    if (!found.size && ARCH_LAYER_PANEL_KEYS[panelKey]) {
+      found.add('architecture');
     }
     return found;
   };
@@ -950,7 +1047,10 @@ export async function initializeViewer(containerId: string = "container") {
 
     for (const [panelKey, checked] of bimsfChecked.entries()) {
       if (!checked.size) continue;
-      const byModel = bimsfIndex.get(panelKey);
+      let byModel = bimsfIndex.get(panelKey);
+      if (!byModel && resolveArchLayerPanelIds) {
+        byModel = (await resolveArchLayerPanelIds(panelKey)) || undefined;
+      }
       if (!byModel) continue;
       for (const [modelId, ids] of byModel) {
         const disc = modelDisciplineById.get(modelId);
@@ -1341,6 +1441,15 @@ export async function initializeViewer(containerId: string = "container") {
     await applyBimsfCheckedSelection(true);
   };
 
+  /** Architecture browser views / pseudo-panels (ACP cladding, doors & windows). */
+  const highlightArchitecturalLayer = async (
+    layer: 'acp' | 'doorsWindows',
+    exclusive = true
+  ) => {
+    const panelKey = layer === 'acp' ? 'acp' : 'doors_windows';
+    await selectBimsfPanelAllDisciplines(panelKey, exclusive);
+  };
+
   /** Foundation → per floor: LB/NLB → CD → FT → … */
   const isFoundationPanelKey = (key: string): boolean => {
     return isFoundationMark(bimsfDisplayByKey.get(key) || key || '');
@@ -1365,6 +1474,92 @@ export async function initializeViewer(containerId: string = "container") {
       { name: /^Name$/i, value: /foundation/i },
       { name: /^ObjectType$/i, value: /foundation/i },
       { name: /^Name$/i, value: /^IfcFooting/i },
+    ];
+    for (const q of queries) {
+      try {
+        const ids = await model.getItemsByQuery({
+          attributes: { aggregation: 'inclusive', queries: [q] },
+        });
+        for (const id of ids || []) found.add(Number(id));
+      } catch {
+        /* attr missing */
+      }
+    }
+    if (found.size) {
+      try {
+        const children = await model.getItemsChildren([...found]);
+        for (const id of children || []) found.add(Number(id));
+      } catch {
+        /* optional */
+      }
+    }
+    return found;
+  };
+
+  /** IfcDoor / IfcWindow — used for layer filters and browser highlight (not install sequence). */
+  const collectDoorWindowGeometryIds = async (
+    model: FRAGS.FragmentsModel
+  ): Promise<Set<number>> => {
+    const found = new Set<number>();
+    try {
+      const byCat = await model.getItemsOfCategories([
+        /IFCDOOR/i,
+        /IFCWINDOW/i,
+        /DOORSTANDARDCASE/i,
+        /WINDOWSTANDARDCASE/i,
+      ]);
+      for (const ids of Object.values(byCat || {})) {
+        for (const id of ids || []) found.add(Number(id));
+      }
+    } catch {
+      /* optional */
+    }
+    const queries = [
+      { name: /^Name$/i, value: /^IfcDoor/i },
+      { name: /^Name$/i, value: /^IfcWindow/i },
+      { name: /^Name$/i, value: /^Door:/i },
+      { name: /^Name$/i, value: /^Window:/i },
+      { name: /^ObjectType$/i, value: /Door|Window/i },
+    ];
+    for (const q of queries) {
+      try {
+        const ids = await model.getItemsByQuery({
+          attributes: { aggregation: 'inclusive', queries: [q] },
+        });
+        for (const id of ids || []) found.add(Number(id));
+      } catch {
+        /* attr missing */
+      }
+    }
+    if (found.size) {
+      try {
+        const children = await model.getItemsChildren([...found]);
+        for (const id of children || []) found.add(Number(id));
+      } catch {
+        /* optional */
+      }
+    }
+    return found;
+  };
+
+  /** Structure / Architecture floor slabs — keep visible outside install sequence. */
+  const collectFloorSlabGeometryIds = async (
+    model: FRAGS.FragmentsModel
+  ): Promise<Set<number>> => {
+    const found = new Set<number>();
+    try {
+      const byCat = await model.getItemsOfCategories([/IFCSLAB/i, /SLABSTANDARDCASE/i]);
+      for (const ids of Object.values(byCat || {})) {
+        for (const id of ids || []) found.add(Number(id));
+      }
+    } catch {
+      /* optional */
+    }
+    const queries = [
+      { name: /^Name$/i, value: /^Floor:/i },
+      { name: /^Name$/i, value: /^Floor\b/i },
+      { name: /^Name$/i, value: /^IfcSlab/i },
+      { name: /^ObjectType$/i, value: /Slab/i },
     ];
     for (const q of queries) {
       try {
@@ -1977,7 +2172,14 @@ export async function initializeViewer(containerId: string = "container") {
       }
       const installSet = new Set(installAllIdsByModel.get(modelId) || []);
       const foundationIds = await collectFoundationGeometryIds(model);
-      const other = geomIds.filter((id) => !installSet.has(id) && !foundationIds.has(id));
+      const floorSlabIds = await collectFloorSlabGeometryIds(model);
+      // Hide ACP, doors, windows, site context, etc. — only sequence panels + footing + floor slabs stay
+      const other = geomIds.filter(
+        (id) =>
+          !installSet.has(id) &&
+          !foundationIds.has(id) &&
+          !floorSlabIds.has(id)
+      );
       if (!other.length) continue;
       installOtherIdsByModel.set(modelId, other);
       await setModelIdsVisible(modelId, other, false);
@@ -2419,6 +2621,7 @@ export async function initializeViewer(containerId: string = "container") {
         toggleBimsfDiscipline,
         selectBimsfPanelAllDisciplines,
         applyBimsfCheckedSelection,
+        highlightArchitecturalLayer,
         highlightBimsfNeighbors,
         toggleBimsfConnectors,
         isBimsfConnectorKey: (k: string) => isBimsfConnectorKey(String(k || '').toLowerCase()),
@@ -2846,6 +3049,7 @@ export async function initializeViewer(containerId: string = "container") {
     emitProgress(10, 'Fetching model list...');
     bimsfBoundsCache.clear();
     bimsfNeighborFocusKey = null;
+    await loadBimsfPanelDisciplineHints();
 
     // Fetch models from database (or use explicit revision selection)
     let projectModels = explicitModels && explicitModels.length
@@ -2944,6 +3148,19 @@ export async function initializeViewer(containerId: string = "container") {
     allModelsLoaded = true;
     console.log(`=== ALL MODELS LOADED: ${models.size} ===`);
     updateDisciplineButtonsUi();
+    // Ensure structure concrete floor slabs stay visible (they live on Structure, not Architecture)
+    try {
+      for (const [modelId, model] of models.entries()) {
+        if (modelDisciplineById.get(modelId) !== 'structure') continue;
+        const floorIds = await collectFloorSlabGeometryIds(model);
+        if (floorIds.size) {
+          await setModelIdsVisible(modelId, [...floorIds], true);
+        }
+      }
+      await fragments.update(true);
+    } catch (e) {
+      console.warn('ensure floor slab visibility:', e);
+    }
     try {
       renderBimsfPanelList();
     } catch (e) {
@@ -3124,6 +3341,16 @@ export async function initializeViewer(containerId: string = "container") {
             registerModelDiscipline(fragId, modelInfo.category, modelInfo.name);
             applyLodVisibilityTuning(model as FRAGS.FragmentsModel, `${modelInfo.category || ''} ${modelInfo.name || ''}`);
             console.log(`✅ Revision loaded: ${modelInfo.name} as ${fragId}`);
+            try {
+              await applyRevitColorMap(modelInfo.id, model as FRAGS.FragmentsModel);
+            } catch (colorErr) {
+              console.warn(`⚠️ Could not apply Revit colors for ${modelInfo.name}:`, colorErr);
+            }
+            try {
+              await indexBimsfMapForModel(fragId, model as FRAGS.FragmentsModel, modelInfo.id);
+            } catch (bimsfErr) {
+              console.warn(`⚠️ Could not index BIMSF for ${modelInfo.name}:`, bimsfErr);
+            }
           } else {
             throw new Error('fragments.load timed out or returned empty');
           }
@@ -3138,6 +3365,16 @@ export async function initializeViewer(containerId: string = "container") {
 
       allModelsLoaded = true;
       updateDisciplineButtonsUi();
+      try {
+        renderBimsfPanelList();
+      } catch (e) {
+        console.warn('renderBimsfPanelList after revision load:', e);
+      }
+      try {
+        await applyStructureBimsfMetallic();
+      } catch (e) {
+        console.warn('applyStructureBimsfMetallic after revision load:', e);
+      }
       try {
         await withTimeout(fragments.update(true), 3000, 'fragments.update after load');
       } catch { /* ignore */ }
@@ -3942,6 +4179,10 @@ export async function initializeViewer(containerId: string = "container") {
     selectBimsfPanelAllDisciplines: async (panelKey: string, exclusive = true) => {
       await selectBimsfPanelAllDisciplines(String(panelKey || '').toLowerCase(), exclusive);
     },
+    highlightArchitecturalLayer: async (
+      layer: 'acp' | 'doorsWindows',
+      exclusive = true
+    ) => highlightArchitecturalLayer(layer, exclusive),
     highlightBimsfNeighbors: async (panelKey: string) =>
       highlightBimsfNeighbors(String(panelKey || '').toLowerCase()),
     toggleBimsfConnectors: async (panelKey: string, enabled: boolean) =>
@@ -4870,7 +5111,7 @@ export async function initializeViewer(containerId: string = "container") {
     walls: ['structure', 'architecture'],
     floors: ['structure', 'architecture'],
     acp: ['architecture'],
-    doorsWindows: ['architecture'],
+    doorsWindows: ['architecture', 'structure'],
   };
 
   const isSheathingMark = (value: unknown): boolean => {
@@ -5214,6 +5455,12 @@ export async function initializeViewer(containerId: string = "container") {
         '(none)'
     );
     return byModel;
+  };
+
+  resolveArchLayerPanelIds = async (panelKey: string) => {
+    const layer = ARCH_LAYER_PANEL_KEYS[panelKey];
+    if (!layer) return null;
+    return fetchLayerIdsByModel(layer);
   };
 
   const updateHideLayersButtonUi = () => {

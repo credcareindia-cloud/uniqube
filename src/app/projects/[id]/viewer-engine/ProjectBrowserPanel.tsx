@@ -582,6 +582,16 @@ export function ProjectBrowserPanel({
       );
     }
 
+    // Architecture-only pseudo rows for non-BIMSF categories (doors/windows)
+    const hasDoorsWindows = byBranch.architecture.every((p) => p.key !== 'doors_windows');
+    if (hasDoorsWindows) {
+      byBranch.architecture.unshift({
+        key: 'doors_windows',
+        displayName: 'Doors & Windows',
+        disciplines: ['architecture'],
+      });
+    }
+
     return byBranch;
   }, [bimsfPanels, treePanels]);
 
@@ -771,6 +781,16 @@ export function ProjectBrowserPanel({
     setSelectedKey(key);
     setSelection({ kind: 'detail', title, data });
     onOpenDetail?.({ title, data });
+
+    const viewName = String(data?.name || title || '');
+    if (isArchitectureFloorPlanPrefix(viewName)) {
+      const api = (window as any).__uniqubeViewer;
+      if (/^uq[_-]?aa(?:[_-]|$)/i.test(viewName.trim())) {
+        void api?.highlightArchitecturalLayer?.('acp', true);
+      } else if (/^uq[_-]?adw(?:[_-]|$)/i.test(viewName.trim())) {
+        void api?.highlightArchitecturalLayer?.('doorsWindows', true);
+      }
+    }
   };
 
   if (!open) return null;
