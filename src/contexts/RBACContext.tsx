@@ -36,8 +36,9 @@ export const RBACProvider: React.FC<RBACProviderProps> = ({ children }) => {
   const [userProjects, setUserProjects] = useState<ProjectWithRole[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  const isAdmin = user?.role === 'ADMIN';
-  const isGlobalManager = user?.role === 'MANAGER' || user?.role === 'ADMIN';
+  const normalizedRole = (user?.role || '').toUpperCase();
+  const isAdmin = normalizedRole === 'ADMIN';
+  const isGlobalManager = normalizedRole === 'MANAGER' || isAdmin;
 
   const refreshUserProjects = React.useCallback(async () => {
     if (!isAuthenticated || !user) {

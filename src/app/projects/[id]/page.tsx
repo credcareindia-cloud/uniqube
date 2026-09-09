@@ -187,7 +187,7 @@ export default function ProjectDetailPage() {
   const navigate = useNavigate()
   const { notifications } = useNotifications()
   const permissions = useProjectPermissions(id)
-  const { refreshUserProjects, isAdmin } = useRBAC()
+  const { refreshUserProjects } = useRBAC()
   const [project, setProject] = useState<ProjectData | null>(null)
   const [models, setModels] = useState<ProjectModels | null>(null)
   const [loading, setLoading] = useState(true)
@@ -1573,8 +1573,8 @@ export default function ProjectDetailPage() {
               getStatusConfig={getStatusConfig}
               navigate={navigate}
               openViewer={openViewer}
-              onEditClick={isAdmin ? () => setShowEditProjectModal(true) : undefined}
-              onDeleteClick={isAdmin ? () => setShowDeleteProjectModal(true) : undefined}
+              onEditClick={permissions.canManage ? () => setShowEditProjectModal(true) : undefined}
+              onDeleteClick={permissions.canManage ? () => setShowDeleteProjectModal(true) : undefined}
               versionSelector={
                 revisions.length > 0 && selectedRevision ? (
                   <div ref={versionSelectorRef} className="relative">
