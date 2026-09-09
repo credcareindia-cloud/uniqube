@@ -2,21 +2,23 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { authenticatedFetch } from '@/utils/authenticatedFetch'
-import { Plus, Grid3x3, Eye, MoreVertical, Edit, Trash2 } from 'lucide-react'
+import { Plus, Grid3x3, Eye, MoreVertical, Edit, Trash2, AlertCircle } from 'lucide-react'
 import { GroupDetailModal } from '@/components/modals/GroupDetailModal'
 import { EditGroupModal } from '@/components/modals/EditGroupModal'
+import { PanelDetailModal } from '@/components/modals/PanelDetailModal'
+import { EditPanelModal } from '@/components/modals/EditPanelModal'
 import { ConfirmDeleteModal } from '@/components/modals/ConfirmDeleteModal'
 import { toast } from '@/components/ui/use-toast'
 import { getApiUrl } from '@/config/api'
-import { collapseMembersToPanels } from '@/utils/panelMark'
 
 interface Group {
   id: string
   name: string
   description?: string
   status: string
-  type: string
+  type?: string
   color?: string
+  panelCount?: number
   metadata?: {
     type?: string
     panelCount?: number
@@ -25,15 +27,21 @@ interface Group {
     panels?: number
     panelGroups?: number
   }
-  panelGroups?: Array<{
-    panel: {
-      id: string
-      name?: string
-      tag?: string
-      objectType?: string
-      metadata?: Record<string, unknown> | null
-    }
-  }>
+}
+
+interface Panel {
+  id: string
+  name: string
+  tag?: string
+  objectType?: string
+  location?: string
+  panelMark?: string
+  memberCount?: number
+  metadata?: Record<string, unknown> | null
+  status?: string
+  group?: { id: string; name: string }
+  groups?: Array<{ id: string; group: { id: string; name: string; color?: string } }>
+  statuses?: Array<{ id: string; status: { id: string; name: string; icon: string; color: string } }>
 }
 
 interface GroupManagementTabProps {
@@ -41,32 +49,48 @@ interface GroupManagementTabProps {
   onCreateGroup: () => void
   onViewGroup: (group: Group) => void
   onDataChange?: () => void
+  refreshKey?: number
 }
 
-export function GroupManagementTab({ projectId, onCreateGroup, onViewGroup, onDataChange }: GroupManagementTabProps) {
+export function GroupManagementTab({
+  projectId,
+  onCreateGroup,
+  onViewGroup,
+  onDataChange,
+  refreshKey,
+}: GroupManagementTabProps) {
   const [groups, setGroups] = useState<Group[]>([])
   const [loading, setLoading] = useState(true)
+  const [groupedBy, setGroupedBy] = useState<'bimsf' | 'members'>('members')
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null)
   const [showGroupDetail, setShowGroupDetail] = useState(false)
+  const [groupPanels, setGroupPanels] = useState<Panel[]>([])
+  const [loadingPanels, setLoadingPanels] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [editingGroup, setEditingGroup] = useState<Group | null>(null)
   const [deletingGroup, setDeletingGroup] = useState<Group | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [selectedPanel, setSelectedPanel] = useState<Panel | null>(null)
+  const [showPanelDetail, setShowPanelDetail] = useState(false)
+  const [editingPanel, setEditingPanel] = useState<Panel | null>(null)
+  const [showEditPanelModal, setShowEditPanelModal] = useState(false)
+  const [statuses, setStatuses] = useState<any[]>([])
+  const [allGroups, setAllGroups] = useState<any[]>([])
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     loadGroups()
-  }, [projectId])
+    loadStatuses()
+  }, [projectId, refreshKey])
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setOpenMenuId(null)
       }
     }
-
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
@@ -74,10 +98,12 @@ export function GroupManagementTab({ projectId, onCreateGroup, onViewGroup, onDa
   const loadGroups = async () => {
     try {
       setLoading(true)
-      const response = await authenticatedFetch(getApiUrl(`groups/${projectId}`))
+      const response = await authenticatedFetch(getApiUrl(`groups/${projectId}?limit=100`))
       if (response.ok) {
         const data = await response.json()
         setGroups(data.groups || [])
+        setAllGroups(data.groups || [])
+        setGroupedBy(data.groupedBy === 'bimsf' ? 'bimsf' : 'members')
       }
     } catch (error) {
       console.error('Error loading groups:', error)
@@ -86,10 +112,57 @@ export function GroupManagementTab({ projectId, onCreateGroup, onViewGroup, onDa
     }
   }
 
-  const handleGroupClick = (group: Group) => {
+  const loadStatuses = async () => {
+    try {
+      const response = await authenticatedFetch(getApiUrl(`status-management/${projectId}`))
+      if (response.ok) {
+        const data = await response.json()
+        setStatuses(Array.isArray(data) ? data : data.statuses || [])
+      }
+    } catch (error) {
+      console.error('Error loading statuses:', error)
+    }
+  }
+
+  const loadPanelsByGroup = async (groupId: string) => {
+    try {
+      setLoadingPanels(true)
+      // Same panels API Status Management uses — already BIMSF-aware
+      const response = await authenticatedFetch(
+        getApiUrl(
+          `panels/${projectId}?groupIds=${encodeURIComponent(groupId)}&limit=200&includeGroups=true`
+        )
+      )
+      if (response.ok) {
+        const data = await response.json()
+        setGroupPanels(data.panels || [])
+        if (data.groupedBy === 'bimsf' || data.groupedBy === 'members') {
+          setGroupedBy(data.groupedBy)
+        }
+      } else {
+        setGroupPanels([])
+      }
+    } catch (error) {
+      console.error('Error loading panels by group:', error)
+      setGroupPanels([])
+    } finally {
+      setLoadingPanels(false)
+    }
+  }
+
+  const handleGroupClick = async (group: Group) => {
     setSelectedGroup(group)
     setShowGroupDetail(true)
     setOpenMenuId(null)
+    await loadPanelsByGroup(group.id)
+  }
+
+  const handleViewPanel = (panelId: string) => {
+    const panel = groupPanels.find((p) => p.id === panelId)
+    if (panel) {
+      setSelectedPanel(panel)
+      setShowPanelDetail(true)
+    }
   }
 
   const handleEditGroup = (group: Group, e: React.MouseEvent) => {
@@ -99,7 +172,7 @@ export function GroupManagementTab({ projectId, onCreateGroup, onViewGroup, onDa
     setShowEditModal(true)
   }
 
-  const handleDeleteGroup = async (group: Group, e: React.MouseEvent) => {
+  const handleDeleteGroup = (group: Group, e: React.MouseEvent) => {
     e.stopPropagation()
     setOpenMenuId(null)
     setDeletingGroup(group)
@@ -108,36 +181,39 @@ export function GroupManagementTab({ projectId, onCreateGroup, onViewGroup, onDa
 
   const confirmDelete = async () => {
     if (!deletingGroup) return
-
+    setIsDeleting(true)
     try {
-      const response = await authenticatedFetch(getApiUrl(`groups/${projectId}/${deletingGroup.id}`), {
-        method: 'DELETE'
-      })
+      const response = await authenticatedFetch(
+        getApiUrl(`groups/${projectId}/${deletingGroup.id}`),
+        { method: 'DELETE' }
+      )
 
-      if (response.ok) {
+      if (response.ok || response.status === 204) {
         await loadGroups()
         onDataChange?.()
         setShowDeleteModal(false)
         setDeletingGroup(null)
         toast({
-          title: "Success",
-          description: "Group deleted successfully",
+          title: 'Success',
+          description: 'Group deleted successfully',
         })
       } else {
-        const data = await response.json()
+        const data = await response.json().catch(() => ({}))
         toast({
-          title: "Error",
+          title: 'Error',
           description: `Failed to delete group: ${data.error || 'Unknown error'}`,
-          variant: "destructive",
+          variant: 'destructive',
         })
       }
     } catch (error) {
       console.error('Error deleting group:', error)
       toast({
-        title: "Error",
-        description: "Error deleting group",
-        variant: "destructive",
+        title: 'Error',
+        description: 'Error deleting group',
+        variant: 'destructive',
       })
+    } finally {
+      setIsDeleting(false)
     }
   }
 
@@ -145,23 +221,35 @@ export function GroupManagementTab({ projectId, onCreateGroup, onViewGroup, onDa
     if (!editingGroup) return
 
     try {
-      const response = await authenticatedFetch(getApiUrl(`groups/${projectId}/${editingGroup.id}`), {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(groupData)
-      })
+      const response = await authenticatedFetch(
+        getApiUrl(`groups/${projectId}/${editingGroup.id}`),
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(groupData),
+        }
+      )
 
       if (response.ok) {
         await loadGroups()
         onDataChange?.()
         setShowEditModal(false)
         setEditingGroup(null)
+        toast({
+          title: 'Success',
+          description: 'Group updated successfully',
+        })
       } else {
         const data = await response.json()
         throw new Error(data.error || 'Failed to update group')
       }
     } catch (error) {
       console.error('Error updating group:', error)
+      toast({
+        title: 'Error',
+        description: `Failed to update group: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        variant: 'destructive',
+      })
       throw error
     }
   }
@@ -171,8 +259,11 @@ export function GroupManagementTab({ projectId, onCreateGroup, onViewGroup, onDa
     setOpenMenuId(openMenuId === groupId ? null : groupId)
   }
 
-  const getTypeIcon = (type: string) => {
-    return Grid3x3
+  const panelCountOf = (group: Group) => {
+    // Prefer server BIMSF panelCount — never fall back to raw member _count in BIMSF mode
+    if (typeof group.panelCount === 'number') return group.panelCount
+    if (groupedBy === 'bimsf') return 0
+    return group._count?.panelGroups || group._count?.panels || group.metadata?.panelCount || 0
   }
 
   if (loading) {
@@ -187,16 +278,18 @@ export function GroupManagementTab({ projectId, onCreateGroup, onViewGroup, onDa
 
   return (
     <div className="space-y-6 h-full">
-      {/* Header */}
       <div className="bg-white rounded-lg border border-slate-200 p-6">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-4">
           <div>
             <h2 className="text-lg font-semibold text-slate-900">Group Management</h2>
-            <p className="text-sm text-slate-500 mt-1">Organize and manage panel groups</p>
+            <p className="text-sm text-slate-500 mt-1">
+              Organize panels into groups
+              {groupedBy === 'bimsf' ? ' · counts use BIMSF panels' : ''}
+            </p>
           </div>
           <button
             onClick={onCreateGroup}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium uq-btn rounded-lg transition-colors"
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium uq-btn rounded-lg transition-colors shrink-0"
           >
             <Plus className="w-4 h-4" />
             Create Group
@@ -204,16 +297,12 @@ export function GroupManagementTab({ projectId, onCreateGroup, onViewGroup, onDa
         </div>
       </div>
 
-      {/* Group Cards Grid */}
       {groups.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pb-6">
           {groups.map((group) => {
-            const IconComponent = getTypeIcon(group.type)
-            const uniquePanels = collapseMembersToPanels(
-              (group.panelGroups || []).map((pg) => pg.panel)
-            )
-            const panelCount = uniquePanels.length || group._count?.panelGroups || group._count?.panels || group.metadata?.panelCount || 0
-            const displayDescription = group.description || `Group for organizing ${group.name.toLowerCase()} panels`
+            const panelCount = panelCountOf(group)
+            const displayDescription =
+              group.description || `Group for organizing ${group.name.toLowerCase()} panels`
 
             return (
               <div
@@ -221,17 +310,22 @@ export function GroupManagementTab({ projectId, onCreateGroup, onViewGroup, onDa
                 className="bg-white rounded-lg border border-slate-200 p-6 hover:border-slate-300 hover:shadow-sm transition-all cursor-pointer relative"
                 onClick={() => handleGroupClick(group)}
               >
-                {/* Header */}
                 <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <IconComponent className="w-8 h-8" style={{ color: group.color || '#3B82F6' }} />
-                    <div>
-                      <h3 className="text-sm font-semibold text-slate-900">{group.name}</h3>
-                      <p className="text-xs text-slate-500">{panelCount} panels</p>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Grid3x3
+                      className="w-8 h-8 shrink-0"
+                      style={{ color: group.color || '#3B82F6' }}
+                    />
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-semibold text-slate-900 truncate">
+                        {group.name}
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        {panelCount} {groupedBy === 'bimsf' ? 'BIMSF panels' : 'panels'}
+                      </p>
                     </div>
                   </div>
 
-                  {/* Three-dot menu */}
                   <div className="relative" ref={openMenuId === group.id ? menuRef : null}>
                     <button
                       onClick={(e) => toggleMenu(group.id, e)}
@@ -240,14 +334,13 @@ export function GroupManagementTab({ projectId, onCreateGroup, onViewGroup, onDa
                       <MoreVertical className="w-4 h-4 text-slate-400" />
                     </button>
 
-                    {/* Dropdown Menu */}
                     {openMenuId === group.id && (
                       <div className="absolute right-0 top-8 w-48 bg-white rounded-lg shadow-lg border border-slate-200 py-1 z-50">
                         <button
                           onClick={(e) => {
                             e.stopPropagation()
                             setOpenMenuId(null)
-                            handleGroupClick(group)
+                            void handleGroupClick(group)
                           }}
                           className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
                         >
@@ -273,7 +366,6 @@ export function GroupManagementTab({ projectId, onCreateGroup, onViewGroup, onDa
                   </div>
                 </div>
 
-                {/* Description - Always show (auto-generated if not present) */}
                 <p className="text-xs text-slate-600 line-clamp-2">{displayDescription}</p>
               </div>
             )
@@ -282,32 +374,116 @@ export function GroupManagementTab({ projectId, onCreateGroup, onViewGroup, onDa
       ) : (
         <div className="bg-white rounded-lg border border-slate-200 p-12">
           <div className="text-center">
-            <Grid3x3 className="h-12 w-12 text-slate-400 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-slate-900 mb-2">No Groups Yet</h3>
-            <p className="text-slate-500 mb-6">Create your first group to organize panels</p>
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-slate-100 mb-4">
+              <AlertCircle className="w-8 h-8 text-slate-400" />
+            </div>
+            <h3 className="text-lg font-medium text-slate-900 mb-2">No groups yet</h3>
+            <p className="text-sm text-slate-500 mb-6">
+              Create groups to organize BIMSF panels for shipping, floors, or work packages
+            </p>
             <button
               onClick={onCreateGroup}
               className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium uq-btn rounded-lg transition-colors"
             >
               <Plus className="w-4 h-4" />
-              Create Group
+              Create First Group
             </button>
           </div>
         </div>
       )}
 
-      {/* Group Detail Modal */}
-      <GroupDetailModal
-        isOpen={showGroupDetail}
-        onClose={() => {
-          setShowGroupDetail(false)
-          setSelectedGroup(null)
-        }}
-        group={selectedGroup}
-        projectId={projectId}
-      />
+      {selectedGroup && (
+        <GroupDetailModal
+          isOpen={showGroupDetail}
+          onClose={() => {
+            setShowGroupDetail(false)
+            setSelectedGroup(null)
+            setGroupPanels([])
+          }}
+          group={selectedGroup}
+          projectId={projectId}
+          panels={groupPanels}
+          loading={loadingPanels}
+          groupedBy={groupedBy}
+          onViewPanel={handleViewPanel}
+        />
+      )}
 
-      {/* Edit Group Modal */}
+      {selectedPanel && (
+        <PanelDetailModal
+          isOpen={showPanelDetail}
+          onClose={() => {
+            setShowPanelDetail(false)
+            setSelectedPanel(null)
+          }}
+          panel={selectedPanel as any}
+          onEdit={() => {
+            setShowPanelDetail(false)
+            setEditingPanel(selectedPanel)
+            setShowEditPanelModal(true)
+          }}
+        />
+      )}
+
+      {editingPanel && statuses.length > 0 && allGroups.length > 0 && (
+        <EditPanelModal
+          isOpen={showEditPanelModal}
+          onClose={() => {
+            setShowEditPanelModal(false)
+            setEditingPanel(null)
+          }}
+          panel={{
+            ...editingPanel,
+            projectId: projectId,
+            status: 'PENDING' as any,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          }}
+          projectId={projectId.toString()}
+          availableStatuses={statuses}
+          availableGroups={allGroups as any}
+          onUpdate={async (panelId, updates) => {
+            try {
+              const response = await authenticatedFetch(getApiUrl(`panels/${panelId}`), {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  statusIds: updates.customStatusIds,
+                  groupIds: updates.groupIds,
+                }),
+              })
+
+              if (!response.ok) {
+                const data = await response.json()
+                throw new Error(data.error || 'Failed to update panel')
+              }
+
+              toast({
+                title: 'Success',
+                description: 'Panel updated successfully',
+              })
+
+              setShowEditPanelModal(false)
+              setEditingPanel(null)
+              setSelectedPanel(null)
+              if (selectedGroup) {
+                await loadPanelsByGroup(selectedGroup.id)
+              }
+              await loadGroups()
+              onDataChange?.()
+            } catch (error) {
+              console.error('Error updating panel:', error)
+              toast({
+                title: 'Error',
+                description: `Failed to update panel: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                variant: 'destructive',
+              })
+              throw error
+            }
+          }}
+        />
+      )}
+
       {editingGroup && (
         <EditGroupModal
           isOpen={showEditModal}
@@ -320,7 +496,6 @@ export function GroupManagementTab({ projectId, onCreateGroup, onViewGroup, onDa
         />
       )}
 
-      {/* Delete Confirmation Modal */}
       {deletingGroup && (
         <ConfirmDeleteModal
           isOpen={showDeleteModal}
@@ -329,11 +504,12 @@ export function GroupManagementTab({ projectId, onCreateGroup, onViewGroup, onDa
             setDeletingGroup(null)
           }}
           onConfirm={confirmDelete}
-          title="Delete Group"
-          message={`Are you sure you want to delete this group? This action cannot be undone.`}
+          title="Confirm Delete"
+          message="Are you sure you want to delete the group"
           itemName={deletingGroup.name}
           itemType="group"
-          panelCount={deletingGroup._count?.panelGroups || 0}
+          panelCount={panelCountOf(deletingGroup)}
+          isDeleting={isDeleting}
         />
       )}
     </div>

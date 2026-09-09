@@ -32,7 +32,7 @@ import { CreateStatusModal } from '@/components/modals/CreateStatusModal'
 import { CreateGroupModal } from '@/components/modals/CreateGroupModal'
 import { EditPanelModal } from '@/components/modals/EditPanelModal'
 import { PanelDetailModal } from '@/components/modals/PanelDetailModal'
-import { DashboardTab } from '@/components/project-tabs/DashboardTab'
+import { DashboardTab, type DashboardOpsData } from '@/components/project-tabs/DashboardTab'
 import { PanelStatusOverview } from '@/components/project-tabs/PanelStatusOverview'
 import { OverviewTab } from '@/components/project-tabs/OverviewTab'
 import { StatusManagementTab } from '@/components/project-tabs/StatusManagementTab'
@@ -63,6 +63,7 @@ interface ProjectData {
   status: string
   createdAt: string
   updatedAt: string
+  metadata?: Record<string, unknown> | null
 }
 
 interface Model {
@@ -253,6 +254,7 @@ export default function ProjectDetailPage() {
   const [showDeleteProjectModal, setShowDeleteProjectModal] = useState(false)
   const [showDeletingProjectModal, setShowDeletingProjectModal] = useState(false)
   const [isSavingProject, setIsSavingProject] = useState(false)
+  const [isSavingDashboard, setIsSavingDashboard] = useState(false)
 
   const [isDeletingProject, setIsDeletingProject] = useState(false)
 
@@ -567,9 +569,9 @@ export default function ProjectDetailPage() {
 
       const responseData = await response.json()
       if (responseData?.project) {
-        setProject(responseData.project)
+        setProject({ ...project, ...responseData.project })
       } else if (responseData) {
-        setProject(responseData)
+        setProject({ ...project, ...responseData })
       }
       setShowEditProjectModal(false)
       await refreshUserProjects()
@@ -580,6 +582,74 @@ export default function ProjectDetailPage() {
     } finally {
       setIsSavingProject(false)
     }
+  }
+
+  const handleSaveDashboardOps = async (ops: DashboardOpsData) => {
+    if (!id || !project) return
+    try {
+      setIsSavingDashboard(true)
+      const response = await authenticatedFetch(getApiUrl(`projects/${id}`), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          metadata: {
+            ...(project.metadata && typeof project.metadata === 'object' ? project.metadata : {}),
+            dashboard: ops,
+          },
+        }),
+      })
+      if (!response.ok) throw new Error('Failed to save dashboard details')
+      const responseData = await response.json()
+      const next = responseData?.project || responseData
+      if (next) {
+        setProject((prev) =>
+          prev
+            ? {
+                ...prev,
+                ...next,
+                metadata: next.metadata ?? {
+                  ...(prev.metadata || {}),
+                  dashboard: ops,
+                },
+              }
+            : prev
+        )
+      }
+    } catch (error) {
+      console.error('Error saving dashboard ops:', error)
+      alert('Failed to save dashboard details')
+      throw error
+    } finally {
+      setIsSavingDashboard(false)
+    }
+  }
+
+  const handleUploadSitePhoto = async (file: File) => {
+    if (!id) throw new Error('Missing project id')
+    const form = new FormData()
+    form.append('name', `Site photo — ${file.name}`)
+    form.append('category', 'DRAWINGS')
+    form.append('file', file)
+
+    const token = localStorage.getItem('auth_token')
+    const res = await fetch(getApiUrl(`documents/${id}`), {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      body: form,
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error(data?.error || `Upload failed (${res.status})`)
+    }
+    const data = await res.json()
+    const documentId = data?.document?.id as string | undefined
+    if (!documentId) throw new Error('Upload succeeded but no document id returned')
+
+    const dl = await authenticatedFetch(getApiUrl(`documents/${id}/${documentId}/download`))
+    if (!dl.ok) throw new Error('Uploaded, but failed to get photo URL')
+    const dlData = await dl.json()
+    if (!dlData?.url) throw new Error('Uploaded, but photo URL missing')
+    return { documentId, url: String(dlData.url) }
   }
 
   const [deletionProgress, setDeletionProgress] = useState(0)
@@ -1392,9 +1462,21 @@ export default function ProjectDetailPage() {
         <div className="px-8 py-6">
           {activeTab === 'dashboard' && (
             <DashboardTab
+              projectId={parseInt(id!)}
               totalPanels={totalPanelCount > 0 ? totalPanelCount : panels.length}
-              completedPanels={panelStatuses.find((s) => /install|complete/i.test(s.label))?.count || 0}
               statuses={customStatuses}
+              ops={
+                project?.metadata &&
+                typeof project.metadata === 'object' &&
+                project.metadata.dashboard &&
+                typeof project.metadata.dashboard === 'object'
+                  ? (project.metadata.dashboard as DashboardOpsData)
+                  : null
+              }
+              canEdit={permissions.canManage}
+              saving={isSavingDashboard}
+              onSaveOps={handleSaveDashboardOps}
+              onUploadSitePhoto={handleUploadSitePhoto}
             />
           )}
 
@@ -1428,6 +1510,7 @@ export default function ProjectDetailPage() {
               projectId={parseInt(id)}
               onCreateGroup={() => setShowCreateGroupModal(true)}
               onViewGroup={handleViewGroup}
+              refreshKey={groupRefreshKey}
               onDataChange={() => {
                 setGroupRefreshKey(prev => prev + 1)
                 setOverviewRefreshKey(prev => prev + 1)

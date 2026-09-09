@@ -86,16 +86,20 @@ export function getStatusIcon(iconName: string) {
 export function PanelStatusOverview({
   totalPanels,
   statuses,
+  hideTotal = false,
 }: {
   totalPanels: number
   statuses: StatusOverviewItem[]
+  hideTotal?: boolean
 }) {
   return (
     <div className="flex items-start gap-8 overflow-x-auto pb-2">
-      <div className="flex-shrink-0 pt-1">
-        <div className="text-xs text-slate-500 mb-1">Total Panels</div>
-        <div className="text-2xl font-semibold text-slate-900">{totalPanels}</div>
-      </div>
+      {!hideTotal && (
+        <div className="flex-shrink-0 pt-1">
+          <div className="text-xs text-slate-500 mb-1">Total Panels</div>
+          <div className="text-2xl font-semibold text-slate-900">{totalPanels}</div>
+        </div>
+      )}
 
       {statuses.length > 0 ? (
         statuses.map((status) => {

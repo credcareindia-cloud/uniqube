@@ -59,6 +59,7 @@ export interface Project {
     status: string;
     panelCount: number;
   }>;
+  metadata?: Record<string, any> | null;
   stats?: {
     totalModels?: number;
     totalGroups?: number;
