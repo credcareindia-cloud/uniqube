@@ -1542,7 +1542,7 @@ export async function initializeViewer(containerId: string = "container") {
     return found;
   };
 
-  /** Structure / Architecture floor slabs — keep visible outside install sequence. */
+  /** Structure / Architecture floor slabs — keep visible during install sequence. */
   const collectFloorSlabGeometryIds = async (
     model: FRAGS.FragmentsModel
   ): Promise<Set<number>> => {
@@ -1559,7 +1559,10 @@ export async function initializeViewer(containerId: string = "container") {
       { name: /^Name$/i, value: /^Floor:/i },
       { name: /^Name$/i, value: /^Floor\b/i },
       { name: /^Name$/i, value: /^IfcSlab/i },
+      { name: /^Name$/i, value: /Generic 150mm/i },
+      { name: /^Name$/i, value: /concrete/i },
       { name: /^ObjectType$/i, value: /Slab/i },
+      { name: /^ObjectType$/i, value: /Floor/i },
     ];
     for (const q of queries) {
       try {
@@ -1580,6 +1583,35 @@ export async function initializeViewer(containerId: string = "container") {
       }
     }
     return found;
+  };
+
+  /** Foundation footings + concrete floor slabs — always kept visible in install sequence. */
+  const installPersistentIdsByModel = new Map<string, number[]>();
+
+  const collectPersistentInstallGeometryIds = async (
+    modelId: string,
+    model: FRAGS.FragmentsModel
+  ): Promise<number[]> => {
+    const cached = installPersistentIdsByModel.get(modelId);
+    if (cached) return cached;
+    const foundationIds = await collectFoundationGeometryIds(model);
+    const floorSlabIds = await collectFloorSlabGeometryIds(model);
+    const ids = [...new Set([...foundationIds, ...floorSlabIds])];
+    installPersistentIdsByModel.set(modelId, ids);
+    return ids;
+  };
+
+  const ensurePersistentInstallGeometryVisible = async () => {
+    for (const [modelId, model] of models.entries()) {
+      const ids = await collectPersistentInstallGeometryIds(modelId, model);
+      if (!ids.length) continue;
+      await setModelIdsVisible(modelId, ids, true);
+    }
+    try {
+      await fragments.update(true);
+    } catch {
+      /* optional */
+    }
   };
 
   const isFloorTrussPanelKey = (key: string): boolean => {
@@ -2180,9 +2212,13 @@ export async function initializeViewer(containerId: string = "container") {
           !foundationIds.has(id) &&
           !floorSlabIds.has(id)
       );
-      if (!other.length) continue;
+      if (!other.length) {
+        await ensurePersistentInstallGeometryVisible();
+        continue;
+      }
       installOtherIdsByModel.set(modelId, other);
       await setModelIdsVisible(modelId, other, false);
+      await ensurePersistentInstallGeometryVisible();
     }
   };
 
@@ -2308,6 +2344,7 @@ export async function initializeViewer(containerId: string = "container") {
 
     await fragments.update(true);
     await reapplyHiddenLayers();
+    await ensurePersistentInstallGeometryVisible();
 
     const key = installSequenceKeys[index];
     if (key) {
@@ -2362,6 +2399,7 @@ export async function initializeViewer(containerId: string = "container") {
     // Hide all non-sequence geometry + all sequence panels, then show step 0 only
     await hideNonSequenceGeometry();
     await setAllInstallPanelsVisible(false);
+    await ensurePersistentInstallGeometryVisible();
     await buildInstallConnectorCaches();
     await applyInstallStep(0);
 
@@ -2573,6 +2611,7 @@ export async function initializeViewer(containerId: string = "container") {
     installProjectConnectorTotals = [];
     installLevelConnectorTotals = [];
     installSequenceKeys = [];
+    installPersistentIdsByModel.clear();
     installSavedHideLayers = null;
 
     const tasks: Promise<any>[] = [];
