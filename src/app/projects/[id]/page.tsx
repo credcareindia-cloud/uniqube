@@ -601,20 +601,26 @@ export default function ProjectDetailPage() {
       if (!response.ok) throw new Error('Failed to save dashboard details')
       const responseData = await response.json()
       const next = responseData?.project || responseData
-      if (next) {
-        setProject((prev) =>
-          prev
-            ? {
-                ...prev,
-                ...next,
-                metadata: next.metadata ?? {
-                  ...(prev.metadata || {}),
-                  dashboard: ops,
-                },
-              }
-            : prev
-        )
+      const savedDashboard =
+        next?.metadata &&
+        typeof next.metadata === 'object' &&
+        next.metadata.dashboard &&
+        typeof next.metadata.dashboard === 'object'
+          ? next.metadata.dashboard
+          : null
+      if (!savedDashboard) {
+        throw new Error('Server did not persist dashboard details. Try again after a refresh.')
       }
+      setProject((prev) =>
+        prev
+          ? {
+              ...prev,
+              ...next,
+              id: String(next.id ?? prev.id),
+              metadata: next.metadata,
+            }
+          : prev
+      )
     } catch (error) {
       console.error('Error saving dashboard ops:', error)
       alert('Failed to save dashboard details')
