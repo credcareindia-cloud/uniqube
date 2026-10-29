@@ -111,15 +111,19 @@ export async function initializeViewer(containerId: string = "container") {
     Now, let's configure the Fragments library core. This will allow us to load models effortlessly and start manipulating them with ease:
   */
 
-  const githubUrl =
-    "https://thatopen.github.io/engine_fragment/resources/worker.mjs";
-  const fetchedUrl = await fetch(githubUrl);
-  const workerBlob = await fetchedUrl.blob();
-  const workerFile = new File([workerBlob], "worker.mjs", {
+  // Pin the worker to the installed @thatopen/fragments 3.2.0 build.
+  // The live GitHub worker can be newer and silently break highlight().
+  const workerRes = await fetch("/fragments/worker-3.2.0.mjs", { cache: "force-cache" });
+  if (!workerRes.ok) {
+    throw new Error(`Fragments 3.2.0 worker missing (${workerRes.status})`);
+  }
+  const workerBlob = await workerRes.blob();
+  const workerFile = new File([workerBlob], "worker-3.2.0.mjs", {
     type: "text/javascript",
   });
   const workerUrl = URL.createObjectURL(workerFile);
   const fragments = new FRAGS.FragmentsModels(workerUrl);
+  console.log("🧩 Fragments worker pinned to 3.2.0");
 
   // Keep thin MEP (pipes/conduits) visible farther out.
   // ThatOpen LOD: graphicQuality = -1.5 * graphicsQuality + 2
