@@ -14,6 +14,7 @@ import { toast } from '@/components/ui/use-toast'
 import { getApiUrl } from '@/config/api'
 import { ProjectMembershipManager } from '@/components/admin/ProjectMembershipManager'
 import { useRBAC } from '@/contexts/RBACContext'
+import { QubeCharacter } from '@/components/ui/QubeCharacter'
 
 interface User {
   id: string
@@ -345,9 +346,9 @@ export default function AdminPage() {
             )}
 
             {loading && (
-              <div className="text-center py-12">
-                <Loader2 className="h-12 w-12 text-slate-400 mx-auto mb-4 animate-spin" />
-                <p className="text-slate-600 text-sm">Loading users...</p>
+              <div className="text-center py-12 flex flex-col items-center">
+                <QubeCharacter moment="auto" size={112} caption />
+                <p className="text-slate-600 text-sm mt-3">Loading users...</p>
               </div>
             )}
           </div>

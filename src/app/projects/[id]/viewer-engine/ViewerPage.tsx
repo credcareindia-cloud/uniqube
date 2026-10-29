@@ -2,7 +2,7 @@ import React, { useLayoutEffect, useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import './ViewerPage.css';
 import { FloorSelector } from './FloorSelector';
-import { Cube } from '@/components/ui/Cube';
+import { QubeCharacter } from '@/components/ui/QubeCharacter';
 import {
   ProjectBrowserPanel,
   ScheduleTable,
@@ -968,6 +968,8 @@ export default function ViewerPage() {
     };
   }, [cadOpen, cadSplit, browserOpen]);
 
+  const quietLoad = ['Filtering Elements', 'Clearing Filters', 'Removing Filter'].includes(loadingTitle)
+
   return (
     <div
       className={`viewer-container${cadOpen && cadSplit ? ' cad-split-active' : ''}${
@@ -987,20 +989,21 @@ export default function ViewerPage() {
 
       {/* Modern Glassmorphism Loading Overlay */}
       {isLoading && (
-        <div className={`viewer-overlay ${['Filtering Elements', 'Clearing Filters', 'Removing Filter'].includes(loadingTitle) ? 'transparent' : ''}`}>
+        <div className={`viewer-overlay ${quietLoad ? 'transparent' : ''}`}>
           <div className="loading-content">
             <div className="loader-card">
               <div className="loader-icon-container">
-                <div className="loader-spinner"></div>
-                <div className="loader-logo" style={{ animation: 'none' }}>
-                  <Cube size={40} color="slate" />
-                </div>
+                {quietLoad ? (
+                  <QubeCharacter mood="walk" size={96} />
+                ) : (
+                  <QubeCharacter moment="auto" size={156} />
+                )}
               </div>
 
               <h1 className="loader-title">{loadingTitle}</h1>
               <p className="loader-subtitle">{loadingSubtitle}</p>
 
-              {!['Filtering Elements', 'Clearing Filters', 'Removing Filter'].includes(loadingTitle) && (
+              {!quietLoad && (
                 <>
                   <p className="loader-status">{loadingStatus}</p>
 
@@ -1019,7 +1022,7 @@ export default function ViewerPage() {
               )}
             </div>
 
-            {!['Filtering Elements', 'Clearing Filters', 'Removing Filter'].includes(loadingTitle) && (
+            {!quietLoad && (
               <div className="loading-dots">
                 <div className="dot"></div>
                 <div className="dot"></div>
@@ -1034,15 +1037,7 @@ export default function ViewerPage() {
       {error && (
         <div className="viewer-overlay">
           <div className="error-card">
-            <div className="error-icon">
-              <i data-lucide={
-                errorType === 'project_not_found' ? 'folder-x' :
-                  errorType === 'network' ? 'wifi-off' :
-                    errorType === 'model_load' ? 'package-x' :
-                      errorType === 'webgl' ? 'monitor-x' :
-                        'alert-triangle'
-              }></i>
-            </div>
+            <QubeCharacter mood="sad" size={128} className="mb-2" />
 
             <h2 className="error-title">
               {errorType === 'project_not_found' ? 'Project Not Found' :

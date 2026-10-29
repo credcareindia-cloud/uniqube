@@ -5,11 +5,22 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { getApiUrl } from '@/config/api'
+import { authenticatedFetch } from '@/utils/authenticatedFetch'
 import { useNotifications } from '@/hooks/useNotifications'
+import { QubeCharacter } from '@/components/ui/QubeCharacter'
+import type { BuildSystem, ProjectStage } from '@/services/api'
 
 interface MultiFileModelCreationProps {
   onProjectCreated?: (project: any) => void
   onClose?: () => void
+  /**
+   * Attach the model to this project rather than creating a new one.
+   *
+   * This is how a tender gets its first model: the project already exists and was
+   * named when the estimate was raised, so the name and build system are fixed and
+   * only the files are collected here.
+   */
+  existingProject?: { id: number; name: string; buildSystem?: BuildSystem }
 }
 
 interface SelectedFile {
@@ -35,6 +46,17 @@ interface ProcessingStatus {
   error?: string
 }
 
+const STAGE_OPTIONS: { value: ProjectStage; label: string }[] = [
+  { value: 'TENDER', label: 'Tender' },
+  { value: 'PROJECT', label: 'Project' },
+]
+
+const BUILD_SYSTEM_OPTIONS: { value: BuildSystem; label: string }[] = [
+  { value: 'LGS', label: 'LGS' },
+  { value: 'PRECAST', label: 'Precast' },
+  { value: 'HYBRID', label: 'Hybrid' },
+]
+
 const FILE_CATEGORIES = {
   structure: { label: 'Structure', color: 'bg-blue-100 text-blue-800', icon: '🏗️' },
   mep: { label: 'MEP (Plumbing)', color: 'bg-green-100 text-green-800', icon: '🔧' },
@@ -42,17 +64,26 @@ const FILE_CATEGORIES = {
   other: { label: 'Other', color: 'bg-gray-100 text-gray-800', icon: '📁' }
 }
 
-export function MultiFileModelCreation({ onProjectCreated, onClose }: MultiFileModelCreationProps) {
+export function MultiFileModelCreation({
+  onProjectCreated,
+  onClose,
+  existingProject
+}: MultiFileModelCreationProps) {
   const { refetch } = useNotifications()
   const [formData, setFormData] = useState({
-    projectName: '',
+    projectName: existingProject?.name ?? '',
     projectDescription: '',
-    projectStatus: 'ACTIVE' as const
+    projectStatus: 'ACTIVE' as const,
+    buildSystem: existingProject?.buildSystem ?? ('LGS' as BuildSystem),
+    // Attaching a model to an existing tender is always a project-stage action.
+    stage: (existingProject ? 'PROJECT' : 'TENDER') as ProjectStage,
   })
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([])
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>({ status: 'idle' })
   const [dragActive, setDragActive] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
+
+  const isTenderCreate = !existingProject && formData.stage === 'TENDER'
 
   // Processing status (same as single file upload)
   const [processingStatus, setProcessingStatus] = useState<ProcessingStatus | null>(null)
@@ -197,7 +228,7 @@ export function MultiFileModelCreation({ onProjectCreated, onClose }: MultiFileM
     setSelectedFiles(prev => [...prev, ...newFiles])
 
     // Auto-generate project name from first file if empty
-    if (!formData.projectName && newFiles.length > 0) {
+    if (!existingProject && !formData.projectName && newFiles.length > 0) {
       const baseName = newFiles[0].file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ')
       const capitalizedName = baseName.charAt(0).toUpperCase() + baseName.slice(1)
       setFormData(prev => ({ ...prev, projectName: capitalizedName }))
@@ -237,8 +268,43 @@ export function MultiFileModelCreation({ onProjectCreated, onClose }: MultiFileM
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!formData.projectName.trim() || selectedFiles.length === 0) {
-      alert('Please provide a project name and select at least one IFC file')
+    if (!formData.projectName.trim()) {
+      alert('Please provide a project name')
+      return
+    }
+
+    // Tender: create the project record only. No model — that comes later from
+    // Project Details when the job is won.
+    if (isTenderCreate) {
+      try {
+        setUploadStatus({ status: 'uploading', progress: 0, message: 'Creating tender…' })
+        const res = await authenticatedFetch(getApiUrl('projects'), {
+          method: 'POST',
+          body: JSON.stringify({
+            name: formData.projectName.trim(),
+            description: formData.projectDescription.trim() || undefined,
+            buildSystem: formData.buildSystem,
+            status: 'PLANNING',
+          }),
+        })
+        const body = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          throw new Error(body.error || body.message || `Failed to create tender (${res.status})`)
+        }
+        setUploadStatus({ status: 'success', project: body, message: 'Tender created' })
+        onProjectCreated?.(body)
+        onClose?.()
+      } catch (err) {
+        setUploadStatus({
+          status: 'error',
+          message: err instanceof Error ? err.message : 'Failed to create tender',
+        })
+      }
+      return
+    }
+
+    if (selectedFiles.length === 0) {
+      alert('Please select at least one IFC file')
       return
     }
 
@@ -249,6 +315,10 @@ export function MultiFileModelCreation({ onProjectCreated, onClose }: MultiFileM
       formDataToSend.append('projectName', formData.projectName.trim())
       formDataToSend.append('projectDescription', formData.projectDescription.trim())
       formDataToSend.append('projectStatus', formData.projectStatus)
+      formDataToSend.append('buildSystem', formData.buildSystem)
+      if (existingProject) {
+        formDataToSend.append('projectId', String(existingProject.id))
+      }
 
       // Add files with their categories
       selectedFiles.forEach((selectedFile, index) => {
@@ -368,7 +438,8 @@ export function MultiFileModelCreation({ onProjectCreated, onClose }: MultiFileM
     setFormData({
       projectName: '',
       projectDescription: '',
-      projectStatus: 'ACTIVE'
+      projectStatus: 'ACTIVE',
+      buildSystem: 'LGS'
     })
     setSelectedFiles([])
     setUploadStatus({ status: 'idle' })
@@ -390,11 +461,12 @@ export function MultiFileModelCreation({ onProjectCreated, onClose }: MultiFileM
           <div className="flex items-center justify-between mb-6">
             <div>
               <h2 className="text-2xl font-bold text-slate-900">
-                Create Project with Model
+                {existingProject
+                  ? 'Upload model'
+                  : isTenderCreate
+                    ? 'Create tender'
+                    : 'Create project'}
               </h2>
-              <p className="text-slate-600 mt-2">
-                Upload an IFC model to automatically create a new project.
-              </p>
             </div>
             {onClose && (
               <Button
@@ -414,21 +486,61 @@ export function MultiFileModelCreation({ onProjectCreated, onClose }: MultiFileM
             <form onSubmit={handleSubmit} className="space-y-6">
               {/* Project Details */}
               <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Project Name *
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.projectName}
-                    onChange={(e) => setFormData(prev => ({ ...prev, projectName: e.target.value }))}
-                    className="w-full px-4 py-3 bg-white border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-transparent transition-all"
-                    placeholder="Enter project name"
-                    required
-                  />
-                </div>
+                {existingProject ? (
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+                    <div className="text-xs uppercase tracking-wide text-slate-500">
+                      Attaching the model to
+                    </div>
+                    <div className="text-sm font-semibold text-slate-900">
+                      {existingProject.name}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Once the model is processed this moves from tender to project stage.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">
+                        Project Name *
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.projectName}
+                        onChange={(e) =>
+                          setFormData((prev) => ({ ...prev, projectName: e.target.value }))
+                        }
+                        className="w-full px-4 py-3 bg-white border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-transparent transition-all"
+                        placeholder="Enter project name"
+                        required
+                      />
+                    </div>
 
-                <div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">
+                        Stage *
+                      </label>
+                      <select
+                        value={formData.stage}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            stage: e.target.value as ProjectStage,
+                          }))
+                        }
+                        className="w-full px-4 py-3 bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-transparent transition-all"
+                      >
+                        {STAGE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </>
+                )}
+
+                <div className={existingProject ? 'hidden' : undefined}>
                   <label className="block text-sm font-medium text-slate-700 mb-2">
                     Description
                   </label>
@@ -439,6 +551,31 @@ export function MultiFileModelCreation({ onProjectCreated, onClose }: MultiFileM
                     placeholder="Enter project description (optional)"
                     rows={3}
                   />
+                </div>
+
+                <div className={existingProject ? 'hidden' : undefined}>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Build system *
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {BUILD_SYSTEM_OPTIONS.map((option) => {
+                      const selected = formData.buildSystem === option.value
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setFormData(prev => ({ ...prev, buildSystem: option.value }))}
+                          aria-pressed={selected}
+                          className={`text-left p-3 rounded-lg border-2 transition-colors ${selected
+                              ? 'border-[var(--uq-orange)] bg-[var(--uq-orange-soft)]'
+                              : 'border-slate-200 bg-white hover:border-slate-300'
+                            }`}
+                        >
+                          <div className="text-sm font-semibold text-slate-900">{option.label}</div>
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
 
                 {/* Status field removed - projects default to ACTIVE */}
@@ -458,110 +595,120 @@ export function MultiFileModelCreation({ onProjectCreated, onClose }: MultiFileM
                 </div> */}
               </div>
 
-              {/* File Upload */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  IFC Model Files *
-                </label>
-                <div
-                  className={`relative border-2 border-dashed rounded-lg p-8 transition-all ${dragActive
-                      ? 'border-slate-500 bg-slate-100'
-                      : selectedFiles.length > 0
-                        ? 'border-green-500 bg-green-50'
-                        : 'border-slate-300 bg-slate-50'
-                    }`}
-                  onDragEnter={handleDrag}
-                  onDragLeave={handleDrag}
-                  onDragOver={handleDrag}
-                  onDrop={handleDrop}
-                >
-                  <input
-                    type="file"
-                    accept=".frag,.ifc"
-                    multiple
-                    onChange={(e) => e.target.files && handleFileChange(e.target.files)}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                  />
+              {/* File Upload — only for project stage (or attaching to an existing tender) */}
+              {!isTenderCreate && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      IFC Model Files *
+                    </label>
+                    <div
+                      className={`relative border-2 border-dashed rounded-lg p-8 transition-all ${dragActive
+                          ? 'border-slate-500 bg-slate-100'
+                          : selectedFiles.length > 0
+                            ? 'border-green-500 bg-green-50'
+                            : 'border-slate-300 bg-slate-50'
+                        }`}
+                      onDragEnter={handleDrag}
+                      onDragLeave={handleDrag}
+                      onDragOver={handleDrag}
+                      onDrop={handleDrop}
+                    >
+                      <input
+                        type="file"
+                        accept=".frag,.ifc"
+                        multiple
+                        onChange={(e) => e.target.files && handleFileChange(e.target.files)}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      />
 
-                  <div className="text-center">
-                    {selectedFiles.length > 0 ? (
-                      <div className="space-y-3">
-                        <CheckCircle className="h-12 w-12 text-green-600 mx-auto" />
-                        <div className="text-slate-900 font-semibold text-lg">
-                          {selectedFiles.length} file{selectedFiles.length !== 1 ? 's' : ''} selected
-                        </div>
-                        <div className="text-slate-600">
-                          {selectedFiles.reduce((total, f) => total + f.file.size, 0) > 0 &&
-                            formatFileSize(selectedFiles.reduce((total, f) => total + f.file.size, 0))
-                          }
-                        </div>
-                        <Badge variant="success">Ready for Upload</Badge>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        <Upload className="h-12 w-12 text-slate-400 mx-auto" />
-                        <div className="text-slate-900 font-semibold text-lg">Drop your IFC files here</div>
-                        <div className="text-slate-600">or click to browse</div>
-                        <Badge variant="secondary">Accepted: .IFC Files Only</Badge>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Selected Files List */}
-              {selectedFiles.length > 0 && (
-                <div className="space-y-3">
-                  <h3 className="text-sm font-medium text-slate-700">Selected Files</h3>
-                  <div className="space-y-2 max-h-60 overflow-y-auto">
-                    {selectedFiles.map((selectedFile) => (
-                      <div key={selectedFile.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
-                        <div className="flex items-center space-x-3 flex-1">
-                          <FileText className="h-5 w-5 text-slate-400" />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-slate-900 truncate">
-                              {selectedFile.file.name}
-                            </p>
-                            <p className="text-xs text-slate-500">
-                              {formatFileSize(selectedFile.file.size)}
-                            </p>
+                      <div className="text-center">
+                        {selectedFiles.length > 0 ? (
+                          <div className="space-y-3">
+                            <CheckCircle className="h-12 w-12 text-green-600 mx-auto" />
+                            <div className="text-slate-900 font-semibold text-lg">
+                              {selectedFiles.length} file{selectedFiles.length !== 1 ? 's' : ''} selected
+                            </div>
+                            <div className="text-slate-600">
+                              {selectedFiles.reduce((total, f) => total + f.file.size, 0) > 0 &&
+                                formatFileSize(selectedFiles.reduce((total, f) => total + f.file.size, 0))
+                              }
+                            </div>
+                            <Badge variant="success">Ready for Upload</Badge>
                           </div>
-                          <select
-                            value={selectedFile.category}
-                            onChange={(e) => updateFileCategory(selectedFile.id, e.target.value as SelectedFile['category'])}
-                            className="text-xs px-2 py-1 border border-slate-300 rounded"
-                          >
-                            {Object.entries(FILE_CATEGORIES).map(([key, cat]) => (
-                              <option key={key} value={key}>
-                                {cat.icon} {cat.label}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => removeFile(selectedFile.id)}
-                          className="ml-2 text-slate-400 hover:text-slate-600"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        ) : (
+                          <div className="space-y-3">
+                            <Upload className="h-12 w-12 text-slate-400 mx-auto" />
+                            <div className="text-slate-900 font-semibold text-lg">Drop your IFC files here</div>
+                            <div className="text-slate-600">or click to browse</div>
+                            <Badge variant="secondary">Accepted: .IFC Files Only</Badge>
+                          </div>
+                        )}
                       </div>
-                    ))}
+                    </div>
                   </div>
-                </div>
+
+                  {selectedFiles.length > 0 && (
+                    <div className="space-y-3">
+                      <h3 className="text-sm font-medium text-slate-700">Selected Files</h3>
+                      <div className="space-y-2 max-h-60 overflow-y-auto">
+                        {selectedFiles.map((selectedFile) => (
+                          <div key={selectedFile.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                            <div className="flex items-center space-x-3 flex-1">
+                              <FileText className="h-5 w-5 text-slate-400" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-slate-900 truncate">
+                                  {selectedFile.file.name}
+                                </p>
+                                <p className="text-xs text-slate-500">
+                                  {formatFileSize(selectedFile.file.size)}
+                                </p>
+                              </div>
+                              <select
+                                value={selectedFile.category}
+                                onChange={(e) => updateFileCategory(selectedFile.id, e.target.value as SelectedFile['category'])}
+                                className="text-xs px-2 py-1 border border-slate-300 rounded"
+                              >
+                                {Object.entries(FILE_CATEGORIES).map(([key, cat]) => (
+                                  <option key={key} value={key}>
+                                    {cat.icon} {cat.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeFile(selectedFile.id)}
+                              className="ml-2 text-slate-400 hover:text-slate-600"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
 
               {/* Action Buttons */}
               <div className="flex space-x-3 pt-4">
                 <Button
                   type="submit"
-                  disabled={!formData.projectName.trim() || selectedFiles.length === 0}
+                  disabled={
+                    !formData.projectName.trim() ||
+                    (!isTenderCreate && selectedFiles.length === 0)
+                  }
                   className="flex-1 flex items-center justify-center gap-2"
                 >
                   <FileText className="h-4 w-4" />
-                  Create Project with Model
+                  {existingProject
+                    ? 'Upload model'
+                    : isTenderCreate
+                      ? 'Create tender'
+                      : 'Create project with model'}
                 </Button>
 
                 {onClose && (
@@ -582,7 +729,9 @@ export function MultiFileModelCreation({ onProjectCreated, onClose }: MultiFileM
               {/* Clean Status Header */}
               <div className="flex items-center justify-center space-x-3 p-4 bg-slate-50 rounded-lg">
                 <Loader2 className="h-6 w-6 text-slate-600 animate-spin" />
-                <span className="text-slate-900 font-medium">Uploading model...</span>
+                <span className="text-slate-900 font-medium">
+                  {uploadStatus.message || 'Uploading model...'}
+                </span>
               </div>
 
               {/* Minimal Progress Bar */}
@@ -671,21 +820,15 @@ export function MultiFileModelCreation({ onProjectCreated, onClose }: MultiFileM
         <CardContent className="p-6">
           <div className="text-center space-y-4">
             {/* Icon with File Count Badge */}
-            <div className="flex items-center justify-center mb-2 relative">
+            <div className="flex items-center justify-center mb-2">
               {processingStatus.status === 'processing' && (
-                <div className="bg-slate-50 rounded-full p-3">
-                  <Loader2 className="h-8 w-8 text-slate-600 animate-spin" />
-                </div>
+                <QubeCharacter moment="auto" size={120} />
               )}
               {processingStatus.status === 'completed' && (
-                <div className="bg-slate-50 rounded-full p-3">
-                  <CheckCircle className="h-8 w-8 text-slate-600" />
-                </div>
+                <QubeCharacter mood="happy" size={120} />
               )}
               {processingStatus.status === 'failed' && (
-                <div className="bg-slate-50 rounded-full p-3">
-                  <AlertCircle className="h-8 w-8 text-slate-600" />
-                </div>
+                <QubeCharacter mood="sad" size={120} />
               )}
             </div>
 

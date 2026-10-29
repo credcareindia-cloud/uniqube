@@ -12,6 +12,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Views2DManager, StoreyInfo } from './views2d';
+import { QubeCharacter } from '@/components/ui/QubeCharacter';
 
 interface FloorSelectorProps {
   views2d: Views2DManager | null;
@@ -336,14 +337,14 @@ export const FloorSelector: React.FC<FloorSelectorProps> = ({
 
       {isLoading && !isInitialized && (
         <div className="floor-selector-loading">
-          <i className="fas fa-spinner fa-spin"></i>
+          <QubeCharacter mood="walk" size={88} />
           Loading floor plans...
         </div>
       )}
 
       {isInitialized && storeys.length === 0 && (
         <div className="floor-selector-empty">
-          <i className="fas fa-info-circle"></i>
+          <QubeCharacter mood="sad" size={80} />
           No floors detected in this model
         </div>
       )}
@@ -390,7 +391,7 @@ export const FloorSelector: React.FC<FloorSelectorProps> = ({
 
       {isLoading && isInitialized && (
         <div className="floor-selector-loading-overlay">
-          <i className="fas fa-spinner fa-spin"></i>
+          <QubeCharacter mood="walk" size={72} />
         </div>
       )}
 

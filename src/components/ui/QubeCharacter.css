@@ -1,0 +1,44 @@
+.qube-wrap {
+  --qube-size: 140px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: max-content;
+  max-width: 100%;
+  margin-inline: auto;
+}
+
+.qube {
+  width: var(--qube-size);
+  line-height: 0;
+}
+
+.qube img {
+  display: block;
+  width: 100%;
+  height: auto;
+  user-select: none;
+  -webkit-user-drag: none;
+  animation: qube-in 0.2s ease;
+}
+
+.qube-caption {
+  margin: 8px 0 0;
+  max-width: 220px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--uq-muted, #4a4a6a);
+  font-family: var(--uq-font, Inter, sans-serif);
+}
+
+@keyframes qube-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qube img {
+    animation: none;
+  }
+}

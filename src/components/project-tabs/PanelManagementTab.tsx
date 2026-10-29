@@ -13,6 +13,7 @@ import { EditPanelModal } from '@/components/modals/EditPanelModal'
 import { QRModal } from '@/components/modals/QRModal'
 import { BulkQRModal } from '@/components/modals/BulkQRModal'
 import { toast } from '@/components/ui/use-toast'
+import { QubeCharacter } from '@/components/ui/QubeCharacter'
 import { getApiUrl } from '@/config/api'
 
 // Icon name mapping from database names to Lucide React names
@@ -1196,9 +1197,7 @@ export function PanelManagementTab({ projectId, onPanelClick }: PanelManagementT
               {loading ? (
                 <tr>
                   <td colSpan={8} className="py-16 text-center">
-                    <div className="flex items-center justify-center">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-900"></div>
-                    </div>
+                    <QubeCharacter moment="auto" size={96} caption />
                   </td>
                 </tr>
               ) : filteredPanels.length > 0 ? (

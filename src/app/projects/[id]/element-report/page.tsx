@@ -6,6 +6,7 @@ import * as LucideIcons from 'lucide-react'
 import { getLucideIconName } from '@/utils/iconMapping'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRBAC } from '@/contexts/RBACContext'
+import { QubeCharacter } from '@/components/ui/QubeCharacter'
 
 interface Status {
     id: string
@@ -342,7 +343,7 @@ export default function ElementReportPage() {
     if (loading) {
         return (
             <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-slate-900"></div>
+                <QubeCharacter moment="auto" size={150} caption />
             </div>
         )
     }

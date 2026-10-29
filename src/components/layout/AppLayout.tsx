@@ -8,6 +8,7 @@ import { toast } from '@/components/ui/use-toast'
 import { ToastAction } from '@/components/ui/toast'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
+import { QubeCharacter } from '@/components/ui/QubeCharacter'
 
 interface AppLayoutProps {
   children: React.ReactNode
@@ -99,10 +100,8 @@ export function AppLayout({ children }: AppLayoutProps) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[var(--uq-content)]">
         <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center shadow-sm max-w-md w-full mx-4">
-          <div className="w-14 h-14 mx-auto mb-5 rounded-xl bg-[var(--uq-orange)] flex items-center justify-center">
-            <img src="/uniQube.png" alt="" className="w-9 h-9 object-contain" />
-          </div>
-          <h1 className="text-2xl font-bold tracking-[0.12em]">UNIQUBE</h1>
+          <QubeCharacter moment="auto" size={150} caption />
+          <h1 className="text-2xl font-bold tracking-[0.12em] mt-4">UNIQUBE</h1>
           <p className="text-sm text-[var(--uq-muted)] mt-1">Loading workspace…</p>
           <div className="mt-6 w-full bg-slate-100 rounded-full h-2 overflow-hidden">
             <div className="h-full bg-[var(--uq-orange)] rounded-full animate-pulse w-3/4" />

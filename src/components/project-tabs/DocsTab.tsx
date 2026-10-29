@@ -17,6 +17,7 @@ import {
 import { authenticatedFetch } from '@/utils/authenticatedFetch'
 import { API_BASE_URL, getApiUrl } from '@/config/api'
 import { toast } from '@/components/ui/use-toast'
+import { QubeCharacter } from '@/components/ui/QubeCharacter'
 
 export type DocumentCategory = 'DRAWINGS' | 'LOGISTICS' | 'CNC'
 
@@ -374,18 +375,14 @@ export function ProjectDocumentsTab({
               {loading ? (
                 <tr>
                   <td colSpan={6} className="py-16 text-center">
-                    <div className="flex items-center justify-center">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-900" />
-                    </div>
+                    <QubeCharacter moment="auto" size={96} caption />
                   </td>
                 </tr>
               ) : docs.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="py-16 text-center">
                     <div className="flex flex-col items-center justify-center">
-                      <div className="w-16 h-16 mb-4 rounded-full bg-slate-100 flex items-center justify-center">
-                        <FileText className="w-8 h-8 text-slate-400" />
-                      </div>
+                      <QubeCharacter mood="cute" size={96} className="mb-3" />
                       <p className="text-lg font-semibold text-slate-900 mb-1">{emptyTitle}</p>
                       <p className="text-sm text-slate-500">{emptyDescription}</p>
                     </div>

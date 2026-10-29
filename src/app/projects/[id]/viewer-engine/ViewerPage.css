@@ -2837,7 +2837,7 @@ body.mode-2d #infoPanel {
 }
 
 .loader-icon-container {
-  margin-bottom: 48px;
+  margin-bottom: 8px;
   display: flex;
   justify-content: center;
   position: relative;

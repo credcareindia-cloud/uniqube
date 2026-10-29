@@ -12,6 +12,7 @@ import { ConfirmDeleteModal } from '@/components/modals/ConfirmDeleteModal'
 import { toast } from '@/components/ui/use-toast'
 import { getLucideIconName } from '@/utils/iconMapping'
 import { getApiUrl } from '@/config/api'
+import { QubeCharacter } from '@/components/ui/QubeCharacter'
 
 interface CustomStatus {
   id: string
@@ -303,10 +304,8 @@ export function StatusManagementTab({
 
   if (loading) {
     return (
-      <div className="bg-white rounded-lg border border-slate-200 p-12">
-        <div className="flex items-center justify-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-900"></div>
-        </div>
+      <div className="bg-white rounded-lg border border-slate-200 p-12 flex flex-col items-center">
+        <QubeCharacter moment="auto" size={112} caption />
       </div>
     )
   }

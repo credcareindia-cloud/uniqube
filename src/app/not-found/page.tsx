@@ -2,6 +2,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { Button } from '@/components/ui/button'
+import { QubeCharacter } from '@/components/ui/QubeCharacter'
 
 function NotFoundCard() {
   const navigate = useNavigate()
@@ -12,6 +13,7 @@ function NotFoundCard() {
   return (
     <div className="max-w-[720px] mx-auto">
       <div className="rounded-2xl bg-white border border-slate-200 shadow-sm p-8 sm:p-10">
+        <QubeCharacter mood="sad" size={120} className="mb-4" />
         <p className="text-xs font-semibold tracking-[0.18em] uppercase text-[var(--uq-orange)]">
           404
         </p>
@@ -46,7 +48,7 @@ export default function NotFoundPage() {
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[var(--uq-content)]">
-        <div className="w-10 h-10 rounded-full border-2 border-slate-200 border-t-[var(--uq-orange)] animate-spin" />
+        <QubeCharacter moment="auto" size={140} caption />
       </div>
     )
   }

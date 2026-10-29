@@ -1,14 +1,23 @@
 import { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
+import type { BuildSystem, ProjectStage } from '@/services/api'
 
 interface EditProjectModalProps {
   isOpen: boolean
   onClose: () => void
-  onSave: (data: { name: string; description: string; status: string }) => void
+  onSave: (data: {
+    name: string
+    description: string
+    status: string
+    stage: ProjectStage
+    buildSystem: BuildSystem
+  }) => void
   project: {
     name: string
     description?: string | null
     status: string
+    stage?: ProjectStage | null
+    buildSystem?: BuildSystem | null
   } | null
   isSaving?: boolean
 }
@@ -23,7 +32,9 @@ export function EditProjectModal({
   const [formData, setFormData] = useState({
     name: '',
     description: '',
-    status: 'ACTIVE'
+    status: 'ACTIVE',
+    stage: 'PROJECT' as ProjectStage,
+    buildSystem: 'LGS' as BuildSystem
   })
 
   useEffect(() => {
@@ -39,7 +50,9 @@ export function EditProjectModal({
       setFormData({
         name: project.name || '',
         description: project.description || '',
-        status: normalizedStatus
+        status: normalizedStatus,
+        stage: project.stage === 'TENDER' ? 'TENDER' : 'PROJECT',
+        buildSystem: project.buildSystem || 'LGS'
       })
     }
   }, [project, isOpen])
@@ -110,6 +123,42 @@ export function EditProjectModal({
               <option value="COMPLETED">Completed</option>
               {/* <option value="CANCELLED">Cancelled</option> */}
             </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              Stage
+            </label>
+            <select
+              value={formData.stage}
+              onChange={(e) =>
+                setFormData({ ...formData, stage: e.target.value as ProjectStage })
+              }
+              disabled={isSaving}
+              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50"
+            >
+              <option value="TENDER">Tender</option>
+              <option value="PROJECT">Project</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              Build system
+            </label>
+            <select
+              value={formData.buildSystem}
+              onChange={(e) => setFormData({ ...formData, buildSystem: e.target.value as BuildSystem })}
+              disabled={isSaving}
+              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50"
+            >
+              <option value="LGS">LGS — rollformed steel framing</option>
+              <option value="PRECAST">Precast — cast units</option>
+              <option value="HYBRID">Hybrid — precast shell with LGS infill</option>
+            </select>
+            <p className="text-xs text-slate-500 mt-1">
+              Precast panels are tracked as single cast units instead of collapsing framing members.
+            </p>
           </div>
 
           <div className="flex items-center justify-end gap-3 pt-6 border-t border-slate-200">

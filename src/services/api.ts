@@ -23,12 +23,26 @@ export interface ProjectWithRole extends Project {
   userRole?: 'OWNER' | 'MANAGER' | 'VIEWER';
 }
 
+/** Primary structural system. HYBRID covers precast shells with LGS infill walls and pods. */
+export type BuildSystem = 'LGS' | 'PRECAST' | 'HYBRID';
+
+/**
+ * How far the job has progressed commercially.
+ *
+ * A TENDER is only being priced, so it has no model and the delivery side of the
+ * project is unreachable. Winning the work promotes it to PROJECT, which is what
+ * unlocks model upload. Promotion is one-way.
+ */
+export type ProjectStage = 'TENDER' | 'PROJECT';
+
 export interface Project {
   id: string;
   displayNumber?: number;
   name: string;
   description?: string;
   status: 'active' | 'completed' | 'on-hold' | 'planning';
+  stage?: ProjectStage;
+  buildSystem?: BuildSystem;
   createdAt: string;
   updatedAt: string;
   lastUpdated?: string;

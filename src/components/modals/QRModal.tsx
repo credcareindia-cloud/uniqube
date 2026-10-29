@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { X, Download, FileText, Loader2, AlertTriangle } from 'lucide-react'
+import { X, Download, FileText } from 'lucide-react'
+import { QubeCharacter } from '@/components/ui/QubeCharacter'
 import QRCode from 'qrcode'
 import { getApiUrl } from '@/config/api'
 import { authenticatedFetch } from '@/utils/authenticatedFetch'
@@ -557,14 +558,14 @@ export function QRModal({ isOpen, onClose, panelId, panelName, projectId }: QRMo
         <div className="p-6 flex flex-col items-center">
           {isLoading && (
             <div className="flex flex-col items-center justify-center min-h-[300px]">
-              <Loader2 className="h-10 w-10 text-slate-500 animate-spin" />
+              <QubeCharacter moment="auto" size={120} caption />
               <p className="mt-4 text-slate-500">Generating QR code...</p>
             </div>
           )}
 
           {error && (
             <div className="flex flex-col items-center justify-center min-h-[300px] text-red-500">
-              <AlertTriangle className="h-12 w-12 mb-4" />
+              <QubeCharacter mood="sad" size={120} className="mb-3" />
               <p className="text-base font-semibold">
                 {!panelId ? 'No Element Selected' : 'Failed to generate QR code'}
               </p>

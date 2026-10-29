@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom'
 import { X, Eye, Edit, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
 import { collapseMembersToPanels } from '@/utils/panelMark'
+import { QubeCharacter } from '@/components/ui/QubeCharacter'
 
 interface Panel {
   id: string
@@ -218,8 +219,8 @@ export function StatusDetailModal({
         {/* Content */}
         <div className="flex-1 overflow-y-auto">
           {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-900"></div>
+            <div className="flex items-center justify-center py-8">
+              <QubeCharacter moment="auto" size={96} caption />
             </div>
           ) : currentPanels.length > 0 ? (
             <table className="w-full">

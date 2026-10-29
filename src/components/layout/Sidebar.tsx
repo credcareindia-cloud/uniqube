@@ -2,6 +2,7 @@ import React, { useMemo } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
   FolderKanban,
+  Calculator,
   Bell,
   Settings,
   User,
@@ -33,7 +34,7 @@ export function Sidebar() {
         name: 'Projects',
         href: '/projects',
         icon: FolderKanban,
-        match: (p) => p === '/' || p.startsWith('/projects'),
+        match: (p) => (p === '/' || p.startsWith('/projects')) && !p.endsWith('/estimate'),
       },
       {
         name: 'Alerts',
@@ -51,6 +52,21 @@ export function Sidebar() {
     [unreadCount, isAdmin]
   )
 
+  // Anything under /projects/:id gets a second nav section scoped to that project.
+  // The estimate belongs to one job, so it is only reachable from inside the job.
+  const projectId = location.pathname.match(/^\/projects\/(\d+)(?:\/|$)/)?.[1]
+  const items = useMemo(() => {
+    if (!projectId) return navigation
+    const estimate: SidebarItem = {
+      name: 'Estimate',
+      href: `/projects/${projectId}/estimate`,
+      icon: Calculator,
+    }
+    // Sits directly under Projects, where the job it belongs to was opened from.
+    const at = navigation.findIndex((i) => i.href === '/projects') + 1
+    return [...navigation.slice(0, at), estimate, ...navigation.slice(at)]
+  }, [navigation, projectId])
+
   return (
     <aside className="uq-sidebar h-full w-[240px] flex flex-col">
       <div className="uq-sidebar-brand">
@@ -64,7 +80,7 @@ export function Sidebar() {
       </div>
 
       <nav className="uq-sidebar-nav">
-        {navigation.map((item) => {
+        {items.map((item) => {
           const Icon = item.icon
           const isActive = item.match
             ? item.match(location.pathname)

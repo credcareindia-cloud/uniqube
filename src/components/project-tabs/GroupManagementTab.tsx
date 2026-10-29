@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { authenticatedFetch } from '@/utils/authenticatedFetch'
 import { Plus, Grid3x3, Eye, MoreVertical, Edit, Trash2, AlertCircle } from 'lucide-react'
+import { QubeCharacter } from '@/components/ui/QubeCharacter'
 import { GroupDetailModal } from '@/components/modals/GroupDetailModal'
 import { EditGroupModal } from '@/components/modals/EditGroupModal'
 import { PanelDetailModal } from '@/components/modals/PanelDetailModal'
@@ -268,10 +269,8 @@ export function GroupManagementTab({
 
   if (loading) {
     return (
-      <div className="bg-white rounded-lg border border-slate-200 p-12">
-        <div className="flex items-center justify-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-900"></div>
-        </div>
+      <div className="bg-white rounded-lg border border-slate-200 p-12 flex flex-col items-center">
+        <QubeCharacter moment="auto" size={112} caption />
       </div>
     )
   }

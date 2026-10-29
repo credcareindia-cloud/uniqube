@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { getApiUrl } from '@/config/api'
 import { useNotifications } from '@/hooks/useNotifications'
+import { QubeCharacter } from '@/components/ui/QubeCharacter'
 
 interface ModelCreationProps {
   onProjectCreated?: (project: any) => void
@@ -619,21 +620,15 @@ export function ModelCreation({ onProjectCreated, onClose }: ModelCreationProps)
       <Card className="w-full max-w-md mx-4 bg-white border border-slate-200 shadow-xl">
         <CardContent className="p-6">
           <div className="text-center space-y-4">
-            <div className="flex items-center justify-center mb-2 relative">
+            <div className="flex items-center justify-center mb-2">
               {processingStatus.status === 'processing' && (
-                <div className="bg-slate-50 rounded-full p-3">
-                  <Loader2 className="h-8 w-8 text-slate-600 animate-spin" />
-                </div>
+                <QubeCharacter moment="auto" size={120} />
               )}
               {processingStatus.status === 'completed' && (
-                <div className="bg-slate-50 rounded-full p-3">
-                  <CheckCircle className="h-8 w-8 text-slate-600" />
-                </div>
+                <QubeCharacter mood="happy" size={120} />
               )}
               {processingStatus.status === 'failed' && (
-                <div className="bg-slate-50 rounded-full p-3">
-                  <AlertCircle className="h-8 w-8 text-slate-600" />
-                </div>
+                <QubeCharacter mood="sad" size={120} />
               )}
             </div>
 

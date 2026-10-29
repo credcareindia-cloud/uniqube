@@ -12,12 +12,32 @@ import {
   Layers,
 } from 'lucide-react'
 import { CubeLoader } from '@/components/ui/CubeLoader'
+import { QubeCharacter } from '@/components/ui/QubeCharacter'
 import { ModelCreation } from '@/components/projects/ModelCreation'
 import { MultiFileModelCreation } from '@/components/projects/MultiFileModelCreation'
 import { useNotifications } from '@/hooks/useNotifications'
 import { useRBAC } from '@/contexts/RBACContext'
+import type { BuildSystem } from '@/services/api'
 
 type FilterStatus = 'all' | 'active' | 'completed' | 'planning'
+
+const BUILD_SYSTEM_PILL: Record<BuildSystem, { label: string; hint: string; className: string }> = {
+  LGS: {
+    label: 'LGS',
+    hint: 'Rollformed steel framing',
+    className: 'bg-sky-50 text-sky-700 border border-sky-100',
+  },
+  PRECAST: {
+    label: 'Precast',
+    hint: 'Cast units, no framing members',
+    className: 'bg-stone-100 text-stone-700 border border-stone-200',
+  },
+  HYBRID: {
+    label: 'Hybrid',
+    hint: 'Precast shell with LGS infill',
+    className: 'bg-violet-50 text-violet-700 border border-violet-100',
+  },
+}
 
 export default function ProjectsPage() {
   const navigate = useNavigate()
@@ -186,7 +206,11 @@ export default function ProjectsPage() {
 
       {filteredProjects.length === 0 ? (
         <div className="text-center py-16 rounded-3xl bg-[var(--uq-offwhite)] border border-black/5">
-          <Building2 className="h-12 w-12 text-slate-300 mx-auto mb-4" />
+          <QubeCharacter
+            mood={searchQuery || filterStatus !== 'all' ? 'sad' : 'cute'}
+            size={120}
+            className="mb-3"
+          />
           <h3 className="text-lg font-semibold text-slate-900 mb-2">No projects found</h3>
           <p className="text-slate-600 mb-5 max-w-md mx-auto">
             {searchQuery || filterStatus !== 'all'
@@ -214,6 +238,7 @@ export default function ProjectsPage() {
                   const completedPanels = project.completedPanels || 0
                   const pct = totalPanels > 0 ? Math.round((completedPanels / totalPanels) * 100) : 0
                   const s = normalizeStatus(project.status)
+                  const build = BUILD_SYSTEM_PILL[project.buildSystem ?? 'LGS']
                   const hasModel = !!project.currentModel
                   return (
                     <article
@@ -247,6 +272,9 @@ export default function ProjectsPage() {
                               }`}
                             >
                               {s === 'on-hold' ? 'On hold' : s}
+                            </span>
+                            <span className={`uq-pill ${build.className}`} title={build.hint}>
+                              {build.label}
                             </span>
                           </div>
                           <p className="text-sm text-[var(--uq-muted)] truncate mb-3">

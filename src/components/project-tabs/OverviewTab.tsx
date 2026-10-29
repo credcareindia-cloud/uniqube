@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { Clock, User, Package, Layers, FileText, CheckCircle, AlertCircle, Info, Users, Tag, Plus, TrendingUp, Grid3x3 } from 'lucide-react'
 import { authenticatedFetch } from '@/utils/authenticatedFetch'
 import { getApiUrl } from '@/config/api'
+import { QubeCharacter } from '@/components/ui/QubeCharacter'
 
 // DEPRECATED: Using centralized authenticatedFetch from utils
 // Helper function to make authenticated fetch requests
@@ -177,10 +178,8 @@ export function OverviewTab({ projectId, totalPanels, groups, panels, groupsCoun
 
   if (loading || loadingStats) {
     return (
-      <div className="bg-white rounded-lg border border-slate-200 p-12">
-        <div className="flex items-center justify-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-900"></div>
-        </div>
+      <div className="bg-white rounded-lg border border-slate-200 p-12 flex flex-col items-center">
+        <QubeCharacter moment="auto" size={112} caption />
       </div>
     )
   }

@@ -8,6 +8,7 @@ import { collapseMembersToPanels } from '@/utils/panelMark'
 import { getLucideIconName } from '@/utils/iconMapping'
 import { authenticatedFetch } from '@/utils/authenticatedFetch'
 import { getApiUrl } from '@/config/api'
+import { QubeCharacter } from '@/components/ui/QubeCharacter'
 
 interface Panel {
   id: string
@@ -184,8 +185,8 @@ export function GroupDetailModal({
 
           <div className="flex-1 overflow-auto">
             {loading ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-900" />
+              <div className="flex items-center justify-center py-8">
+                <QubeCharacter moment="auto" size={96} caption />
               </div>
             ) : (
               <table className="w-full">

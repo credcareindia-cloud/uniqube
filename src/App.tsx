@@ -8,6 +8,7 @@ import { OpsPlaceholderPage } from '@/components/layout/OpsPlaceholderPage'
 import LoginPage from '@/app/auth/login/page'
 import SignupPage from '@/app/auth/signup/page'
 import ProjectsPage from '@/app/projects/page'
+import ProjectEstimatePage from '@/app/projects/[id]/estimate/page'
 import ProjectDetailPage from '@/app/projects/[id]/page'
 import ModelDetailPage from '@/app/models/[id]/page'
 import ProfilePage from '@/app/profile/page'
@@ -39,6 +40,7 @@ function App() {
             <Route path="/dashboard" element={<Navigate to="/projects" replace />} />
             <Route path="/projects" element={withLayout(<ProjectsPage />)} />
             <Route path="/projects/:id" element={withLayout(<ProjectDetailPage />)} />
+            <Route path="/projects/:id/estimate" element={withLayout(<ProjectEstimatePage />)} />
             <Route
               path="/projects/:id/viewer-engine"
               element={withLayout(<ViewerPage />)}

@@ -39,6 +39,7 @@ import { StatusManagementTab } from '@/components/project-tabs/StatusManagementT
 import { GroupManagementTab } from '@/components/project-tabs/GroupManagementTab'
 import { PanelManagementTab } from '@/components/project-tabs/PanelManagementTab'
 import { ProjectDetailsTab } from '@/components/project-tabs/ProjectDetailsTab'
+import { MultiFileModelCreation } from '@/components/projects/MultiFileModelCreation'
 import { ProjectDocumentsTab } from '@/components/project-tabs/DocsTab'
 import { EditProjectModal } from '@/components/modals/EditProjectModal'
 import { ConfirmDeleteModal } from '@/components/modals/ConfirmDeleteModal'
@@ -53,6 +54,7 @@ import { getApiUrl } from '@/config/api'
 import { useNotifications } from '@/hooks/useNotifications'
 import { useProjectPermissions } from '@/hooks/useProjectPermissions'
 import { useRBAC } from '@/contexts/RBACContext'
+import type { BuildSystem, ProjectStage } from '@/services/api'
 
 
 interface ProjectData {
@@ -61,6 +63,8 @@ interface ProjectData {
   name: string
   description: string | null
   status: string
+  stage?: ProjectStage
+  buildSystem?: BuildSystem
   createdAt: string
   updatedAt: string
   metadata?: Record<string, unknown> | null
@@ -272,6 +276,15 @@ export default function ProjectDetailPage() {
       setActiveTab('overview')
     }
   }, [permissions.canManage])
+
+  // A tender has no model, so every tab that reads one is hidden and only the
+  // details remain. The estimate itself is reached from the sidebar.
+  const isTender = project?.stage === 'TENDER'
+  const [showModelUpload, setShowModelUpload] = useState(false)
+
+  useEffect(() => {
+    if (isTender) setActiveTab('details')
+  }, [isTender])
 
   // Load model metadata when current model changes
   useEffect(() => {
@@ -552,7 +565,13 @@ export default function ProjectDetailPage() {
     }
   }
 
-  const handleEditProject = async (data: { name: string; description: string; status: string }) => {
+  const handleEditProject = async (data: {
+    name: string
+    description: string
+    status: string
+    stage: ProjectStage
+    buildSystem: BuildSystem
+  }) => {
     if (!id || !project) return
 
     try {
@@ -1318,7 +1337,20 @@ export default function ProjectDetailPage() {
                 <h1 className="text-2xl font-bold text-[var(--uq-ink)] truncate">
                   {project.name}
                 </h1>
-                <p className="text-sm text-[var(--uq-muted)] mt-0.5">Project workspace</p>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span
+                    className={`uq-pill ${
+                      isTender
+                        ? 'bg-amber-50 text-amber-700 border border-amber-100'
+                        : 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                    }`}
+                  >
+                    {isTender ? 'Tender' : 'Project'}
+                  </span>
+                  <p className="text-sm text-[var(--uq-muted)]">
+                    {isTender ? 'Being priced — no model yet' : 'Project workspace'}
+                  </p>
+                </div>
               </div>
             </div>
             {models?.currentModel && (models.currentModel.status === 'READY' || models.currentModel.status === 'ready') && (
@@ -1337,6 +1369,8 @@ export default function ProjectDetailPage() {
         {/* Tabs */}
         <div className="px-6 sm:px-8">
           <div className="flex gap-6 sm:gap-8 border-b border-slate-200 overflow-x-auto">
+            {!isTender && (
+              <>
             <button
               onClick={() => setActiveTab('dashboard')}
               className={`pb-3 text-sm font-medium transition-colors relative whitespace-nowrap ${activeTab === 'dashboard'
@@ -1437,6 +1471,8 @@ export default function ProjectDetailPage() {
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--uq-orange)]" />
               )}
             </button>
+              </>
+            )}
             <button
               onClick={() => setActiveTab('details')}
               className={`pb-3 text-sm font-medium transition-colors relative whitespace-nowrap ml-auto ${activeTab === 'details'
@@ -1581,6 +1617,7 @@ export default function ProjectDetailPage() {
               openViewer={openViewer}
               onEditClick={permissions.canManage ? () => setShowEditProjectModal(true) : undefined}
               onDeleteClick={permissions.canManage ? () => setShowDeleteProjectModal(true) : undefined}
+              onUploadModelClick={permissions.canManage ? () => setShowModelUpload(true) : undefined}
               versionSelector={
                 revisions.length > 0 && selectedRevision ? (
                   <div ref={versionSelectorRef} className="relative">
@@ -2013,6 +2050,22 @@ export default function ProjectDetailPage() {
           {/* DUPLICATE PANEL MANAGEMENT - REMOVED - USE TAB VERSION INSTEAD */}
         </div>
       </div>
+
+      {/* Model upload — how a tender gets its first model and becomes a project */}
+      {showModelUpload && project && (
+        <MultiFileModelCreation
+          existingProject={{
+            id: project.id,
+            name: project.name,
+            buildSystem: project.buildSystem,
+          }}
+          onClose={() => setShowModelUpload(false)}
+          onProjectCreated={() => {
+            setShowModelUpload(false)
+            window.location.reload()
+          }}
+        />
+      )}
 
       {/* Edit Project Modal */}
       {showEditProjectModal && project && (

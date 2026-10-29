@@ -18,6 +18,7 @@ import { ProfessionalGamingCard } from '@/components/gaming/ProfessionalGamingCa
 import { ProfessionalGamingButton } from '@/components/gaming/ProfessionalGamingButton'
 import { ProfessionalGamingStat } from '@/components/gaming/ProfessionalGamingStat'
 import { ProfessionalGamingBadge } from '@/components/gaming/ProfessionalGamingBadge'
+import { QubeCharacter } from '@/components/ui/QubeCharacter'
 import { getApiUrl, getViewerUrl } from '@/config/api'
 
 interface Model {
@@ -142,7 +143,7 @@ export default function ModelDetailPage() {
     return (
       <div className="w-full h-full flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-[#3A7BD5] mx-auto mb-4"></div>
+          <QubeCharacter moment="auto" size={140} caption className="mb-4" />
           <h2 className="text-xl font-semibold text-[#E8EAF0]">Loading 3D Model...</h2>
           <p className="text-[#B8BCC8] mt-2">Fetching model details</p>
         </div>
@@ -155,7 +156,7 @@ export default function ModelDetailPage() {
       <div className="w-full h-full">
         <ProfessionalGamingCard variant="panel" className="p-8 text-center">
           <div className="flex flex-col items-center gap-4">
-            <AlertCircle className="h-12 w-12 text-red-400" />
+            <QubeCharacter mood="sad" size={120} />
             <div>
               <h2 className="text-xl font-bold text-[#E8EAF0] mb-2">ERROR LOADING MODEL</h2>
               <p className="text-[#B8BCC8] mb-4">{error}</p>

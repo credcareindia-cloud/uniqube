@@ -1,5 +1,5 @@
 import React from 'react'
-import { ExternalLink, FileText, Package } from 'lucide-react'
+import { ExternalLink, FileText, Package, Upload, Calculator } from 'lucide-react'
 
 interface ProjectDetailsTabProps {
   project: any
@@ -13,6 +13,8 @@ interface ProjectDetailsTabProps {
   onEditClick?: () => void
   onDeleteClick?: () => void
   versionSelector?: React.ReactNode
+  /** Opens the model upload flow. Absent when the caller cannot manage the project. */
+  onUploadModelClick?: () => void
 }
 
 export function ProjectDetailsTab({
@@ -26,8 +28,11 @@ export function ProjectDetailsTab({
   openViewer,
   onEditClick,
   onDeleteClick,
-  versionSelector
+  versionSelector,
+  onUploadModelClick
 }: ProjectDetailsTabProps) {
+  const isTender = project.stage === 'TENDER'
+
   return (
     <div className="space-y-6">
       {/* Header with Title and Action Buttons */}
@@ -55,6 +60,39 @@ export function ProjectDetailsTab({
           )}
         </div>
       </div>
+
+      {isTender && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-5">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="min-w-0">
+              <h3 className="text-base font-bold text-amber-900">This project is at tender stage</h3>
+              <p className="text-sm text-amber-800 mt-1 max-w-2xl">
+                It is being priced and has no model yet, so panels, sequencing and CNC are not
+                available. Upload the model when the job is won — that moves it to project stage
+                and unlocks the rest of the workspace.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => navigate(`/projects/${project.id}/estimate`)}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-amber-900 bg-white border border-amber-300 rounded-lg hover:bg-amber-100 transition-colors"
+              >
+                <Calculator className="h-4 w-4" />
+                Open estimate
+              </button>
+              {onUploadModelClick && (
+                <button
+                  onClick={onUploadModelClick}
+                  className="inline-flex items-center gap-2 px-4 py-2 uq-btn rounded-lg text-sm font-semibold transition-colors"
+                >
+                  <Upload className="h-4 w-4" />
+                  Upload model
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Top Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

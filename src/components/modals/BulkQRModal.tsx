@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { X, Download, FileText, Loader2, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { X, Download, FileText, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { QubeCharacter } from '@/components/ui/QubeCharacter'
 import QRCode from 'qrcode'
 import JSZip from 'jszip'
 import { getApiUrl } from '@/config/api'
@@ -482,7 +483,7 @@ export function BulkQRModal({ isOpen, onClose, panels, selectedPanelIds, project
         <div className="p-6 flex flex-col">
           {isBusy && (
             <div className="flex flex-col items-center justify-center min-h-[250px] py-8">
-              <Loader2 className="h-12 w-12 text-slate-800 animate-spin mb-6" />
+              <QubeCharacter moment="auto" size={120} caption />
               <h3 className="text-lg font-semibold text-slate-900 mb-2">
                 {isGeneratingServer ? 'Generating QR Codes...' : 'Generating Layouts...'}
               </h3>
@@ -554,7 +555,7 @@ export function BulkQRModal({ isOpen, onClose, panels, selectedPanelIds, project
 
           {!isBusy && generatedQRs.length === 0 && error && (
             <div className="flex flex-col items-center justify-center min-h-[250px] text-red-500">
-              <AlertTriangle className="h-12 w-12 mb-4" />
+              <QubeCharacter mood="sad" size={120} className="mb-3" />
               <p className="text-base font-semibold">
                 {selectedPanelIds.length === 0 ? 'No Elements Selected' : 'Failed to fetch QR codes'}
               </p>

@@ -132,7 +132,8 @@ export async function initializeViewer(containerId: string = "container") {
   // Upgrade BIMSF Structure highlight materials to realistic stainless steel (PBR)
   fragments.models.materials.list.onItemSet.add(({ key: id, value: material }: any) => {
     try {
-      if (!material || material.isLodMaterial) return;
+      if (!material) return;
+      if (material.isLodMaterial) return;
       if (material.userData?.isBimsfStainless) return;
 
       const custom =
@@ -261,30 +262,7 @@ export async function initializeViewer(containerId: string = "container") {
     // Performance optimization: Simplify materials for large models
     model.object.traverse((child) => {
       if (child instanceof THREE.Mesh) {
-        // Enable frustum culling
         child.frustumCulled = true;
-
-        // Simplify materials to MeshStandardMaterial for better performance
-        if (child.material && !(child.material instanceof THREE.MeshStandardMaterial)) {
-          const oldMaterial = Array.isArray(child.material) ? child.material[0] : child.material;
-          const simplifiedMaterial = new THREE.MeshStandardMaterial({
-            color: oldMaterial.color || 0xcccccc,
-            metalness: 0.1,
-            roughness: 0.8,
-            side: THREE.DoubleSide,
-          });
-
-          // Dispose old material
-          if (Array.isArray(child.material)) {
-            child.material.forEach(m => m.dispose());
-          } else {
-            child.material.dispose();
-          }
-
-          child.material = simplifiedMaterial;
-        }
-
-        // Optimize geometry
         if (child.geometry) {
           child.geometry.computeBoundingSphere();
           child.geometry.computeBoundingBox();
@@ -368,6 +346,8 @@ export async function initializeViewer(containerId: string = "container") {
     /** BIMSF: structure=steel, mep=Revit colours, neighbor=yellow, connector=amber */
     style?: 'structure' | 'mep' | 'default' | 'neighbor' | 'connector';
   }[] = [];
+  /** Prevents stainless / Revit colour restore from overwriting an active selection. */
+  let fragmentSelectionActive = false;
 
   const getModelMapId = (m: FRAGS.FragmentsModel): string | null => {
     for (const [id, ref] of models.entries()) {
@@ -446,6 +426,7 @@ export async function initializeViewer(containerId: string = "container") {
       style?: 'structure' | 'mep' | 'default' | 'neighbor' | 'connector';
     }[]
   ) => {
+    fragmentSelectionActive = highlights.some((h) => h.ids?.length);
     const tasks: Promise<any>[] = [];
     for (const [, m] of models.entries()) tasks.push(m.resetHighlight(undefined));
     await Promise.all(tasks);
@@ -523,7 +504,6 @@ export async function initializeViewer(containerId: string = "container") {
           renderedFaces: FRAGS.RenderedFaces.TWO,
         });
       } else if (style === 'structure') {
-        // Stainless steel — materials.list hook upgrades this to PBR metal
         await targetModel.highlight(entry.ids, {
           color: new THREE.Color(STEEL_SELECT_COLOR),
           opacity: 1,
@@ -532,7 +512,6 @@ export async function initializeViewer(containerId: string = "container") {
           customId: BIMSF_STAINLESS_ID,
         } as any);
       } else if (style === 'mep') {
-        // Keep Revit system colours (DCW / DHW / sanitary, etc.)
         await highlightWithOwnColors(
           targetModel,
           entry.modelId,
@@ -549,6 +528,10 @@ export async function initializeViewer(containerId: string = "container") {
       }
     }
     await fragments.update(true);
+    console.log(
+      '🎯 BIMSF highlight',
+      highlights.map((h) => `${h.style || 'sel'}:${h.ids.length}`).join(' ')
+    );
   };
 
   const reapplyLastFragmentGhostSelection = async () => {
@@ -705,6 +688,10 @@ export async function initializeViewer(containerId: string = "container") {
    */
   const bimsfIndex = new Map<string, Map<string, number[]>>();
   const bimsfDisplayByKey = new Map<string, string>();
+  /** panelKey → Revit element IDs from the publish sidecar */
+  const bimsfSidecarElementIds = new Map<string, Set<string>>();
+  /** panelKey → IFC GlobalIds from the publish sidecar */
+  const bimsfSidecarGlobalIds = new Map<string, Set<string>>();
   /** `${modelId}:${localId}` → BIMSF panel key */
   const bimsfLocalToKey = new Map<string, string>();
   /** panelKey → checked disciplines (M/S/A) for cross-model highlight */
@@ -720,6 +707,9 @@ export async function initializeViewer(containerId: string = "container") {
   /** Assigned after hide-layer helpers initialize (used by BIMSF selection fallback). */
   let resolveArchLayerPanelIds:
     | ((panelKey: string) => Promise<Map<string, number[]> | null>)
+    | null = null;
+  let findOverlappingArchIds:
+    | ((panelKey: string) => Promise<Map<string, number[]>>)
     | null = null;
   /** Cached world AABB per BIMSF panel (for adjacency) */
   const bimsfBoundsCache = new Map<string, THREE.Box3>();
@@ -805,6 +795,17 @@ export async function initializeViewer(containerId: string = "container") {
         if ((info as any)?.displayName) addMark(String((info as any).displayName));
         if ((info as any)?.bimsf) addMark(String((info as any).bimsf));
       }
+    }
+    for (const [gid, raw] of Object.entries(byGlobalId)) {
+      const display = normalizeBimsfId(String(raw)) || String(raw);
+      const key = display.replace(/^\*/, '').trim().toLowerCase();
+      if (!key || isBimsfConnectorKey(key)) continue;
+      let gids = bimsfSidecarGlobalIds.get(key);
+      if (!gids) {
+        gids = new Set();
+        bimsfSidecarGlobalIds.set(key, gids);
+      }
+      gids.add(String(gid));
     }
 
     let geomIds: number[] = [];
@@ -944,8 +945,16 @@ export async function initializeViewer(containerId: string = "container") {
         const key = display.toLowerCase();
         if (isBimsfConnectorKey(key)) continue;
         bimsfDisplayByKey.set(key, display);
+        let sidecar = bimsfSidecarElementIds.get(key);
+        if (!sidecar) {
+          sidecar = new Set();
+          bimsfSidecarElementIds.set(key, sidecar);
+        }
         for (const eid of (info as any)?.elementIds || []) {
-          elementToPanelKey.set(String(eid).trim(), key);
+          const id = String(eid).trim();
+          if (!id) continue;
+          elementToPanelKey.set(id, key);
+          sidecar.add(id);
         }
       }
       const stillUnmapped = geomIds.filter((id) => !bimsfLocalToKey.has(bimsfLocalKey(modelId, id)));
@@ -1083,6 +1092,98 @@ export async function initializeViewer(containerId: string = "container") {
     return 'default';
   };
 
+  const attrText = (row: any, name: string): string => {
+    const cell = row?.[name];
+    if (!cell) return '';
+    return 'value' in cell ? String(cell.value || '') : String(cell || '');
+  };
+
+  const findLocalIdsByPanelMark = async (
+    model: FRAGS.FragmentsModel,
+    panelKey: string
+  ): Promise<number[]> => {
+    const display = bimsfDisplayByKey.get(panelKey) || panelKey;
+    const key = display.replace(/^\*/, '').trim().toLowerCase();
+    const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const token = new RegExp(`(?:^|[^A-Za-z0-9])${escaped}(?:[^A-Za-z0-9]|$)`, 'i');
+    const sidecar = bimsfSidecarElementIds.get(panelKey) || new Set<string>();
+    const sidecarGuids = bimsfSidecarGlobalIds.get(panelKey) || new Set<string>();
+    const found = new Set<number>();
+
+    try {
+      const queried = await model.getItemsByQuery({
+        attributes: {
+          aggregation: 'inclusive',
+          queries: [
+            { name: /^Tag$/i, value: token },
+            { name: /^Name$/i, value: token },
+            { name: /^ObjectType$/i, value: token },
+            { name: /^BIMSF_Container$/i, value: token },
+            { name: /^Mark$/i, value: token },
+          ],
+        },
+      });
+      for (const id of queried || []) {
+        const n = Number(id);
+        if (Number.isFinite(n)) found.add(n);
+      }
+    } catch {
+      /* query engine may not know every attribute */
+    }
+
+    if (found.size) return [...found];
+
+    let geomIds: number[] = [];
+    try {
+      if (typeof (model as any).getItemsIdsWithGeometry === 'function') {
+        geomIds = await (model as any).getItemsIdsWithGeometry();
+      } else {
+        const items = await model.getItemsWithGeometry();
+        geomIds = (items || [])
+          .map((g: any) => (typeof g === 'number' ? g : g?.localId))
+          .filter((id: any) => Number.isFinite(Number(id)))
+          .map(Number);
+      }
+    } catch {
+      return [];
+    }
+
+    const BATCH = 250;
+    for (let i = 0; i < geomIds.length; i += BATCH) {
+      const batch = geomIds.slice(i, i + BATCH);
+      let rows: any[] = [];
+      try {
+        rows = await model.getItemsData(batch, {
+          attributesDefault: false,
+          attributes: ['Tag', 'Name', 'ObjectType', 'BIMSF_Container', 'Mark', 'GlobalId'],
+        });
+      } catch {
+        continue;
+      }
+      for (let j = 0; j < rows.length; j++) {
+        const row = rows[j];
+        if (!row) continue;
+        const tag = attrText(row, 'Tag');
+        const name = attrText(row, 'Name');
+        const objectType = attrText(row, 'ObjectType');
+        const container = attrText(row, 'BIMSF_Container');
+        const mark = attrText(row, 'Mark');
+        const gid = attrText(row, 'GlobalId');
+        const blob = `${tag} ${name} ${objectType} ${container} ${mark}`;
+        const idsInName = [...name.matchAll(/:(\d+)/g)].map((m) => m[1]);
+        const revitId = (/^\d+$/.test(tag) ? tag : '') || idsInName[idsInName.length - 1] || '';
+        const sidecarHit =
+          (revitId && sidecar.has(revitId)) ||
+          idsInName.some((id) => sidecar.has(id)) ||
+          [...sidecar].some((id) => tag === id || name.includes(`:${id}`));
+        if (token.test(blob) || sidecarHit || (gid && sidecarGuids.has(gid))) {
+          found.add(batch[j]);
+        }
+      }
+    }
+    return [...found];
+  };
+
   /** Highlight checked M/S/A panels, yellow neighbors, and amber connectors (C). */
   const applyBimsfCheckedSelection = async (focus = true) => {
     const highlights: {
@@ -1098,12 +1199,45 @@ export async function initializeViewer(containerId: string = "container") {
       if (!byModel && resolveArchLayerPanelIds) {
         byModel = (await resolveArchLayerPanelIds(panelKey)) || undefined;
       }
-      if (!byModel) continue;
-      for (const [modelId, ids] of byModel) {
+      const covered = new Set<string>();
+      if (byModel) {
+        for (const [modelId, ids] of byModel) {
+          if (!ids.length) continue;
+          const disc = modelDisciplineById.get(modelId);
+          if (disc && !checked.has(disc)) continue;
+          highlights.push({
+            modelId,
+            ids,
+            style: disc ? styleForDiscipline(disc) : 'default',
+          });
+          allLocalIds.push(...ids);
+          covered.add(modelId);
+        }
+      }
+      for (const [modelId, model] of models.entries()) {
         const disc = modelDisciplineById.get(modelId);
-        if (!disc || !checked.has(disc)) continue;
-        highlights.push({ modelId, ids, style: styleForDiscipline(disc) });
+        if (disc && !checked.has(disc)) continue;
+        if (covered.has(modelId) && disc !== 'architecture') continue;
+        const ids = await findLocalIdsByPanelMark(model, panelKey);
+        if (!ids.length) continue;
+        highlights.push({
+          modelId,
+          ids,
+          style: disc ? styleForDiscipline(disc) : 'default',
+        });
         allLocalIds.push(...ids);
+      }
+      if (checked.has('architecture') && findOverlappingArchIds) {
+        try {
+          const overlapping = await findOverlappingArchIds(panelKey);
+          for (const [modelId, ids] of overlapping) {
+            if (!ids.length) continue;
+            highlights.push({ modelId, ids, style: 'default' });
+            allLocalIds.push(...ids);
+          }
+        } catch (e) {
+          console.warn('findOverlappingArchIds:', e);
+        }
       }
     }
 
@@ -1146,6 +1280,7 @@ export async function initializeViewer(containerId: string = "container") {
     }
 
     if (!merged.length) {
+      fragmentSelectionActive = false;
       const tasks: Promise<any>[] = [];
       for (const [, m] of models.entries()) tasks.push(m.resetHighlight(undefined));
       await Promise.all(tasks);
@@ -1160,7 +1295,10 @@ export async function initializeViewer(containerId: string = "container") {
 
     await applyGhostAndHighlights(merged);
     if (focus && allLocalIds.length) {
-      await focusCameraOnLocalIds(allLocalIds, { closer: 0.9 });
+      const focusIds = merged
+        .filter((h) => h.style !== 'default')
+        .flatMap((h) => h.ids);
+      await focusCameraOnLocalIds(focusIds.length ? focusIds : allLocalIds, { closer: 0.9 });
     }
   };
 
@@ -2886,6 +3024,7 @@ export async function initializeViewer(containerId: string = "container") {
 
   /** Apply stainless metallic to all Structure BIMSF elements (normal view default). */
   const applyStructureBimsfMetallic = async () => {
+    if (fragmentSelectionActive) return;
     if (!bimsfIndex.size) {
       await fragments.update(true);
       return;
@@ -3363,7 +3502,7 @@ export async function initializeViewer(containerId: string = "container") {
           await setModelIdsVisible(modelId, [...floorIds], true);
         }
       }
-      await fragments.update(true);
+      await withTimeout(fragments.update(true), 15000, 'fragments.update after load');
     } catch (e) {
       console.warn('ensure floor slab visibility:', e);
     }
@@ -3373,7 +3512,7 @@ export async function initializeViewer(containerId: string = "container") {
       console.warn('renderBimsfPanelList:', e);
     }
     try {
-      await applyStructureBimsfMetallic();
+      await withTimeout(applyStructureBimsfMetallic(), 20000, 'applyStructureBimsfMetallic after load');
       console.log('✨ Structure BIMSF stainless applied (normal view)');
     } catch (e) {
       console.warn('applyStructureBimsfMetallic after load:', e);
@@ -4260,6 +4399,7 @@ export async function initializeViewer(containerId: string = "container") {
   const clearPanelSelection = async () => {
     selectedPanels = [];
     lastFragmentHighlight = [];
+    fragmentSelectionActive = false;
     for (const [, m] of models.entries()) {
       await m.resetHighlight(undefined);
     }
@@ -4419,10 +4559,10 @@ export async function initializeViewer(containerId: string = "container") {
   // Duplicate helper block removed; hoisted function declarations above are used
 
   // Focus the camera on a set of localIds (across all loaded models)
-  const focusCameraOnLocalIds = async (
+  async function focusCameraOnLocalIds(
     localIds: number[],
     opts?: { padding?: number; closer?: number; minDistance?: number }
-  ) => {
+  ) {
     if (!localIds || localIds.length === 0) return;
 
     const padding = opts?.padding ?? 1.15; // 15% padding
@@ -4492,7 +4632,7 @@ export async function initializeViewer(containerId: string = "container") {
     }
 
     await fragments.update(true);
-  };
+  }
 
   const flyCameraToInstallPanel = async (index: number, quick = false) => {
     const key = installSequenceKeys[index];
@@ -5667,6 +5807,51 @@ export async function initializeViewer(containerId: string = "container") {
     const layer = ARCH_LAYER_PANEL_KEYS[panelKey];
     if (!layer) return null;
     return fetchLayerIdsByModel(layer);
+  };
+
+  findOverlappingArchIds = async (panelKey: string) => {
+    const bounds = await ensureBimsfPanelBounds(panelKey);
+    const out = new Map<string, number[]>();
+    if (!bounds || bounds.isEmpty()) return out;
+    const padded = bounds.clone().expandByScalar(0.15);
+    const panelSize = new THREE.Vector3();
+    padded.getSize(panelSize);
+    const panelVol = Math.max(panelSize.x * panelSize.y * panelSize.z, 1e-6);
+    if (!hideLayerIds.acp) {
+      hideLayerIds.acp = await fetchLayerIdsByModel('acp');
+    }
+    const boxVolume = (box: THREE.Box3) => {
+      const s = new THREE.Vector3();
+      box.getSize(s);
+      return Math.max(s.x * s.y * s.z, 1e-9);
+    };
+    const overlapVolume = (a: THREE.Box3, b: THREE.Box3) => {
+      const i = a.clone().intersect(b);
+      return i.isEmpty() ? 0 : boxVolume(i);
+    };
+    for (const [modelId, ids] of hideLayerIds.acp || []) {
+      if (modelDisciplineById.get(modelId) !== 'architecture') continue;
+      const model = models.get(modelId);
+      if (!model || !ids.length) continue;
+      try {
+        const boxes = await model.getBoxes(ids);
+        const scored: Array<{ id: number; overlap: number }> = [];
+        for (let i = 0; i < ids.length; i++) {
+          const box = boxes?.[i];
+          if (!box || box.isEmpty() || !padded.intersectsBox(box)) continue;
+          const overlap = overlapVolume(padded, box);
+          const wallVol = boxVolume(box);
+          if (overlap / wallVol < 0.35 && overlap / panelVol < 0.2) continue;
+          scored.push({ id: ids[i], overlap });
+        }
+        scored.sort((a, b) => b.overlap - a.overlap);
+        const hit = scored.slice(0, 4).map((row) => row.id);
+        if (hit.length) out.set(modelId, [...new Set(hit)]);
+      } catch {
+        /* ignore */
+      }
+    }
+    return out;
   };
 
   const updateHideLayersButtonUi = () => {
