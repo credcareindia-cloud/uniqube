@@ -272,13 +272,16 @@ export default function ProjectDetailPage() {
   }, [id])
 
   useEffect(() => {
-    if (!permissions.canManage && ['status', 'groups', 'panels'].includes(activeTab)) {
-      setActiveTab('overview')
-    }
-  }, [permissions.canManage])
+    const hidden =
+      (['status', 'groups', 'panels'].includes(activeTab) && !permissions.pages.panels) ||
+      (activeTab === 'drawings' && !permissions.pages.drawings) ||
+      (activeTab === 'logistics' && !permissions.pages.logistics) ||
+      (activeTab === 'cnc' && !permissions.pages.production)
+    if (hidden) setActiveTab('overview')
+  }, [permissions.pages, activeTab])
 
   // A tender has no model, so every tab that reads one is hidden and only the
-  // details remain. The estimate itself is reached from the sidebar.
+  // details remain. Estimation opens the studio from the project tabs.
   const isTender = project?.stage === 'TENDER'
   const [showModelUpload, setShowModelUpload] = useState(false)
 
@@ -1353,7 +1356,7 @@ export default function ProjectDetailPage() {
                 </div>
               </div>
             </div>
-            {models?.currentModel && (models.currentModel.status === 'READY' || models.currentModel.status === 'ready') && (
+            {permissions.pages.viewer && models?.currentModel && (models.currentModel.status === 'READY' || models.currentModel.status === 'ready') && (
               <button
                 type="button"
                 onClick={() => openViewer(models?.currentModel?.id)}
@@ -1395,7 +1398,7 @@ export default function ProjectDetailPage() {
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--uq-orange)]" />
               )}
             </button>
-            {permissions.canManage && (
+            {permissions.pages.panels && (
               <>
                 <button
                   onClick={() => setActiveTab('status')}
@@ -1435,7 +1438,7 @@ export default function ProjectDetailPage() {
                 </button>
               </>
             )}
-            <button
+            {permissions.pages.drawings && <button
               onClick={() => setActiveTab('drawings')}
               className={`pb-3 text-sm font-medium transition-colors relative whitespace-nowrap ${activeTab === 'drawings'
                 ? 'text-[var(--uq-ink)]'
@@ -1446,8 +1449,8 @@ export default function ProjectDetailPage() {
               {activeTab === 'drawings' && (
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--uq-orange)]" />
               )}
-            </button>
-            <button
+            </button>}
+            {permissions.pages.logistics && <button
               onClick={() => setActiveTab('logistics')}
               className={`pb-3 text-sm font-medium transition-colors relative whitespace-nowrap ${activeTab === 'logistics'
                 ? 'text-[var(--uq-ink)]'
@@ -1458,8 +1461,8 @@ export default function ProjectDetailPage() {
               {activeTab === 'logistics' && (
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--uq-orange)]" />
               )}
-            </button>
-            <button
+            </button>}
+            {permissions.pages.production && <button
               onClick={() => setActiveTab('cnc')}
               className={`pb-3 text-sm font-medium transition-colors relative whitespace-nowrap ${activeTab === 'cnc'
                 ? 'text-[var(--uq-ink)]'
@@ -1470,8 +1473,17 @@ export default function ProjectDetailPage() {
               {activeTab === 'cnc' && (
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--uq-orange)]" />
               )}
-            </button>
+            </button>}
               </>
+            )}
+            {permissions.pages.estimate && (
+              <button
+                type="button"
+                onClick={() => window.open(`/projects/${id}/estimate`, '_blank', 'noopener,noreferrer')}
+                className="pb-3 text-sm font-medium transition-colors relative whitespace-nowrap text-slate-500 hover:text-slate-700"
+              >
+                Estimation
+              </button>
             )}
             <button
               onClick={() => setActiveTab('details')}

@@ -9,11 +9,11 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
     },
-    // Keep a single three instance; dxf-viewer is compatible with modern three for rendering
     dedupe: ['three'],
   },
   optimizeDeps: {
     include: ['dxf-viewer', 'three'],
+    exclude: ['tesseract.js', 'pdfjs-dist'],
   },
   server: {
     port: 3000,

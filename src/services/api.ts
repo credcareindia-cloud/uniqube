@@ -5,7 +5,8 @@ export interface User {
   id: string;
   name: string;
   email: string;
-  role?: 'USER' | 'ADMIN' | 'MANAGER';
+  role?: string;
+  permissions?: string[];
   avatar?: string;
   organizationId?: string;
 }

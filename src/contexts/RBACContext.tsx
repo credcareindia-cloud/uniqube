@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { useAuth } from './AuthContext';
 import { api } from '@/services/api';
 import type { ProjectWithRole } from '@/services/api';
+import { resolvePermissions, type PermissionKey } from '@/auth/permissions';
 
 interface RBACContextType {
   userProjects: ProjectWithRole[];
@@ -13,6 +14,7 @@ interface RBACContextType {
   canEditProject: (projectId: string) => boolean;
   canManageProject: (projectId: string) => boolean;
   getUserProjectRole: (projectId: string) => 'OWNER' | 'MANAGER' | 'VIEWER' | null;
+  hasPermission: (key: PermissionKey) => boolean;
   refreshUserProjects: () => Promise<void>;
   isLoading: boolean;
 }
@@ -62,6 +64,9 @@ export const RBACProvider: React.FC<RBACProviderProps> = ({ children }) => {
     refreshUserProjects();
   }, [isAuthenticated, user]);
 
+  const granted = resolvePermissions(user?.role, user?.permissions);
+  const hasPermission = (key: PermissionKey) => granted.includes(key);
+
   const canCreateProjects = (): boolean => {
     return isAdmin;
   };
@@ -98,6 +103,7 @@ export const RBACProvider: React.FC<RBACProviderProps> = ({ children }) => {
     canEditProject,
     canManageProject,
     getUserProjectRole,
+    hasPermission,
     refreshUserProjects,
     isLoading,
   };

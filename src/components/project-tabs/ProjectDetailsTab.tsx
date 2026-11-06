@@ -74,7 +74,7 @@ export function ProjectDetailsTab({
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <button
-                onClick={() => navigate(`/projects/${project.id}/estimate`)}
+                onClick={() => window.open(`/projects/${project.id}/estimate`, '_blank', 'noopener,noreferrer')}
                 className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-amber-900 bg-white border border-amber-300 rounded-lg hover:bg-amber-100 transition-colors"
               >
                 <Calculator className="h-4 w-4" />

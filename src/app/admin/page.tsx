@@ -15,19 +15,20 @@ import { getApiUrl } from '@/config/api'
 import { ProjectMembershipManager } from '@/components/admin/ProjectMembershipManager'
 import { useRBAC } from '@/contexts/RBACContext'
 import { QubeCharacter } from '@/components/ui/QubeCharacter'
+import { RoleAccessFields } from '@/components/admin/RoleAccessFields'
+import { canonicalRole, defaultPermissions, ROLE_LABELS, type PermissionKey, type WorkspaceRole } from '@/auth/permissions'
 
 interface User {
   id: string
   name: string
   email: string
-  role: 'ADMIN' | 'MANAGER' | 'VIEWER'
+  role: WorkspaceRole
+  permissions?: PermissionKey[]
   status: 'active' | 'inactive'
   lastLogin?: string
   projects?: number
   createdAt?: string
 }
-
-type CreatableRole = 'MANAGER' | 'VIEWER'
 
 export default function AdminPage() {
   const { isAdmin } = useRBAC()
@@ -45,7 +46,8 @@ export default function AdminPage() {
     name: '',
     email: '',
     password: '',
-    role: 'MANAGER' as CreatableRole
+    role: 'DESIGNER' as WorkspaceRole,
+    permissions: defaultPermissions('DESIGNER') as PermissionKey[],
   })
   const [editUser, setEditUser] = useState<User | null>(null)
 
@@ -99,7 +101,7 @@ export default function AdminPage() {
       if (response.ok) {
         await loadUsers()
         setShowCreateModal(false)
-        setNewUser({ name: '', email: '', password: '', role: 'VIEWER' })
+        setNewUser({ name: '', email: '', password: '', role: 'DESIGNER', permissions: defaultPermissions('DESIGNER') })
       } else {
         const data = await response.json()
         setError(data.error || 'Failed to create user')
@@ -154,7 +156,12 @@ export default function AdminPage() {
   }
 
   const handleEditUser = (user: User) => {
-    setEditUser(user)
+    const role = canonicalRole(user.role)
+    setEditUser({
+      ...user,
+      role,
+      permissions: user.permissions ?? defaultPermissions(role),
+    })
     setShowEditModal(true)
     setError('')
   }
@@ -173,7 +180,8 @@ export default function AdminPage() {
         body: JSON.stringify({
           name: editUser.name,
           email: editUser.email,
-          role: editUser.role
+          role: editUser.role,
+          permissions: editUser.permissions,
         })
       })
 
@@ -193,16 +201,15 @@ export default function AdminPage() {
     }
   }
 
-  const filteredUsers = users.filter(user => 
-    user.role !== 'ADMIN' && user.id !== currentUserId && (
-      user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchQuery.toLowerCase())
-    )
+  const filteredUsers = users.filter(user =>
+    user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    user.email.toLowerCase().includes(searchQuery.toLowerCase())
   )
 
   const getRoleBadgeVariant = (role: string): 'destructive' | 'default' | 'secondary' => {
     switch (role) {
       case 'ADMIN': return 'destructive'
+      case 'DESIGNER':
       case 'MANAGER': return 'default'
       default: return 'secondary'
     }
@@ -212,12 +219,11 @@ export default function AdminPage() {
     return status === 'active' ? 'success' : 'secondary'
   }
 
-  const nonAdminUsers = users.filter(u => u.role !== 'ADMIN' && u.id !== currentUserId)
   const stats = [
-    { label: 'Total Users', value: nonAdminUsers.length, icon: Users },
-    { label: 'Active Users', value: nonAdminUsers.filter(u => u.status === 'active').length, icon: Users },
-    { label: 'Managers', value: nonAdminUsers.filter(u => u.role === 'MANAGER').length, icon: Shield },
-    { label: 'Viewers', value: nonAdminUsers.filter(u => u.role === 'VIEWER').length, icon: Users }
+    { label: 'Total Users', value: users.length, icon: Users },
+    { label: 'Designers', value: users.filter(u => u.role === 'DESIGNER').length, icon: Shield },
+    { label: 'Estimators', value: users.filter(u => u.role === 'ESTIMATOR').length, icon: Users },
+    { label: 'Logistics & production', value: users.filter(u => u.role === 'PRODUCTION' || u.role === 'LOGISTICS').length, icon: Users }
   ]
 
   if (!isAdmin) {
@@ -309,7 +315,7 @@ export default function AdminPage() {
                       <div className="flex items-center gap-2 mb-1">
                         <h3 className="font-semibold text-slate-900 truncate">{user.name}</h3>
                         <Badge variant={getRoleBadgeVariant(user.role)} className="text-xs shrink-0">
-                          {user.role}
+                          {ROLE_LABELS[canonicalRole(user.role)]}
                         </Badge>
                         <Badge variant={getStatusBadgeVariant(user.status)} className="text-xs shrink-0">
                           {user.status}
@@ -358,14 +364,14 @@ export default function AdminPage() {
       {/* Create User Modal */}
       {showCreateModal && createPortal(
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[9999] p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-bold text-slate-900">Create New User</h2>
               <button
                 onClick={() => {
                   setShowCreateModal(false)
                   setError('')
-                  setNewUser({ name: '', email: '', password: '', role: 'MANAGER' })
+                  setNewUser({ name: '', email: '', password: '', role: 'DESIGNER', permissions: defaultPermissions('DESIGNER') })
                 }}
                 className="text-slate-400 hover:text-slate-600"
               >
@@ -421,19 +427,13 @@ export default function AdminPage() {
                 />
               </div>
 
-              <div>
-                <Label htmlFor="role" className="text-slate-700 font-medium text-sm">Role</Label>
-                <select
-                  id="role"
-                  value={newUser.role}
-                  onChange={(e) => setNewUser({ ...newUser, role: e.target.value as CreatableRole })}
-                  className="mt-1 w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-transparent"
-                >
-                  <option value="MANAGER">Manager</option>
-                  <option value="VIEWER">Viewer</option>
-                </select>
-                <p className="text-xs text-slate-500 mt-2">Only Manager and Viewer roles can be created.</p>
-              </div>
+              <RoleAccessFields
+                idPrefix="create"
+                role={newUser.role}
+                permissions={newUser.permissions}
+                onRoleChange={(role, permissions) => setNewUser({ ...newUser, role, permissions })}
+                onPermissionsChange={(permissions) => setNewUser({ ...newUser, permissions })}
+              />
 
               <div className="flex gap-3 pt-4">
                 <Button
@@ -442,7 +442,7 @@ export default function AdminPage() {
                   onClick={() => {
                     setShowCreateModal(false)
                     setError('')
-                    setNewUser({ name: '', email: '', password: '', role: 'MANAGER' })
+                    setNewUser({ name: '', email: '', password: '', role: 'DESIGNER', permissions: defaultPermissions('DESIGNER') })
                   }}
                   className="flex-1"
                   disabled={createLoading}
@@ -476,7 +476,7 @@ export default function AdminPage() {
       {/* Edit User Modal */}
       {showEditModal && editUser && createPortal(
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[9999] p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-bold text-slate-900">Edit User</h2>
               <button
@@ -525,25 +525,14 @@ export default function AdminPage() {
                 />
               </div>
 
-              <div>
-                <Label htmlFor="edit-role" className="text-slate-700 font-medium text-sm">Role</Label>
-                {editUser.role === 'ADMIN' ? (
-                  <div className="mt-1 p-3 bg-slate-100 rounded-lg border border-slate-300">
-                    <p className="text-slate-700 font-medium">Admin</p>
-                    <p className="text-xs text-slate-600 mt-1">Admin role cannot be changed. Only Manager and Viewer roles can be modified.</p>
-                  </div>
-                ) : (
-                  <select
-                    id="edit-role"
-                    value={editUser.role}
-                    onChange={(e) => setEditUser({ ...editUser, role: e.target.value as 'ADMIN' | 'MANAGER' | 'VIEWER' })}
-                    className="mt-1 w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-transparent"
-                  >
-                    <option value="MANAGER">Manager</option>
-                    <option value="VIEWER">Viewer</option>
-                  </select>
-                )}
-              </div>
+              <RoleAccessFields
+                idPrefix="edit"
+                role={canonicalRole(editUser.role)}
+                permissions={editUser.permissions || defaultPermissions(editUser.role)}
+                lockRole={editUser.id === currentUserId}
+                onRoleChange={(role, permissions) => setEditUser({ ...editUser, role, permissions })}
+                onPermissionsChange={(permissions) => setEditUser({ ...editUser, permissions })}
+              />
 
               <div className="flex gap-3 pt-4">
                 <Button

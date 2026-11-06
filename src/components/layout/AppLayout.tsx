@@ -21,6 +21,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const isViewer = /\/projects\/[^/]+\/viewer-engine/.test(location.pathname)
+  const hideChrome = isViewer || location.pathname.startsWith('/requests') || /\/projects\/[^/]+\/estimate/.test(location.pathname)
   const sessionSeenRef = useRef<Set<string>>(
     new Set<string>(
       (() => {
@@ -123,7 +124,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
       <main className={cn('uq-shell-main flex-1 min-w-0 min-h-0 h-full overflow-hidden', isViewer && 'uq-shell-main-expand')}>
         <div className="uq-main-canvas">
-          <div className={cn('uq-shell-chrome shrink-0 bg-white', isViewer && 'uq-shell-chrome-off')}>
+          <div className={cn('uq-shell-chrome shrink-0 bg-white', hideChrome && 'uq-shell-chrome-off')}>
             <WorkspaceHeader />
           </div>
           <div className={cn('uq-canvas-body', isViewer && 'uq-stage-3d')}>{children}</div>

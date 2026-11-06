@@ -1,0 +1,177 @@
+{
+  "schema": "uniqube.estimation.foundation_rules",
+  "version": "0.1",
+  "date": "2026-10-21",
+  "units": { "length": "mm", "mass": "kg", "area": "m2", "volume": "m3", "stress": "MPa", "pressure": "kPa" },
+  "notes": "All values are editable defaults. Items marked status 'assumed' need engineering confirmation before release (see spec Section 16).",
+
+  "parameters": {
+    "span_max":               { "value": 6000, "unit": "mm", "display_imperial": "19'-8\"", "module": 4 },
+    "span_ratio_tol":         { "value": 15,   "unit": "%",  "module": 4 },
+    "int_wall_continuity":    { "value": 80,   "unit": "%",  "module": 4, "status": "assumed" },
+    "int_wall_max_opening":   { "value": 1200, "unit": "mm", "module": 4, "status": "assumed" },
+    "cantilever_max":         { "value": 1500, "unit": "mm", "module": 5, "status": "assumed" },
+    "void_max":               { "value": 3000, "unit": "mm", "module": 5, "status": "assumed" },
+    "wall_thk_min":           { "value": 75,   "unit": "mm", "module": 1 },
+    "wall_thk_max":           { "value": 400,  "unit": "mm", "module": 1 },
+    "scale_tol":              { "value": 1,    "unit": "%",  "module": 1 },
+    "shear_wall_min_len":     { "value": 1200, "unit": "mm", "module": 7, "status": "assumed" },
+    "pad_spacing_max":        { "value": 5000, "unit": "mm", "module": 10 },
+    "pad_spacing_min":        { "value": 1500, "unit": "mm", "module": 10 },
+    "tie_beam_max":           { "value": 8000, "unit": "mm", "module": [10, 11] },
+    "node_snap_tol":          { "value": 300,  "unit": "mm", "module": [1, 10, 11] },
+    "fc":                     { "value": 30,   "unit": "MPa", "label": "C30", "module": 12 },
+    "fy":                     { "value": 460,  "unit": "MPa", "module": 12 },
+    "cover_earth":            { "value": 75,   "unit": "mm", "module": 12 },
+    "cover_formed":           { "value": 50,   "unit": "mm", "module": 12 },
+    "cover_slab":             { "value": 40,   "unit": "mm", "module": 12 },
+    "bar_list":               { "value": [10, 12, 16, 20], "unit": "mm", "module": 12 },
+    "spacing_step":           { "value": 25,   "unit": "mm", "module": 12 },
+    "wall_bar_spacing_max":   { "value": 300,  "unit": "mm", "module": 12 },
+    "rebar_lap_waste":        { "value": 10,   "unit": "%",  "module": 12 },
+    "concrete_waste":         { "value": 3,    "unit": "%",  "module": 13 },
+    "pcc_footing":            { "value": 75,   "unit": "mm", "module": [9, 10, 11] },
+    "pcc_slab":               { "value": 50,   "unit": "mm", "module": [9, 10, 11] },
+    "work_space":             { "value": 300,  "unit": "mm", "module": [9, 10, 11] },
+    "subbase_thk":            { "value": 150,  "unit": "mm", "module": [9, 10, 11], "status": "assumed" },
+    "plinth_above_NGL":       { "value": null, "unit": "mm", "source": "project_input", "required": true },
+    "soil_bearing":           { "value": null, "unit": "kPa", "source": "project_input", "required_for_types": [3] },
+    "line_load_per_storey":   { "value": null, "unit": "kN/m", "status": "to_be_set", "module": 11 }
+  },
+
+  "framing_tiebreak_weights": {
+    "bears_on_primary_support": 30,
+    "vertical_continuity": 25,
+    "bearing_wall_quality": 15,
+    "consistency": 15,
+    "avoids_wet_area_walls": 10,
+    "shorter_span": 5,
+    "status": "assumed"
+  },
+
+  "room_categories": {
+    "habitable": ["bedroom", "living", "dining", "family", "office", "study", "hall", "majlis"],
+    "wet": ["bath", "bathroom", "toilet", "wc", "kitchen", "laundry", "pantry"],
+    "corridor": ["corridor", "lobby", "passage"],
+    "balcony": ["balcony", "terrace", "deck"],
+    "stair": ["stair", "staircase"],
+    "lift": ["lift", "elevator"],
+    "shaft": ["shaft", "duct", "riser"],
+    "void": ["void", "open to below", "double height"],
+    "store": ["store", "storage", "closet", "wardrobe"],
+    "default": "habitable"
+  },
+
+  "storey_bands": {
+    "S1": { "min_storeys": 1, "max_storeys": 2 },
+    "S2": { "min_storeys": 3, "max_storeys": null, "status": "assumed" }
+  },
+
+  "foundation_types": {
+    "1": {
+      "name": "Strip footing with RCC wall to plinth",
+      "allowed_bands": ["S1", "S2"],
+      "sections": {
+        "S1": {
+          "strip_footing": { "width": 1200, "depth": 400 },
+          "rcc_wall": { "thickness": 200, "height": 1500, "layers": 2 },
+          "slab_on_grade": { "thickness": 150 }
+        },
+        "S2": {
+          "strip_footing": { "width": 1400, "depth": 500 },
+          "rcc_wall": { "thickness": 200, "height": 1500, "layers": 2 },
+          "slab_on_grade": { "thickness": 150 }
+        }
+      }
+    },
+    "2": {
+      "name": "Isolated footings with stub columns and ground beams",
+      "allowed_bands": ["S1", "S2"],
+      "sections": {
+        "S1": {
+          "isolated_footing": { "length": 1200, "breadth": 1200, "depth": 400 },
+          "stub_column": { "b": 350, "h": 350, "height": 1500 },
+          "ground_beam": { "width": 300, "depth": 600 },
+          "slab_on_grade": { "thickness": 150 }
+        },
+        "S2": {
+          "isolated_footing": { "length": 1500, "breadth": 1500, "depth": 500 },
+          "stub_column": { "b": 350, "h": 350, "height": 1500 },
+          "ground_beam": { "width": 300, "depth": 750 },
+          "slab_on_grade": { "thickness": 150 }
+        }
+      },
+      "placement": {
+        "mandatory_nodes": ["corner", "free_end", "t_junction", "crossing"],
+        "intermediate_rule": "n = ceil(L / pad_spacing_max) - 1, equal spacing",
+        "merge_rule": "merge pads closer than pad_spacing_min",
+        "tie_beam_rule": "add perpendicular tie beam when gap between perpendicular connections > tie_beam_max"
+      }
+    },
+    "3": {
+      "name": "Slab on grade with monolithic ground beams",
+      "allowed_bands": ["S1"],
+      "sections": {
+        "S1": {
+          "ground_beam": { "width": 300, "depth_overall": 600, "monolithic_with_slab": true },
+          "slab_on_grade": { "thickness": 150 }
+        }
+      },
+      "layout": {
+        "beams_under": ["load_bearing_lines", "perimeter"],
+        "tie_beam_rule": "as type 2, beam-to-beam, no columns"
+      },
+      "checks": ["bearing: (storeys * line_load_per_storey) / 0.3 <= soil_bearing"]
+    }
+  },
+
+  "datum": {
+    "top_of_plinth": 0,
+    "natural_ground_level": "-plinth_above_NGL",
+    "height_1500_measured": "top of footing to top of plinth",
+    "status": "assumed"
+  },
+
+  "rebar_min_rules": {
+    "RB-01": { "element": ["strip_footing", "isolated_footing"], "rho_min_each_way": 0.0018, "layer": "bottom", "max_spacing": "min(3h, 450)" },
+    "RB-02": { "element": ["slab_on_grade"], "rho_min_each_way": 0.0018, "layer": "single", "max_spacing": "min(3h, 450)" },
+    "RB-03": { "element": ["rcc_wall"], "rho_min_vertical": 0.0012, "rho_min_horizontal": 0.0020, "layers": 2, "split": "equal per face", "max_spacing": "wall_bar_spacing_max" },
+    "RB-04": { "element": ["ground_beam"], "as_min": "(1.4 / fy) * b * d, top and bottom", "min_bars": 2, "link_max_spacing": "d/2" },
+    "RB-05": { "element": ["stub_column"], "rho_min": 0.01, "min_bars": 4, "tie_max_spacing": "min(16*bar_dia, 48*tie_dia, least_dim)" }
+  },
+
+  "rebar_unit_weight_formula": "dia_mm^2 / 162 kg/m",
+
+  "default_rebar_schedule": [
+    { "type": 1, "band": "S1", "element": "strip_footing", "arrangement": "T12@150 transverse; 8T12 longitudinal", "kg": 15, "per": "m", "kg_per_m3": 31 },
+    { "type": 1, "band": "S2", "element": "strip_footing", "arrangement": "T12@125 transverse; 12T12 longitudinal", "kg": 22, "per": "m", "kg_per_m3": 31 },
+    { "type": 1, "band": "S1|S2", "element": "rcc_wall", "arrangement": "T10@300 vertical + T10@300 horizontal, each face", "kg": 17, "per": "m", "kg_per_m3": 57 },
+    { "type": 2, "band": "S1", "element": "isolated_footing", "arrangement": "8T12 each way, bottom", "kg": 21, "per": "each", "kg_per_m3": 36 },
+    { "type": 2, "band": "S2", "element": "isolated_footing", "arrangement": "12T12 each way, bottom", "kg": 38, "per": "each", "kg_per_m3": 34 },
+    { "type": 2, "band": "S1|S2", "element": "stub_column", "arrangement": "4T20; T10 ties @200", "kg": 30, "per": "each", "kg_per_m3": 165 },
+    { "type": 2, "band": "S1", "element": "ground_beam_300x600", "arrangement": "3T16 top + 3T16 bottom; T10 links @250", "kg": 15, "per": "m", "kg_per_m3": 83 },
+    { "type": 2, "band": "S2", "element": "ground_beam_300x750", "arrangement": "2T20 top + 2T20 bottom; T10 links @250", "kg": 16, "per": "m", "kg_per_m3": 71 },
+    { "type": 3, "band": "S1", "element": "ground_beam_300x600", "arrangement": "3T16 top + 3T16 bottom; T10 links @250", "kg": 14, "per": "m", "kg_per_m3": 78 },
+    { "type": "all", "band": "all", "element": "slab_on_grade_150", "arrangement": "T10@275 each way, single layer", "kg": 4.9, "per": "m2", "kg_per_m3": 33 }
+  ],
+  "steel_ratio_tolerance_pct": 30,
+
+  "flags": [
+    { "code": "F-UNITS",    "severity": "stop", "rule": "PI-03" },
+    { "code": "F-SCALE",    "severity": "stop", "rule": "PI-04" },
+    { "code": "F-LOWCONF",  "severity": "warn", "rule": "Module 1" },
+    { "code": "F-SPAN",     "severity": "stop", "rule": "FD-02" },
+    { "code": "F-NO-STACK", "severity": "warn", "rule": "FD-04, PI-08" },
+    { "code": "F-CANT",     "severity": "warn", "rule": "SA-02" },
+    { "code": "F-VOID",     "severity": "warn", "rule": "SA-03" },
+    { "code": "F-SUNKEN",   "severity": "warn", "rule": "SA-04" },
+    { "code": "F-TRANSFER", "severity": "stop", "rule": "WC-05" },
+    { "code": "F-LATERAL",  "severity": "warn", "rule": "WC-04" },
+    { "code": "F-INPUT",    "severity": "stop", "rule": "FT-03" },
+    { "code": "F-TYPE3",    "severity": "stop", "rule": "FT-02" },
+    { "code": "F-BEARING",  "severity": "warn", "rule": "T3-R3" },
+    { "code": "F-RATIO",    "severity": "warn", "rule": "VC-01" }
+  ],
+
+  "boq_row_fields": ["boq_code", "section", "description", "element_type", "band", "unit", "net_qty", "waste_pct", "gross_qty", "rule_ids", "element_ids", "flags"]
+}

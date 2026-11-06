@@ -1,0 +1,1749 @@
+{
+  "source": "5340 Zuha Admin Building budget R4, 7 September 2026. Data Sheet, Costing, BOQ and Unit Costing.",
+  "currency": "AED",
+  "packages": [
+    {
+      "id": "pkg-steel",
+      "code": "1",
+      "name": "Steel structural system",
+      "unit": "LS",
+      "costAed": 487818.59,
+      "offerAed": 665010,
+      "description": "Supply, fabrication, delivery and installation of the LGS and HRS frame, anchors, connectors, brackets and fasteners."
+    },
+    {
+      "id": "pkg-roof",
+      "code": "2",
+      "name": "Roofing system",
+      "unit": "LS",
+      "costAed": 131419.61,
+      "offerAed": 179160,
+      "description": "Insulated aluminium sandwich roof panels 100 mm, flashings, cappings, trims, closures and sealants."
+    },
+    {
+      "id": "pkg-walls",
+      "code": "3",
+      "name": "External and internal walls",
+      "unit": "LS",
+      "costAed": 224656.77,
+      "offerAed": 306260,
+      "description": "External 12 mm cement board, vapour barrier and gypsum lining, plus internal fire-rated gypsum partitions with insulation. Steel frame is in the steel package."
+    },
+    {
+      "id": "pkg-ceiling",
+      "code": "4",
+      "name": "Ceiling system",
+      "unit": "LS",
+      "costAed": 15675.23,
+      "offerAed": 21370,
+      "description": "Suspended fire-rated and moisture-resistant 12 mm gypsum ceilings. Steel frame is in the steel package."
+    },
+    {
+      "id": "pkg-alu",
+      "code": "5",
+      "name": "Aluminium doors and windows",
+      "unit": "LS",
+      "costAed": 105000.49,
+      "offerAed": 143140,
+      "description": "Non-thermal aluminium doors and windows, double glass 6 mm low performance + 12 mm air + 6 mm clear tempered, ironmongery and sealants."
+    },
+    {
+      "id": "pkg-mep",
+      "code": "6",
+      "name": "MEP installation",
+      "unit": "LS",
+      "costAed": 2696.27,
+      "offerAed": 3680,
+      "description": "Installation of client-supplied MEP first-fix panels, including unloading, handling, positioning and fixing."
+    }
+  ],
+  "library": [
+    {
+      "id": "steel-structure-lgs-structure",
+      "group": "STEEL STRUCTURE",
+      "description": "LGS Structure",
+      "unit": "Kg",
+      "rateAed": 5.5,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": ""
+    },
+    {
+      "id": "steel-structure-hot-rolled-steel",
+      "group": "STEEL STRUCTURE",
+      "description": "Hot rolled steel",
+      "unit": "Kg",
+      "rateAed": 11.0,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": ""
+    },
+    {
+      "id": "steel-structure-screws",
+      "group": "STEEL STRUCTURE",
+      "description": "Screws",
+      "unit": "",
+      "rateAed": null,
+      "labourPerSqft": 0.0125,
+      "labourPerM2": 0.1345,
+      "notes": ""
+    },
+    {
+      "id": "alum-sandwich-panel-alum-sandwich-panel-100",
+      "group": "Alum sandwich panel",
+      "description": "Alum sandwich panel - 100",
+      "unit": "Sqm",
+      "rateAed": 140.0,
+      "labourPerSqft": 0.93,
+      "labourPerM2": 10.0104,
+      "notes": ""
+    },
+    {
+      "id": "alum-sandwich-panel-alum-sandwich-panel-125",
+      "group": "Alum sandwich panel",
+      "description": "Alum sandwich panel - 125",
+      "unit": "Sqm",
+      "rateAed": 155.0,
+      "labourPerSqft": 0.2787,
+      "labourPerM2": 3.0,
+      "notes": ""
+    },
+    {
+      "id": "alum-sandwich-panel-alum-sandwich-panel-150",
+      "group": "Alum sandwich panel",
+      "description": "Alum sandwich panel - 150",
+      "unit": "Sqm",
+      "rateAed": 170.0,
+      "labourPerSqft": 0.93,
+      "labourPerM2": 10.0104,
+      "notes": ""
+    },
+    {
+      "id": "alum-sandwich-panel-metal-decking",
+      "group": "Alum sandwich panel",
+      "description": "Metal decking",
+      "unit": "Sqm",
+      "rateAed": 45.0,
+      "labourPerSqft": 0.93,
+      "labourPerM2": 10.0104,
+      "notes": ""
+    },
+    {
+      "id": "rockwool-89-mm-rockwool-35-density-without-foil",
+      "group": "Rockwool",
+      "description": "89 mm rockwool (35 Density)-without foil",
+      "unit": "Sqm",
+      "rateAed": 13.2,
+      "labourPerSqft": 0.1858,
+      "labourPerM2": 2.0,
+      "notes": ""
+    },
+    {
+      "id": "rockwool-89-mm-rockwool-35-density-one-side-foil",
+      "group": "Rockwool",
+      "description": "89 mm rockwool (35 Density)-One side foil",
+      "unit": "Sqm",
+      "rateAed": 15.2,
+      "labourPerSqft": 0.1858,
+      "labourPerM2": 2.0,
+      "notes": ""
+    },
+    {
+      "id": "rockwool-89-mm-rockwool-45-density-without-foil",
+      "group": "Rockwool",
+      "description": "89 mm rockwool (45 Density)-without foil",
+      "unit": "Sqm",
+      "rateAed": 17.0,
+      "labourPerSqft": 0.1858,
+      "labourPerM2": 2.0,
+      "notes": ""
+    },
+    {
+      "id": "rockwool-89-mm-rockwool-45-density-one-side-foil",
+      "group": "Rockwool",
+      "description": "89 mm rockwool (45 Density)-One side foil",
+      "unit": "Sqm",
+      "rateAed": 19.0,
+      "labourPerSqft": 0.1858,
+      "labourPerM2": 2.0,
+      "notes": ""
+    },
+    {
+      "id": "rockwool-89-mm-rockwool-120-density-without-foil",
+      "group": "Rockwool",
+      "description": "89 mm rockwool (120 Density)-without foil",
+      "unit": "Sqm",
+      "rateAed": 45.5,
+      "labourPerSqft": 0.1858,
+      "labourPerM2": 2.0,
+      "notes": ""
+    },
+    {
+      "id": "rockwool-89-mm-rockwool-120-density-one-side-foil",
+      "group": "Rockwool",
+      "description": "89 mm rockwool (120 Density)-One side foil",
+      "unit": "Sqm",
+      "rateAed": 47.5,
+      "labourPerSqft": 0.1858,
+      "labourPerM2": 2.0,
+      "notes": ""
+    },
+    {
+      "id": "rockwool-150-mm-rockwool-35-density-without-foil",
+      "group": "Rockwool",
+      "description": "150 mm rockwool (35 Density)-without foil",
+      "unit": "Sqm",
+      "rateAed": 22.5,
+      "labourPerSqft": 0.1858,
+      "labourPerM2": 2.0,
+      "notes": ""
+    },
+    {
+      "id": "rockwool-150-mm-rockwool-35-density-one-side-foil",
+      "group": "Rockwool",
+      "description": "150 mm rockwool (35 Density)-One side foil",
+      "unit": "Sqm",
+      "rateAed": 24.5,
+      "labourPerSqft": 0.1858,
+      "labourPerM2": 2.0,
+      "notes": ""
+    },
+    {
+      "id": "rockwool-150-mm-rockwool-45-density-without-foil",
+      "group": "Rockwool",
+      "description": "150 mm rockwool (45 Density)-without foil",
+      "unit": "Sqm",
+      "rateAed": 29.0,
+      "labourPerSqft": 0.1858,
+      "labourPerM2": 2.0,
+      "notes": ""
+    },
+    {
+      "id": "rockwool-150-mm-rockwool-45-density-one-side-foil",
+      "group": "Rockwool",
+      "description": "150 mm rockwool (45 Density)-One side foil",
+      "unit": "Sqm",
+      "rateAed": 31.0,
+      "labourPerSqft": 0.1858,
+      "labourPerM2": 2.0,
+      "notes": ""
+    },
+    {
+      "id": "rockwool-150-mm-rockwool-120-density-without-foil",
+      "group": "Rockwool",
+      "description": "150 mm rockwool (120 Density)-without foil",
+      "unit": "Sqm",
+      "rateAed": 76.5,
+      "labourPerSqft": 0.1858,
+      "labourPerM2": 2.0,
+      "notes": ""
+    },
+    {
+      "id": "rockwool-150-mm-rockwool-120-density-one-side-foil",
+      "group": "Rockwool",
+      "description": "150 mm rockwool (120 Density)-One side foil",
+      "unit": "Sqm",
+      "rateAed": 78.5,
+      "labourPerSqft": 0.1858,
+      "labourPerM2": 2.0,
+      "notes": ""
+    },
+    {
+      "id": "rockwool-glass-wool",
+      "group": "Rockwool",
+      "description": "Glass Wool",
+      "unit": "Sqm",
+      "rateAed": 13.0,
+      "labourPerSqft": 0.1858,
+      "labourPerM2": 2.0,
+      "notes": ""
+    },
+    {
+      "id": "cement-board-usg-board-12-mm",
+      "group": "Cement Board",
+      "description": "usg board-12 mm",
+      "unit": "Sqm",
+      "rateAed": 19.0972,
+      "labourPerSqft": 0.929,
+      "labourPerM2": 10.0,
+      "notes": "USG 15 MM - 1200X2400 - 60 PER PIECE"
+    },
+    {
+      "id": "cement-board-9-mm-cement-board-1220-x2440",
+      "group": "Cement Board",
+      "description": "9 mm cement board -1220 X2440",
+      "unit": "Sqm",
+      "rateAed": 17.9514,
+      "labourPerSqft": 0.929,
+      "labourPerM2": 10.0,
+      "notes": ""
+    },
+    {
+      "id": "cement-board-12-mm-cement-board-1220-x2440",
+      "group": "Cement Board",
+      "description": "12 mm cement board -1220 X2440",
+      "unit": "Sqm",
+      "rateAed": 21.7708,
+      "labourPerSqft": 1.1148,
+      "labourPerM2": 12.0,
+      "notes": ""
+    },
+    {
+      "id": "cement-board-15-mm-cement-board-1220-x2440",
+      "group": "Cement Board",
+      "description": "15 mm cement board -1220 X2440",
+      "unit": "Sqm",
+      "rateAed": 30.5556,
+      "labourPerSqft": 1.3935,
+      "labourPerM2": 15.0,
+      "notes": ""
+    },
+    {
+      "id": "cement-board-18-mm-cement-board-1220-x2440",
+      "group": "Cement Board",
+      "description": "18 mm cement board -1220 X2440",
+      "unit": "Sqm",
+      "rateAed": 35.5208,
+      "labourPerSqft": 1.3935,
+      "labourPerM2": 15.0,
+      "notes": ""
+    },
+    {
+      "id": "cement-board-gypsum-board",
+      "group": "Cement Board",
+      "description": "Gypsum board",
+      "unit": "",
+      "rateAed": 2.88,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": ""
+    },
+    {
+      "id": "cement-board-12-mm-gypsum-board-nr-1220-x2440",
+      "group": "Cement Board",
+      "description": "12 mm Gypsum Board-NR-1220 X2440",
+      "unit": "Sqm",
+      "rateAed": 4.9653,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": ""
+    },
+    {
+      "id": "cement-board-9-mm-gypsum-board-fr-1220-x2440",
+      "group": "Cement Board",
+      "description": "9 mm Gypsum Board -FR -1220 X2440",
+      "unit": "Sqm",
+      "rateAed": 7.6389,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": ""
+    },
+    {
+      "id": "cement-board-12-5-mm-gypsum-board-fr-1220-x2440",
+      "group": "Cement Board",
+      "description": "12.5 mm Gypsum Board-FR -1220 X2440",
+      "unit": "Sqm",
+      "rateAed": 8.6806,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": ""
+    },
+    {
+      "id": "cement-board-16-mm-gypsum-board-fr-1220-x2440",
+      "group": "Cement Board",
+      "description": "16 mm Gypsum Board-FR -1220 X2440",
+      "unit": "Sqm",
+      "rateAed": 10.7639,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": ""
+    },
+    {
+      "id": "cement-board-18-mm-gypsum-board-fr-1220-x2440",
+      "group": "Cement Board",
+      "description": "18 mm Gypsum Board-FR-1220 X2440",
+      "unit": "Sqm",
+      "rateAed": 14.0625,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": ""
+    },
+    {
+      "id": "cement-board-12-mm-gypsum-board-mr-1220-x2440",
+      "group": "Cement Board",
+      "description": "12 mm Gypsum Board-MR -1220 X2440",
+      "unit": "Sqm",
+      "rateAed": 8.6806,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": ""
+    },
+    {
+      "id": "cement-board-15-mm-gypsum-board-mr-1220-x2440",
+      "group": "Cement Board",
+      "description": "15 mm Gypsum Board- MR -1220 X2440",
+      "unit": "Sqm",
+      "rateAed": 9.1667,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": ""
+    },
+    {
+      "id": "cement-board-18-mm-gypsum-board-mr-1220-x2440",
+      "group": "Cement Board",
+      "description": "18 mm Gypsum Board- MR -1220 X2440",
+      "unit": "Sqm",
+      "rateAed": 14.5139,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": ""
+    },
+    {
+      "id": "paint-emulsion",
+      "group": "Paint",
+      "description": "Emulsion",
+      "unit": "Sqm",
+      "rateAed": 20.0,
+      "labourPerSqft": 0.93,
+      "labourPerM2": 10.0104,
+      "notes": "Emulation paint 7+4 @ 150+80"
+    },
+    {
+      "id": "paint-textured-paint",
+      "group": "Paint",
+      "description": "Textured paint",
+      "unit": "Sqm",
+      "rateAed": 9.93,
+      "labourPerSqft": 0.93,
+      "labourPerM2": 10.0104,
+      "notes": "water base paint - 7+4 @110 + 80"
+    },
+    {
+      "id": "tiles-300x300",
+      "group": "Tiles",
+      "description": "300x300",
+      "unit": "Sqm",
+      "rateAed": 35.0,
+      "labourPerSqft": 0.929,
+      "labourPerM2": 10.0,
+      "notes": "RAK-Glazed"
+    },
+    {
+      "id": "tiles-600x600",
+      "group": "Tiles",
+      "description": "600x600",
+      "unit": "Sqm",
+      "rateAed": 40.0,
+      "labourPerSqft": 0.929,
+      "labourPerM2": 10.0,
+      "notes": "RAK-Glazed"
+    },
+    {
+      "id": "tiles-1200x1200",
+      "group": "Tiles",
+      "description": "1200x1200",
+      "unit": "Sqm",
+      "rateAed": 162.0,
+      "labourPerSqft": 0.929,
+      "labourPerM2": 10.0,
+      "notes": "RAK-Glazed"
+    },
+    {
+      "id": "tiles-600x1200",
+      "group": "Tiles",
+      "description": "600x1200",
+      "unit": "Sqm",
+      "rateAed": 60.0,
+      "labourPerSqft": 0.929,
+      "labourPerM2": 10.0,
+      "notes": "RAK-Glazed"
+    },
+    {
+      "id": "tiles-1200x2400",
+      "group": "Tiles",
+      "description": "1200x2400",
+      "unit": "Sqm",
+      "rateAed": 205.0,
+      "labourPerSqft": 0.929,
+      "labourPerM2": 10.0,
+      "notes": "RAK-Glazed"
+    },
+    {
+      "id": "tiles-2400x2400",
+      "group": "Tiles",
+      "description": "2400x2400",
+      "unit": "Sqm",
+      "rateAed": null,
+      "labourPerSqft": 0.929,
+      "labourPerM2": 10.0,
+      "notes": ""
+    },
+    {
+      "id": "tiles-carpet-tiles",
+      "group": "Tiles",
+      "description": "Carpet Tiles",
+      "unit": "Sqm",
+      "rateAed": 28.0,
+      "labourPerSqft": 0.929,
+      "labourPerM2": 10.0,
+      "notes": "Varies on design/ color"
+    },
+    {
+      "id": "tiles-lvt-flooring",
+      "group": "Tiles",
+      "description": "LVT Flooring",
+      "unit": "Sqm",
+      "rateAed": 55.0,
+      "labourPerSqft": 0.929,
+      "labourPerM2": 10.0,
+      "notes": "45-90, varies on colour/design"
+    },
+    {
+      "id": "tiles-engineered-wood-floor",
+      "group": "Tiles",
+      "description": "Engineered wood floor",
+      "unit": "Sqm",
+      "rateAed": 265.0,
+      "labourPerSqft": 0.929,
+      "labourPerM2": 10.0,
+      "notes": "14mm Parquet"
+    },
+    {
+      "id": "tiles-vinyl-flooring",
+      "group": "Tiles",
+      "description": "Vinyl flooring",
+      "unit": "Sqm",
+      "rateAed": 12.0,
+      "labourPerSqft": 0.929,
+      "labourPerM2": 10.0,
+      "notes": ""
+    },
+    {
+      "id": "tiles-roof-waterproofing-sika-tpo-membrane-2mm-thick-with-pir-insulation-board-5",
+      "group": "Tiles",
+      "description": "Roof Waterproofing, SIKA TPO Membrane, 2mm thick with PIR Insulation Board 50mm thick",
+      "unit": "Sqm",
+      "rateAed": 22.0,
+      "labourPerSqft": 0.4645,
+      "labourPerM2": 5.0,
+      "notes": ""
+    },
+    {
+      "id": "aluminium-profiles-non-thermal-break",
+      "group": "Aluminium Profiles",
+      "description": "Non Thermal Break",
+      "unit": "kg",
+      "rateAed": 15.75,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": ""
+    },
+    {
+      "id": "aluminium-profiles-thermal-break",
+      "group": "Aluminium Profiles",
+      "description": "Thermal Break",
+      "unit": "kg",
+      "rateAed": 21.75,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": ""
+    },
+    {
+      "id": "coating-on-aluminium-pef-polyester-powder-coating",
+      "group": "Coating on Aluminium",
+      "description": "PEF -Polyester Powder coating",
+      "unit": "kg",
+      "rateAed": 1.6,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": "Below 500kg- AED 8/pc"
+    },
+    {
+      "id": "coating-on-aluminium-sdf-super-durable-coating",
+      "group": "Coating on Aluminium",
+      "description": "SDF - Super Durable coating",
+      "unit": "kg",
+      "rateAed": 2.4,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": "Below 500kg- AED 10/pc"
+    },
+    {
+      "id": "coating-on-aluminium-pvdf-coating",
+      "group": "Coating on Aluminium",
+      "description": "PVDF Coating",
+      "unit": "kg",
+      "rateAed": 9.0,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": "Below 500kg- AED 15/pc"
+    },
+    {
+      "id": "coating-on-aluminium-kynar-coating",
+      "group": "Coating on Aluminium",
+      "description": "Kynar coating",
+      "unit": "kg",
+      "rateAed": 11.5,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": "Below 500kg- AED 18/pc"
+    },
+    {
+      "id": "coating-on-aluminium-wood-finish",
+      "group": "Coating on Aluminium",
+      "description": "Wood finish",
+      "unit": "kg",
+      "rateAed": 12.0,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": "For louver profiles AED 1 more/ kg"
+    },
+    {
+      "id": "glass-6-mm-clear-tempered-glass",
+      "group": "Glass",
+      "description": "6 mm clear tempered glass",
+      "unit": "Sqm",
+      "rateAed": 43.0,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": "EXTRA CHARGES FOR ALL SIDE POLISHING AED 6.00 / LM"
+    },
+    {
+      "id": "glass-8-mm-clear-tempered-glass",
+      "group": "Glass",
+      "description": "8 mm clear tempered glass",
+      "unit": "Sqm",
+      "rateAed": 58.0,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": "EXTRA CHARGES FOR ALL SIDE POLISHING AED 8.00 / LM"
+    },
+    {
+      "id": "glass-10-mm-clear-temperd-glass",
+      "group": "Glass",
+      "description": "10 mm clear temperd glass",
+      "unit": "Sqm",
+      "rateAed": 76.0,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": "EXTRA CHARGES FOR ALL SIDE POLISHING AED 10.00 / LM"
+    },
+    {
+      "id": "glass-12-mm-clear-tempered-glass",
+      "group": "Glass",
+      "description": "12 mm clear tempered glass",
+      "unit": "Sqm",
+      "rateAed": 102.0,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": "EXTRA CHARGES FOR ALL SIDE POLISHING AED 10.00 / LM"
+    },
+    {
+      "id": "glass-6-mm-12-mmas-6-mm-glass",
+      "group": "Glass",
+      "description": "6 mm+12 mmAS+6 mm glass",
+      "unit": "Sqm",
+      "rateAed": 123.0,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": ""
+    },
+    {
+      "id": "glass-8mm-12-mm-8-mm",
+      "group": "Glass",
+      "description": "8mm+12 mm+8 mm",
+      "unit": "Sqm",
+      "rateAed": 139.0,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": ""
+    },
+    {
+      "id": "aluminium-composite-panels-4mm-thick-acp-fr-a2-std-non-std-color",
+      "group": "Aluminium Composite Panels",
+      "description": "4mm Thick ACP FR-A2 : Std&non std. Color",
+      "unit": "Sqm",
+      "rateAed": 85.0,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": ""
+    },
+    {
+      "id": "aluminium-composite-panels-4mm-thick-acp-fr-a2-wood-finish",
+      "group": "Aluminium Composite Panels",
+      "description": "4mm Thick ACP FR-A2 : Wood Finish",
+      "unit": "Sqm",
+      "rateAed": 95.0,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": ""
+    },
+    {
+      "id": "aluminium-sheet-1mm-thick-aluminium-sheet-mf",
+      "group": "Aluminium Sheet",
+      "description": "1mm Thick Aluminium Sheet : MF",
+      "unit": "sqm",
+      "rateAed": 115.0,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": ""
+    },
+    {
+      "id": "aluminium-sheet-1-5mm-thick-aluminium-sheet-mf",
+      "group": "Aluminium Sheet",
+      "description": "1.5mm Thick Aluminium Sheet : MF",
+      "unit": "sqm",
+      "rateAed": 157.0,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": ""
+    },
+    {
+      "id": "aluminium-sheet-2mm-thick-aluminium-sheet-mf",
+      "group": "Aluminium Sheet",
+      "description": "2mm Thick Aluminium Sheet : MF",
+      "unit": "sqm",
+      "rateAed": 205.0,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": ""
+    },
+    {
+      "id": "aluminium-sheet-3mm-thick-aluminium-sheet-mf",
+      "group": "Aluminium Sheet",
+      "description": "3mm Thick Aluminium Sheet : MF",
+      "unit": "sqm",
+      "rateAed": 322.0,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": ""
+    },
+    {
+      "id": "aluminium-sheet-4mm-thick-aluminium-sheet-mf",
+      "group": "Aluminium Sheet",
+      "description": "4mm Thick Aluminium Sheet : MF",
+      "unit": "sqm",
+      "rateAed": 430.0,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": ""
+    },
+    {
+      "id": "finish-on-sheet-pef-polyester-powder-coating",
+      "group": "Finish on sheet",
+      "description": "PEF -Polyester Powder coating",
+      "unit": "Sqm",
+      "rateAed": 35.0,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": ""
+    },
+    {
+      "id": "finish-on-sheet-sdf-super-durable-coating",
+      "group": "Finish on sheet",
+      "description": "SDF - Super Durable coating",
+      "unit": "Sqm",
+      "rateAed": 45.0,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": ""
+    },
+    {
+      "id": "finish-on-sheet-pvdf-coating",
+      "group": "Finish on sheet",
+      "description": "PVDF Coating",
+      "unit": "Sqm",
+      "rateAed": 125.0,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": ""
+    },
+    {
+      "id": "finish-on-sheet-kynar-coating",
+      "group": "Finish on sheet",
+      "description": "Kynar coating",
+      "unit": "Sqm",
+      "rateAed": 75.0,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": ""
+    },
+    {
+      "id": "finish-on-sheet-wood-finish",
+      "group": "Finish on sheet",
+      "description": "Wood finish",
+      "unit": "Sqm",
+      "rateAed": 125.0,
+      "labourPerSqft": null,
+      "labourPerM2": null,
+      "notes": ""
+    }
+  ],
+  "labour": [
+    {
+      "id": "lab-steel-structure-screws",
+      "description": "Screws",
+      "unit": "sqft",
+      "rateAed": 0.0125,
+      "perM2": 0.1345,
+      "basis": "Data Sheet labour. 0.1345 AED/m\u00b2."
+    },
+    {
+      "id": "lab-alum-sandwich-panel-alum-sandwich-panel-100",
+      "description": "Alum sandwich panel - 100",
+      "unit": "sqft",
+      "rateAed": 0.93,
+      "perM2": 10.0104,
+      "basis": "Data Sheet labour. 10.0104 AED/m\u00b2."
+    },
+    {
+      "id": "lab-alum-sandwich-panel-alum-sandwich-panel-125",
+      "description": "Alum sandwich panel - 125",
+      "unit": "sqft",
+      "rateAed": 0.2787,
+      "perM2": 3.0,
+      "basis": "Data Sheet labour. 3.0 AED/m\u00b2."
+    },
+    {
+      "id": "lab-alum-sandwich-panel-alum-sandwich-panel-150",
+      "description": "Alum sandwich panel - 150",
+      "unit": "sqft",
+      "rateAed": 0.93,
+      "perM2": 10.0104,
+      "basis": "Data Sheet labour. 10.0104 AED/m\u00b2."
+    },
+    {
+      "id": "lab-alum-sandwich-panel-metal-decking",
+      "description": "Metal decking",
+      "unit": "sqft",
+      "rateAed": 0.93,
+      "perM2": 10.0104,
+      "basis": "Data Sheet labour. 10.0104 AED/m\u00b2."
+    },
+    {
+      "id": "lab-rockwool-89-mm-rockwool-35-density-without-foil",
+      "description": "89 mm rockwool (35 Density)-without foil",
+      "unit": "sqft",
+      "rateAed": 0.1858,
+      "perM2": 2.0,
+      "basis": "Data Sheet labour. 2.0 AED/m\u00b2."
+    },
+    {
+      "id": "lab-rockwool-89-mm-rockwool-35-density-one-side-foil",
+      "description": "89 mm rockwool (35 Density)-One side foil",
+      "unit": "sqft",
+      "rateAed": 0.1858,
+      "perM2": 2.0,
+      "basis": "Data Sheet labour. 2.0 AED/m\u00b2."
+    },
+    {
+      "id": "lab-rockwool-89-mm-rockwool-45-density-without-foil",
+      "description": "89 mm rockwool (45 Density)-without foil",
+      "unit": "sqft",
+      "rateAed": 0.1858,
+      "perM2": 2.0,
+      "basis": "Data Sheet labour. 2.0 AED/m\u00b2."
+    },
+    {
+      "id": "lab-rockwool-89-mm-rockwool-45-density-one-side-foil",
+      "description": "89 mm rockwool (45 Density)-One side foil",
+      "unit": "sqft",
+      "rateAed": 0.1858,
+      "perM2": 2.0,
+      "basis": "Data Sheet labour. 2.0 AED/m\u00b2."
+    },
+    {
+      "id": "lab-rockwool-89-mm-rockwool-120-density-without-foil",
+      "description": "89 mm rockwool (120 Density)-without foil",
+      "unit": "sqft",
+      "rateAed": 0.1858,
+      "perM2": 2.0,
+      "basis": "Data Sheet labour. 2.0 AED/m\u00b2."
+    },
+    {
+      "id": "lab-rockwool-89-mm-rockwool-120-density-one-side-foil",
+      "description": "89 mm rockwool (120 Density)-One side foil",
+      "unit": "sqft",
+      "rateAed": 0.1858,
+      "perM2": 2.0,
+      "basis": "Data Sheet labour. 2.0 AED/m\u00b2."
+    },
+    {
+      "id": "lab-rockwool-150-mm-rockwool-35-density-without-foil",
+      "description": "150 mm rockwool (35 Density)-without foil",
+      "unit": "sqft",
+      "rateAed": 0.1858,
+      "perM2": 2.0,
+      "basis": "Data Sheet labour. 2.0 AED/m\u00b2."
+    },
+    {
+      "id": "lab-rockwool-150-mm-rockwool-35-density-one-side-foil",
+      "description": "150 mm rockwool (35 Density)-One side foil",
+      "unit": "sqft",
+      "rateAed": 0.1858,
+      "perM2": 2.0,
+      "basis": "Data Sheet labour. 2.0 AED/m\u00b2."
+    },
+    {
+      "id": "lab-rockwool-150-mm-rockwool-45-density-without-foil",
+      "description": "150 mm rockwool (45 Density)-without foil",
+      "unit": "sqft",
+      "rateAed": 0.1858,
+      "perM2": 2.0,
+      "basis": "Data Sheet labour. 2.0 AED/m\u00b2."
+    },
+    {
+      "id": "lab-rockwool-150-mm-rockwool-45-density-one-side-foil",
+      "description": "150 mm rockwool (45 Density)-One side foil",
+      "unit": "sqft",
+      "rateAed": 0.1858,
+      "perM2": 2.0,
+      "basis": "Data Sheet labour. 2.0 AED/m\u00b2."
+    },
+    {
+      "id": "lab-rockwool-150-mm-rockwool-120-density-without-foil",
+      "description": "150 mm rockwool (120 Density)-without foil",
+      "unit": "sqft",
+      "rateAed": 0.1858,
+      "perM2": 2.0,
+      "basis": "Data Sheet labour. 2.0 AED/m\u00b2."
+    },
+    {
+      "id": "lab-rockwool-150-mm-rockwool-120-density-one-side-foil",
+      "description": "150 mm rockwool (120 Density)-One side foil",
+      "unit": "sqft",
+      "rateAed": 0.1858,
+      "perM2": 2.0,
+      "basis": "Data Sheet labour. 2.0 AED/m\u00b2."
+    },
+    {
+      "id": "lab-rockwool-glass-wool",
+      "description": "Glass Wool",
+      "unit": "sqft",
+      "rateAed": 0.1858,
+      "perM2": 2.0,
+      "basis": "Data Sheet labour. 2.0 AED/m\u00b2."
+    },
+    {
+      "id": "lab-cement-board-usg-board-12-mm",
+      "description": "usg board-12 mm",
+      "unit": "sqft",
+      "rateAed": 0.929,
+      "perM2": 10.0,
+      "basis": "Data Sheet labour. 10.0 AED/m\u00b2."
+    },
+    {
+      "id": "lab-cement-board-9-mm-cement-board-1220-x2440",
+      "description": "9 mm cement board -1220 X2440",
+      "unit": "sqft",
+      "rateAed": 0.929,
+      "perM2": 10.0,
+      "basis": "Data Sheet labour. 10.0 AED/m\u00b2."
+    },
+    {
+      "id": "lab-cement-board-12-mm-cement-board-1220-x2440",
+      "description": "12 mm cement board -1220 X2440",
+      "unit": "sqft",
+      "rateAed": 1.1148,
+      "perM2": 12.0,
+      "basis": "Data Sheet labour. 12.0 AED/m\u00b2."
+    },
+    {
+      "id": "lab-cement-board-15-mm-cement-board-1220-x2440",
+      "description": "15 mm cement board -1220 X2440",
+      "unit": "sqft",
+      "rateAed": 1.3935,
+      "perM2": 15.0,
+      "basis": "Data Sheet labour. 15.0 AED/m\u00b2."
+    },
+    {
+      "id": "lab-cement-board-18-mm-cement-board-1220-x2440",
+      "description": "18 mm cement board -1220 X2440",
+      "unit": "sqft",
+      "rateAed": 1.3935,
+      "perM2": 15.0,
+      "basis": "Data Sheet labour. 15.0 AED/m\u00b2."
+    },
+    {
+      "id": "lab-paint-emulsion",
+      "description": "Emulsion",
+      "unit": "sqft",
+      "rateAed": 0.93,
+      "perM2": 10.0104,
+      "basis": "Data Sheet labour. 10.0104 AED/m\u00b2."
+    },
+    {
+      "id": "lab-paint-textured-paint",
+      "description": "Textured paint",
+      "unit": "sqft",
+      "rateAed": 0.93,
+      "perM2": 10.0104,
+      "basis": "Data Sheet labour. 10.0104 AED/m\u00b2."
+    },
+    {
+      "id": "lab-tiles-300x300",
+      "description": "300x300",
+      "unit": "sqft",
+      "rateAed": 0.929,
+      "perM2": 10.0,
+      "basis": "Data Sheet labour. 10.0 AED/m\u00b2."
+    },
+    {
+      "id": "lab-tiles-600x600",
+      "description": "600x600",
+      "unit": "sqft",
+      "rateAed": 0.929,
+      "perM2": 10.0,
+      "basis": "Data Sheet labour. 10.0 AED/m\u00b2."
+    },
+    {
+      "id": "lab-tiles-1200x1200",
+      "description": "1200x1200",
+      "unit": "sqft",
+      "rateAed": 0.929,
+      "perM2": 10.0,
+      "basis": "Data Sheet labour. 10.0 AED/m\u00b2."
+    },
+    {
+      "id": "lab-tiles-600x1200",
+      "description": "600x1200",
+      "unit": "sqft",
+      "rateAed": 0.929,
+      "perM2": 10.0,
+      "basis": "Data Sheet labour. 10.0 AED/m\u00b2."
+    },
+    {
+      "id": "lab-tiles-1200x2400",
+      "description": "1200x2400",
+      "unit": "sqft",
+      "rateAed": 0.929,
+      "perM2": 10.0,
+      "basis": "Data Sheet labour. 10.0 AED/m\u00b2."
+    },
+    {
+      "id": "lab-tiles-2400x2400",
+      "description": "2400x2400",
+      "unit": "sqft",
+      "rateAed": 0.929,
+      "perM2": 10.0,
+      "basis": "Data Sheet labour. 10.0 AED/m\u00b2."
+    },
+    {
+      "id": "lab-tiles-carpet-tiles",
+      "description": "Carpet Tiles",
+      "unit": "sqft",
+      "rateAed": 0.929,
+      "perM2": 10.0,
+      "basis": "Data Sheet labour. 10.0 AED/m\u00b2."
+    },
+    {
+      "id": "lab-tiles-lvt-flooring",
+      "description": "LVT Flooring",
+      "unit": "sqft",
+      "rateAed": 0.929,
+      "perM2": 10.0,
+      "basis": "Data Sheet labour. 10.0 AED/m\u00b2."
+    },
+    {
+      "id": "lab-tiles-engineered-wood-floor",
+      "description": "Engineered wood floor",
+      "unit": "sqft",
+      "rateAed": 0.929,
+      "perM2": 10.0,
+      "basis": "Data Sheet labour. 10.0 AED/m\u00b2."
+    },
+    {
+      "id": "lab-tiles-vinyl-flooring",
+      "description": "Vinyl flooring",
+      "unit": "sqft",
+      "rateAed": 0.929,
+      "perM2": 10.0,
+      "basis": "Data Sheet labour. 10.0 AED/m\u00b2."
+    },
+    {
+      "id": "lab-tiles-roof-waterproofing-sika-tpo-membrane-2mm-thick-with-pir-insulation-board-5",
+      "description": "Roof Waterproofing, SIKA TPO Membrane, 2mm thick with PIR Insulation Board 50mm thick",
+      "unit": "sqft",
+      "rateAed": 0.4645,
+      "perM2": 5.0,
+      "basis": "Data Sheet labour. 5.0 AED/m\u00b2."
+    },
+    {
+      "id": "lab-lgs-fab",
+      "description": "LGS fabrication",
+      "unit": "kg",
+      "rateAed": 2.4,
+      "perM2": null,
+      "basis": "Costing sheet 1.1 fabrication column."
+    },
+    {
+      "id": "lab-paint-steel",
+      "description": "Base frame paint, fabrication",
+      "unit": "kg",
+      "rateAed": 0.75,
+      "perM2": null,
+      "basis": "Costing sheet 1.2 fabrication column."
+    },
+    {
+      "id": "lab-fab-w1",
+      "description": "W1 fabrication \u2014 Sliding window (1 panel fixed+1 panel sliding)",
+      "unit": "nr",
+      "rateAed": 231.0,
+      "perM2": null,
+      "basis": "Unit Costing fabrication column, 5340 R4."
+    },
+    {
+      "id": "lab-fab-v1",
+      "description": "V1 fabrication \u2014 2 bottom hung window",
+      "unit": "nr",
+      "rateAed": 93.0,
+      "perM2": null,
+      "basis": "Unit Costing fabrication column, 5340 R4."
+    },
+    {
+      "id": "lab-fab-d1",
+      "description": "D1 fabrication \u2014 Double leaf hinged glazed door",
+      "unit": "nr",
+      "rateAed": 485.0,
+      "perM2": null,
+      "basis": "Unit Costing fabrication column, 5340 R4."
+    },
+    {
+      "id": "lab-fab-d2",
+      "description": "D2 fabrication \u2014 Double leaf hinged panelled door with vision glass door",
+      "unit": "nr",
+      "rateAed": 485.0,
+      "perM2": null,
+      "basis": "Unit Costing fabrication column, 5340 R4."
+    },
+    {
+      "id": "lab-fab-d3",
+      "description": "D3 fabrication \u2014 Double leaf hinged panelled door with vision glass door",
+      "unit": "nr",
+      "rateAed": 445.0,
+      "perM2": null,
+      "basis": "Unit Costing fabrication column, 5340 R4."
+    },
+    {
+      "id": "lab-fab-d4",
+      "description": "D4 fabrication \u2014 S/L leaf hinged panelled door with vision glass door",
+      "unit": "nr",
+      "rateAed": 202.0,
+      "perM2": null,
+      "basis": "Unit Costing fabrication column, 5340 R4."
+    },
+    {
+      "id": "lab-fab-d5",
+      "description": "D5 fabrication \u2014 S/L leaf hinged panelled door with vision glass door",
+      "unit": "nr",
+      "rateAed": 268.0,
+      "perM2": null,
+      "basis": "Unit Costing fabrication column, 5340 R4."
+    },
+    {
+      "id": "lab-fab-d6",
+      "description": "D6 fabrication \u2014 Single leaf hinged glazed door",
+      "unit": "nr",
+      "rateAed": 268.0,
+      "perM2": null,
+      "basis": "Unit Costing fabrication column, 5340 R4."
+    },
+    {
+      "id": "lab-fab-d7",
+      "description": "D7 fabrication \u2014 Double leaf hinged glazed door",
+      "unit": "nr",
+      "rateAed": 485.0,
+      "perM2": null,
+      "basis": "Unit Costing fabrication column, 5340 R4."
+    },
+    {
+      "id": "lab-fab-d8",
+      "description": "D8 fabrication \u2014 S/L leaf hinged panelled door with vision glass door",
+      "unit": "nr",
+      "rateAed": 292.0,
+      "perM2": null,
+      "basis": "Unit Costing fabrication column, 5340 R4."
+    }
+  ],
+  "subcontract": [
+    {
+      "id": "sub-mep-panel",
+      "trade": "MEP",
+      "description": "First-fix installation only, material by the client",
+      "unit": "nr",
+      "rateAed": 50,
+      "qty": 35,
+      "basis": "Costing sheet. 50 AED per panel before prelims. Package cost 2,696.27 AED for 35 panels."
+    },
+    {
+      "id": "sub-moisture-roof",
+      "trade": "Roofing",
+      "description": "Moisture protection at roof panel joints",
+      "unit": "m\u00b2",
+      "rateAed": 20,
+      "qty": 520,
+      "basis": "Costing sheet 8.1 material rate. Unit cost after prelims 30.81 AED/m\u00b2."
+    },
+    {
+      "id": "sub-tpo",
+      "trade": "Roofing",
+      "description": "SIKA TPO membrane 2 mm with 50 mm PIR",
+      "unit": "m\u00b2",
+      "rateAed": 22,
+      "qty": null,
+      "basis": "Data Sheet. Labour 0.4645 AED/sqft."
+    },
+    {
+      "id": "sub-inst-w1",
+      "trade": "Aluminium installation",
+      "description": "W1 Sliding window (1 panel fixed+1 panel sliding)",
+      "unit": "nr",
+      "rateAed": 346.5,
+      "qty": 13.0,
+      "basis": "Unit Costing installation column, 5340 R4."
+    },
+    {
+      "id": "sub-inst-v1",
+      "trade": "Aluminium installation",
+      "description": "V1 2 bottom hung window",
+      "unit": "nr",
+      "rateAed": 139.5,
+      "qty": 2.0,
+      "basis": "Unit Costing installation column, 5340 R4."
+    },
+    {
+      "id": "sub-inst-d1",
+      "trade": "Aluminium installation",
+      "description": "D1 Double leaf hinged glazed door",
+      "unit": "nr",
+      "rateAed": 727.5,
+      "qty": 1.0,
+      "basis": "Unit Costing installation column, 5340 R4."
+    },
+    {
+      "id": "sub-inst-d2",
+      "trade": "Aluminium installation",
+      "description": "D2 Double leaf hinged panelled door with vision glass door",
+      "unit": "nr",
+      "rateAed": 727.5,
+      "qty": 1.0,
+      "basis": "Unit Costing installation column, 5340 R4."
+    },
+    {
+      "id": "sub-inst-d3",
+      "trade": "Aluminium installation",
+      "description": "D3 Double leaf hinged panelled door with vision glass door",
+      "unit": "nr",
+      "rateAed": 667.5,
+      "qty": 1.0,
+      "basis": "Unit Costing installation column, 5340 R4."
+    },
+    {
+      "id": "sub-inst-d4",
+      "trade": "Aluminium installation",
+      "description": "D4 S/L leaf hinged panelled door with vision glass door",
+      "unit": "nr",
+      "rateAed": 303.0,
+      "qty": 1.0,
+      "basis": "Unit Costing installation column, 5340 R4."
+    },
+    {
+      "id": "sub-inst-d5",
+      "trade": "Aluminium installation",
+      "description": "D5 S/L leaf hinged panelled door with vision glass door",
+      "unit": "nr",
+      "rateAed": 402.0,
+      "qty": 4.0,
+      "basis": "Unit Costing installation column, 5340 R4."
+    },
+    {
+      "id": "sub-inst-d6",
+      "trade": "Aluminium installation",
+      "description": "D6 Single leaf hinged glazed door",
+      "unit": "nr",
+      "rateAed": 402.0,
+      "qty": 2.0,
+      "basis": "Unit Costing installation column, 5340 R4."
+    },
+    {
+      "id": "sub-inst-d7",
+      "trade": "Aluminium installation",
+      "description": "D7 Double leaf hinged glazed door",
+      "unit": "nr",
+      "rateAed": 727.5,
+      "qty": 1.0,
+      "basis": "Unit Costing installation column, 5340 R4."
+    },
+    {
+      "id": "sub-inst-d8",
+      "trade": "Aluminium installation",
+      "description": "D8 S/L leaf hinged panelled door with vision glass door",
+      "unit": "nr",
+      "rateAed": 438.0,
+      "qty": 2.0,
+      "basis": "Unit Costing installation column, 5340 R4."
+    }
+  ],
+  "assemblies": [
+    {
+      "id": "asm-w1",
+      "code": "W1",
+      "description": "Sliding window (1 panel fixed+1 panel sliding)",
+      "system": "SLIDE105-125",
+      "widthMm": 1512.0,
+      "heightMm": 1412.0,
+      "areaM2": 2.31,
+      "unit": "nr",
+      "qty": 13.0,
+      "parts": [
+        {
+          "name": "Profiles",
+          "amountAed": 598.81
+        },
+        {
+          "name": "Paint",
+          "amountAed": 119.76
+        },
+        {
+          "name": "Accessories",
+          "amountAed": 89.82
+        },
+        {
+          "name": "Hardware",
+          "amountAed": 200.0
+        },
+        {
+          "name": "Glass",
+          "amountAed": 415.8
+        },
+        {
+          "name": "Panel",
+          "amountAed": null
+        },
+        {
+          "name": "Fabrication",
+          "amountAed": 231.0
+        },
+        {
+          "name": "Installation",
+          "amountAed": 346.5
+        }
+      ],
+      "totalAed": 2001.69
+    },
+    {
+      "id": "asm-v1",
+      "code": "V1",
+      "description": "2 bottom hung window",
+      "system": "45 HINGED",
+      "widthMm": 1512.0,
+      "heightMm": 612.0,
+      "areaM2": 0.93,
+      "unit": "nr",
+      "qty": 2.0,
+      "parts": [
+        {
+          "name": "Profiles",
+          "amountAed": 370.95
+        },
+        {
+          "name": "Paint",
+          "amountAed": 66.1
+        },
+        {
+          "name": "Accessories",
+          "amountAed": 55.64
+        },
+        {
+          "name": "Hardware",
+          "amountAed": 320.0
+        },
+        {
+          "name": "Glass",
+          "amountAed": 167.4
+        },
+        {
+          "name": "Panel",
+          "amountAed": null
+        },
+        {
+          "name": "Fabrication",
+          "amountAed": 93.0
+        },
+        {
+          "name": "Installation",
+          "amountAed": 139.5
+        }
+      ],
+      "totalAed": 1212.59
+    },
+    {
+      "id": "asm-d1",
+      "code": "D1",
+      "description": "Double leaf hinged glazed door",
+      "system": "45 HINGED",
+      "widthMm": 2012.0,
+      "heightMm": 2410.0,
+      "areaM2": 4.85,
+      "unit": "nr",
+      "qty": 1.0,
+      "parts": [
+        {
+          "name": "Profiles",
+          "amountAed": 739.59
+        },
+        {
+          "name": "Paint",
+          "amountAed": 140.97
+        },
+        {
+          "name": "Accessories",
+          "amountAed": 110.94
+        },
+        {
+          "name": "Hardware",
+          "amountAed": 650.0
+        },
+        {
+          "name": "Glass",
+          "amountAed": 873.0
+        },
+        {
+          "name": "Panel",
+          "amountAed": null
+        },
+        {
+          "name": "Fabrication",
+          "amountAed": 485.0
+        },
+        {
+          "name": "Installation",
+          "amountAed": 727.5
+        }
+      ],
+      "totalAed": 3727.0
+    },
+    {
+      "id": "asm-d2",
+      "code": "D2",
+      "description": "Double leaf hinged panelled door with vision glass door",
+      "system": "45 HINGED",
+      "widthMm": 2012.0,
+      "heightMm": 2410.0,
+      "areaM2": 4.85,
+      "unit": "nr",
+      "qty": 1.0,
+      "parts": [
+        {
+          "name": "Profiles",
+          "amountAed": 1149.58
+        },
+        {
+          "name": "Paint",
+          "amountAed": 218.84
+        },
+        {
+          "name": "Accessories",
+          "amountAed": 172.44
+        },
+        {
+          "name": "Hardware",
+          "amountAed": 650.0
+        },
+        {
+          "name": "Glass",
+          "amountAed": 150.0
+        },
+        {
+          "name": "Panel",
+          "amountAed": 679.0
+        },
+        {
+          "name": "Fabrication",
+          "amountAed": 485.0
+        },
+        {
+          "name": "Installation",
+          "amountAed": 727.5
+        }
+      ],
+      "totalAed": 4232.36
+    },
+    {
+      "id": "asm-d3",
+      "code": "D3",
+      "description": "Double leaf hinged panelled door with vision glass door",
+      "system": "45 HINGED",
+      "widthMm": 2012.0,
+      "heightMm": 2210.0,
+      "areaM2": 4.45,
+      "unit": "nr",
+      "qty": 1.0,
+      "parts": [
+        {
+          "name": "Profiles",
+          "amountAed": 1079.14
+        },
+        {
+          "name": "Paint",
+          "amountAed": 204.75
+        },
+        {
+          "name": "Accessories",
+          "amountAed": 161.87
+        },
+        {
+          "name": "Hardware",
+          "amountAed": 650.0
+        },
+        {
+          "name": "Glass",
+          "amountAed": 150.0
+        },
+        {
+          "name": "Panel",
+          "amountAed": 623.0
+        },
+        {
+          "name": "Fabrication",
+          "amountAed": 445.0
+        },
+        {
+          "name": "Installation",
+          "amountAed": 667.5
+        }
+      ],
+      "totalAed": 3981.26
+    },
+    {
+      "id": "asm-d4",
+      "code": "D4",
+      "description": "S/L leaf hinged panelled door with vision glass door",
+      "system": "45 HINGED",
+      "widthMm": 912.0,
+      "heightMm": 2210.0,
+      "areaM2": 2.02,
+      "unit": "nr",
+      "qty": 1.0,
+      "parts": [
+        {
+          "name": "Profiles",
+          "amountAed": 613.6
+        },
+        {
+          "name": "Paint",
+          "amountAed": 116.67
+        },
+        {
+          "name": "Accessories",
+          "amountAed": 92.04
+        },
+        {
+          "name": "Hardware",
+          "amountAed": 390.0
+        },
+        {
+          "name": "Glass",
+          "amountAed": 75.0
+        },
+        {
+          "name": "Panel",
+          "amountAed": 282.8
+        },
+        {
+          "name": "Fabrication",
+          "amountAed": 202.0
+        },
+        {
+          "name": "Installation",
+          "amountAed": 303.0
+        }
+      ],
+      "totalAed": 2075.11
+    },
+    {
+      "id": "asm-d5",
+      "code": "D5",
+      "description": "S/L leaf hinged panelled door with vision glass door",
+      "system": "45 HINGED",
+      "widthMm": 1212.0,
+      "heightMm": 2210.0,
+      "areaM2": 2.68,
+      "unit": "nr",
+      "qty": 4.0,
+      "parts": [
+        {
+          "name": "Profiles",
+          "amountAed": 672.66
+        },
+        {
+          "name": "Paint",
+          "amountAed": 128.02
+        },
+        {
+          "name": "Accessories",
+          "amountAed": 100.9
+        },
+        {
+          "name": "Hardware",
+          "amountAed": 390.0
+        },
+        {
+          "name": "Glass",
+          "amountAed": 75.0
+        },
+        {
+          "name": "Panel",
+          "amountAed": 375.2
+        },
+        {
+          "name": "Fabrication",
+          "amountAed": 268.0
+        },
+        {
+          "name": "Installation",
+          "amountAed": 402.0
+        }
+      ],
+      "totalAed": 2411.78
+    },
+    {
+      "id": "asm-d6",
+      "code": "D6",
+      "description": "Single leaf hinged glazed door",
+      "system": "45 HINGED",
+      "widthMm": 1212.0,
+      "heightMm": 2210.0,
+      "areaM2": 2.68,
+      "unit": "nr",
+      "qty": 2.0,
+      "parts": [
+        {
+          "name": "Profiles",
+          "amountAed": 425.44
+        },
+        {
+          "name": "Paint",
+          "amountAed": 80.62
+        },
+        {
+          "name": "Accessories",
+          "amountAed": 63.82
+        },
+        {
+          "name": "Hardware",
+          "amountAed": 390.0
+        },
+        {
+          "name": "Glass",
+          "amountAed": 150.0
+        },
+        {
+          "name": "Panel",
+          "amountAed": null
+        },
+        {
+          "name": "Fabrication",
+          "amountAed": 268.0
+        },
+        {
+          "name": "Installation",
+          "amountAed": 402.0
+        }
+      ],
+      "totalAed": 1779.88
+    },
+    {
+      "id": "asm-d7",
+      "code": "D7",
+      "description": "Double leaf hinged glazed door",
+      "system": "45 HINGED",
+      "widthMm": 2012.0,
+      "heightMm": 2410.0,
+      "areaM2": 4.85,
+      "unit": "nr",
+      "qty": 1.0,
+      "parts": [
+        {
+          "name": "Profiles",
+          "amountAed": 739.59
+        },
+        {
+          "name": "Paint",
+          "amountAed": 140.97
+        },
+        {
+          "name": "Accessories",
+          "amountAed": 110.94
+        },
+        {
+          "name": "Hardware",
+          "amountAed": 650.0
+        },
+        {
+          "name": "Glass",
+          "amountAed": 150.0
+        },
+        {
+          "name": "Panel",
+          "amountAed": null
+        },
+        {
+          "name": "Fabrication",
+          "amountAed": 485.0
+        },
+        {
+          "name": "Installation",
+          "amountAed": 727.5
+        }
+      ],
+      "totalAed": 3004.0
+    },
+    {
+      "id": "asm-d8",
+      "code": "D8",
+      "description": "S/L leaf hinged panelled door with vision glass door",
+      "system": "45 HINGED",
+      "widthMm": 1212.0,
+      "heightMm": 2410.0,
+      "areaM2": 2.92,
+      "unit": "nr",
+      "qty": 2.0,
+      "parts": [
+        {
+          "name": "Profiles",
+          "amountAed": 716.03
+        },
+        {
+          "name": "Paint",
+          "amountAed": 136.69
+        },
+        {
+          "name": "Accessories",
+          "amountAed": 107.4
+        },
+        {
+          "name": "Hardware",
+          "amountAed": 390.0
+        },
+        {
+          "name": "Glass",
+          "amountAed": 75.0
+        },
+        {
+          "name": "Panel",
+          "amountAed": 408.8
+        },
+        {
+          "name": "Fabrication",
+          "amountAed": 292.0
+        },
+        {
+          "name": "Installation",
+          "amountAed": 438.0
+        }
+      ],
+      "totalAed": 2563.92
+    }
+  ]
+}

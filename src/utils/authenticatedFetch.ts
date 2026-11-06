@@ -37,8 +37,13 @@ export const authenticatedFetch = async (url: string, options: RequestInit = {})
     })
   }
 
-  // Set Content-Type if not already set
-  if (!headers['Content-Type'] && !headers['content-type']) {
+  // FormData must keep the browser's multipart boundary. A JSON content type
+  // makes the server try to parse the file body as JSON.
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData
+  if (isFormData) {
+    delete headers['Content-Type']
+    delete headers['content-type']
+  } else if (!headers['Content-Type'] && !headers['content-type']) {
     headers['Content-Type'] = 'application/json'
   }
 

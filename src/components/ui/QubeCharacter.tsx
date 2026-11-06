@@ -1,51 +1,23 @@
-import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 import './QubeCharacter.css'
 
 export type QubeMood = 'idle' | 'walk' | 'happy' | 'sad' | 'cute'
 
-const POSE: Record<QubeMood, string> = {
-  idle: '/qube/idle.png',
-  walk: '/qube/walk.png',
-  happy: '/qube/happy.png',
-  sad: '/qube/sad.png',
-  cute: '/qube/cute.png',
-}
-
-const CYCLE: { mood: QubeMood; ms: number }[] = [
-  { mood: 'walk', ms: 2600 },
-  { mood: 'happy', ms: 1400 },
-  { mood: 'walk', ms: 1800 },
-  { mood: 'cute', ms: 1500 },
-  { mood: 'walk', ms: 2000 },
-  { mood: 'sad', ms: 1200 },
-]
+const QUBE_ANIM = '/qube/qube.webp'
+const QUBE_GIF = '/qube/qube.gif'
+const QUBE_STILL = '/qube/qube-still.webp'
 
 export const QUBE_LINES: Record<QubeMood, string> = {
   walk: 'Walking the drawings over',
   happy: 'Found the floor plan',
   cute: 'Holding your corner',
   sad: 'This one is heavy',
-  idle: 'Waiting with the plan',
-}
-
-function useQubeMoment(enabled: boolean): QubeMood {
-  const [index, setIndex] = useState(0)
-
-  useEffect(() => {
-    if (!enabled) return
-    const timer = window.setTimeout(() => {
-      setIndex((n) => (n + 1) % CYCLE.length)
-    }, CYCLE[index].ms)
-    return () => window.clearTimeout(timer)
-  }, [enabled, index])
-
-  return enabled ? CYCLE[index].mood : 'idle'
+  idle: 'Loading…',
 }
 
 interface QubeCharacterProps {
   mood?: QubeMood
-  /** Cycle walking, happy, cute, and a short sad beat. */
+  /** Same character, used on loading screens. */
   moment?: 'auto'
   size?: number
   caption?: boolean
@@ -53,31 +25,35 @@ interface QubeCharacterProps {
 }
 
 export function QubeCharacter({
-  mood: moodProp = 'idle',
+  mood = 'idle',
   moment,
   size = 140,
   caption = false,
   className,
 }: QubeCharacterProps) {
-  const autoMood = useQubeMoment(moment === 'auto')
-  const mood = moment === 'auto' ? autoMood : moodProp
-
-  useEffect(() => {
-    for (const src of Object.values(POSE)) {
-      const image = new Image()
-      image.src = src
-    }
-  }, [])
+  const lineMood = moment === 'auto' ? 'idle' : mood
 
   return (
     <div
       className={cn('qube-wrap', className)}
       style={{ ['--qube-size' as string]: `${size}px` }}
     >
-      <div className="qube" role="img" aria-label={`Qube is ${mood}`}>
-        <img key={mood} src={POSE[mood]} alt="" />
+      <div className="qube" role="img" aria-label="Qube">
+        <picture>
+          <source srcSet={QUBE_STILL} type="image/webp" media="(prefers-reduced-motion: reduce)" />
+          <source srcSet={QUBE_ANIM} type="image/webp" />
+          <img
+            className="qube-pose"
+            src={QUBE_GIF}
+            alt=""
+            width={size}
+            height={size}
+            decoding="async"
+            draggable={false}
+          />
+        </picture>
       </div>
-      {caption && <p className="qube-caption">{QUBE_LINES[mood]}</p>}
+      {caption && <p className="qube-caption">{QUBE_LINES[lineMood]}</p>}
     </div>
   )
 }

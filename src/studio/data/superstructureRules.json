@@ -1,0 +1,1657 @@
+{
+  "spec": {
+    "name": "UNIQUBE Estimation Engine - Superstructure Logic",
+    "version": "1.0",
+    "date": "2026-10-26",
+    "companion_document": "UNIQUBE Estimation Engine - Superstructure Logic Specification v1.0",
+    "conventions": [
+      "All lengths in mm and weights in kg internally; convert mm to m before multiplying by kg_per_m.",
+      "P.<id> refers to an entry in parameters; every number is editable, never hard-coded.",
+      "Formulas use ceil(), floor(), sqrt(), sum(), cos(), tan() with angles in degrees.",
+      "source: UNIQUBE = decided by UNIQUBE; PROPOSED = default to be confirmed; SUPPLIER = replace with supplier data."
+    ]
+  },
+  "inputs_from_substructure": {
+    "description": "Produced by the Load-Bearing Wall & Foundation Logic Specification stage.",
+    "zone": [
+      "id",
+      "level",
+      "polygon_mm",
+      "framing_direction",
+      "spans_mm",
+      "support_wall_ids"
+    ],
+    "wall": [
+      "id",
+      "level",
+      "centreline_mm",
+      "thickness_mm",
+      "status: LB | NLB | shear",
+      "stacks_on_wall_below: bool",
+      "stacked_length_mm"
+    ],
+    "building": [
+      "number_of_floors"
+    ]
+  },
+  "data_model": {
+    "project": [
+      "stud_spacing_mm",
+      "project_type: panelised | volumetric_modular",
+      "unit_system: metric | imperial",
+      "pitched_roof_covering: boards | metal_sheet | sandwich_panel",
+      "flat_roof_covering: flat_deck | sheeting_on_purlins",
+      "lowest_level: on_slab | suspended",
+      "design_basis_check: pass | F-BASIS"
+    ],
+    "level_row": [
+      "level",
+      "lb_wall_section",
+      "nlb_wall_section",
+      "framing_type: truss | c_joist | flat_roof_truss | flat_roof_c_joist | pitched_roof",
+      "framing_section",
+      "reinforcing_studs: bool (trusses only)",
+      "parapet_section (roof row only)"
+    ],
+    "wall_run": [
+      "id",
+      "level",
+      "length_mm",
+      "height_mm",
+      "status",
+      "section",
+      "openings: [width_mm]",
+      "junctions: {L, T, X}",
+      "external: bool"
+    ],
+    "truss_line": [
+      "level",
+      "position_mm",
+      "spans_mm",
+      "pieces_mm"
+    ],
+    "balcony": [
+      "level",
+      "supporting_wall_id",
+      "length_mm",
+      "cantilever_mm"
+    ],
+    "roof_section": [
+      "type: gable | hip | mono | valley_secondary",
+      "Lt_mm",
+      "ridge_length_mm",
+      "pitch_deg",
+      "eaves_overhang_mm",
+      "verge_overhang_mm"
+    ],
+    "hrs_markup": [
+      "id",
+      "level",
+      "member_type",
+      "section",
+      "length_mm or height_mm",
+      "quantity",
+      "accepted: bool"
+    ],
+    "hrs_manual": [
+      "description",
+      "level",
+      "section",
+      "kg_per_m",
+      "length_mm",
+      "quantity",
+      "direct_kg (optional)"
+    ],
+    "allowance_row": [
+      "item",
+      "mode: percent | fixed_kg | fixed_kg_per_unit",
+      "value"
+    ],
+    "rate": [
+      "item",
+      "unit",
+      "aed",
+      "date",
+      "source"
+    ]
+  },
+  "design_basis": {
+    "basic_wind_speed_and_exposure": null,
+    "seismic_zone": null,
+    "max_storeys": null,
+    "max_floor_to_floor_mm": null,
+    "floor_live_load_and_roof_load": null,
+    "design_code_basis": null,
+    "rule": "Any project input outside these values raises F-BASIS (red)."
+  },
+  "section_lists": {
+    "walls": [
+      "600S162-33",
+      "600S162-43",
+      "600S162-54",
+      "600S162-68",
+      "600S162-97",
+      "362S162-33",
+      "362S162-43",
+      "362S162-54"
+    ],
+    "trusses": [
+      "362S162-43",
+      "362S162-54",
+      "600S162-43",
+      "600S162-54"
+    ],
+    "c_joists": [
+      "1400S350-97",
+      "1400S350-68",
+      "1400S350-54",
+      "1200S350-97",
+      "1200S350-68",
+      "1200S350-54"
+    ],
+    "purlins": [
+      "362S162-33"
+    ]
+  },
+  "section_library_kg_per_m": {
+    "600S162-33": {
+      "kg_per_m": 1.74,
+      "source": "SUPPLIER"
+    },
+    "600S162-43": {
+      "kg_per_m": 2.26,
+      "source": "SUPPLIER"
+    },
+    "600S162-54": {
+      "kg_per_m": 2.82,
+      "source": "SUPPLIER"
+    },
+    "600S162-68": {
+      "kg_per_m": 3.51,
+      "source": "SUPPLIER"
+    },
+    "600S162-97": {
+      "kg_per_m": 4.89,
+      "source": "SUPPLIER"
+    },
+    "362S162-33": {
+      "kg_per_m": 1.33,
+      "source": "SUPPLIER"
+    },
+    "362S162-43": {
+      "kg_per_m": 1.72,
+      "source": "SUPPLIER"
+    },
+    "362S162-54": {
+      "kg_per_m": 2.14,
+      "source": "SUPPLIER"
+    },
+    "1200S350-54": {
+      "kg_per_m": 5.9,
+      "source": "SUPPLIER"
+    },
+    "1200S350-68": {
+      "kg_per_m": 7.39,
+      "source": "SUPPLIER"
+    },
+    "1200S350-97": {
+      "kg_per_m": 10.43,
+      "source": "SUPPLIER"
+    },
+    "1400S350-54": {
+      "kg_per_m": 6.47,
+      "source": "SUPPLIER"
+    },
+    "1400S350-68": {
+      "kg_per_m": 8.11,
+      "source": "SUPPLIER"
+    },
+    "1400S350-97": {
+      "kg_per_m": 11.46,
+      "source": "SUPPLIER"
+    },
+    "STRAP-50x1.2": {
+      "kg_per_m": 0.47,
+      "source": "SUPPLIER"
+    }
+  },
+  "parameters": [
+    {
+      "id": "max_span_mm",
+      "value": 6000,
+      "unit": "mm",
+      "source": "UNIQUBE",
+      "used_in": "framing, F-SPAN",
+      "note": "Display 19'-8\" in imperial (rounded down)."
+    },
+    {
+      "id": "stud_spacing_mm",
+      "value": [
+        450,
+        600
+      ],
+      "unit": "mm",
+      "source": "UNIQUBE",
+      "used_in": "walls, trusses, joists",
+      "note": "Project-wide choice."
+    },
+    {
+      "id": "panel_max_length_mm",
+      "value": 2400,
+      "unit": "mm",
+      "source": "UNIQUBE",
+      "used_in": "walls"
+    },
+    {
+      "id": "panel_max_height_mm",
+      "value": 12000,
+      "unit": "mm",
+      "source": "UNIQUBE",
+      "used_in": "walls"
+    },
+    {
+      "id": "truss_piece_max_length_mm",
+      "value": 12000,
+      "unit": "mm",
+      "source": "UNIQUBE",
+      "used_in": "truss lines",
+      "note": "Pieces must be strictly shorter."
+    },
+    {
+      "id": "truss_depth_mm",
+      "value": 600,
+      "unit": "mm",
+      "source": "UNIQUBE",
+      "used_in": "trusses"
+    },
+    {
+      "id": "truss_panel_mm",
+      "value": 600,
+      "unit": "mm",
+      "source": "UNIQUBE",
+      "used_in": "trusses"
+    },
+    {
+      "id": "truss_type",
+      "value": "pratt",
+      "unit": "-",
+      "source": "UNIQUBE",
+      "used_in": "trusses"
+    },
+    {
+      "id": "truss_member_axis",
+      "value": "weak",
+      "unit": "-",
+      "source": "UNIQUBE",
+      "used_in": "trusses",
+      "note": "All members framed on the weak axis (chords laid flat)."
+    },
+    {
+      "id": "s162_flange_mm",
+      "value": 41.3,
+      "unit": "mm",
+      "source": "SUPPLIER",
+      "used_in": "truss geometry"
+    },
+    {
+      "id": "truss_vertical_mm",
+      "value": 518,
+      "unit": "mm",
+      "source": "UNIQUBE",
+      "used_in": "floor trusses",
+      "note": "600 - 2 x 41.3, rounded up."
+    },
+    {
+      "id": "truss_diagonal_mm",
+      "value": 793,
+      "unit": "mm",
+      "source": "UNIQUBE",
+      "used_in": "floor trusses",
+      "note": "sqrt(600^2 + 518^2)."
+    },
+    {
+      "id": "floor_zone_deduction_truss_mm",
+      "value": 600,
+      "unit": "mm",
+      "source": "UNIQUBE",
+      "used_in": "wall height",
+      "note": "Also flat roof trusses; reinforcing studs on or off."
+    },
+    {
+      "id": "floor_zone_deduction_1200S350_mm",
+      "value": 305,
+      "unit": "mm",
+      "source": "PROPOSED",
+      "used_in": "wall height"
+    },
+    {
+      "id": "floor_zone_deduction_1400S350_mm",
+      "value": 356,
+      "unit": "mm",
+      "source": "PROPOSED",
+      "used_in": "wall height"
+    },
+    {
+      "id": "floor_buildup_mm",
+      "value": 0,
+      "unit": "mm",
+      "source": "UNIQUBE",
+      "used_in": "wall height"
+    },
+    {
+      "id": "nogging_spacing_mm",
+      "value": 1200,
+      "unit": "mm",
+      "source": "UNIQUBE",
+      "used_in": "walls"
+    },
+    {
+      "id": "joist_blocking_spacing_mm",
+      "value": 1200,
+      "unit": "mm",
+      "source": "UNIQUBE",
+      "used_in": "c-joists"
+    },
+    {
+      "id": "jamb_studs_per_side",
+      "value": 2,
+      "unit": "studs",
+      "source": "UNIQUBE",
+      "used_in": "walls"
+    },
+    {
+      "id": "junction_studs",
+      "value": {
+        "L": 1,
+        "T": 2,
+        "X": 2
+      },
+      "unit": "studs",
+      "source": "PROPOSED",
+      "used_in": "walls"
+    },
+    {
+      "id": "blocking_trusses",
+      "value": {
+        "per_piece_end": 1,
+        "per_cut": 2,
+        "per_intermediate_support": 1
+      },
+      "unit": "lines",
+      "source": "PROPOSED",
+      "used_in": "floor trusses"
+    },
+    {
+      "id": "joist_rims_at_shared_wall",
+      "value": 2,
+      "unit": "rims",
+      "source": "PROPOSED",
+      "used_in": "c-joists"
+    },
+    {
+      "id": "hrs_opening_limit_mm",
+      "value": 3048,
+      "unit": "mm",
+      "source": "UNIQUBE",
+      "used_in": "HRS suggestions",
+      "note": "10 ft; openings of this width or wider."
+    },
+    {
+      "id": "hrs_void_threshold_mm",
+      "value": 1524,
+      "unit": "mm",
+      "source": "UNIQUBE",
+      "used_in": "HRS suggestions",
+      "note": "5 ft; voids wider than this in at least one direction."
+    },
+    {
+      "id": "max_cantilever_mm",
+      "value": 914,
+      "unit": "mm",
+      "source": "UNIQUBE",
+      "used_in": "balconies, F-CANTILEVER",
+      "note": "3 ft."
+    },
+    {
+      "id": "balcony_backspan_ratio",
+      "value": 1.5,
+      "unit": "x cantilever",
+      "source": "PROPOSED",
+      "used_in": "balconies"
+    },
+    {
+      "id": "heel_height_min_mm",
+      "value": 150,
+      "unit": "mm",
+      "source": "UNIQUBE",
+      "used_in": "pitched trusses"
+    },
+    {
+      "id": "max_eaves_overhang_mm",
+      "value": 914,
+      "unit": "mm",
+      "source": "PROPOSED",
+      "used_in": "F-OVERHANG"
+    },
+    {
+      "id": "max_verge_overhang_mm",
+      "value": 914,
+      "unit": "mm",
+      "source": "PROPOSED",
+      "used_in": "F-OVERHANG"
+    },
+    {
+      "id": "verge_backspan_ratio",
+      "value": 1.5,
+      "unit": "x G",
+      "source": "UNIQUBE",
+      "used_in": "verge ladder"
+    },
+    {
+      "id": "pitch_range_deg",
+      "value": [
+        5,
+        45
+      ],
+      "unit": "deg",
+      "source": "PROPOSED",
+      "used_in": "F-PITCH"
+    },
+    {
+      "id": "fascia_default",
+      "value": "on_where_eaves_overhang_gt_0",
+      "unit": "-",
+      "source": "PROPOSED",
+      "used_in": "PR3"
+    },
+    {
+      "id": "valley_member_default",
+      "value": true,
+      "unit": "-",
+      "source": "PROPOSED",
+      "used_in": "PR6"
+    },
+    {
+      "id": "hip_rafter_ply",
+      "value": 2,
+      "unit": "members",
+      "source": "PROPOSED",
+      "used_in": "PR5",
+      "note": "Boxed pair in the roof section."
+    },
+    {
+      "id": "min_jack_truss_span_mm",
+      "value": 600,
+      "unit": "mm",
+      "source": "PROPOSED",
+      "used_in": "PR5",
+      "note": "Shorter jacks count as a top-chord piece only."
+    },
+    {
+      "id": "min_valley_truss_span_mm",
+      "value": 600,
+      "unit": "mm",
+      "source": "PROPOSED",
+      "used_in": "PR6",
+      "note": "Shorter valley trusses are skipped."
+    },
+    {
+      "id": "purlin_section",
+      "value": "362S162-33",
+      "unit": "-",
+      "source": "UNIQUBE",
+      "used_in": "purlins"
+    },
+    {
+      "id": "purlin_spacing_mm",
+      "value": 1200,
+      "unit": "mm",
+      "source": "UNIQUBE",
+      "used_in": "purlins",
+      "note": "All coverings: boards, metal sheet, sandwich panel."
+    },
+    {
+      "id": "strap_section",
+      "value": "STRAP-50x1.2",
+      "unit": "-",
+      "source": "PROPOSED",
+      "used_in": "roof bracing"
+    },
+    {
+      "id": "braced_bay_max_distance_mm",
+      "value": 12000,
+      "unit": "mm",
+      "source": "PROPOSED",
+      "used_in": "roof bracing"
+    },
+    {
+      "id": "bottom_chord_bracing_default",
+      "value": true,
+      "unit": "-",
+      "source": "PROPOSED",
+      "used_in": "roof bracing"
+    },
+    {
+      "id": "flat_purlin_roof_bracing_default",
+      "value": true,
+      "unit": "-",
+      "source": "PROPOSED",
+      "used_in": "roof bracing",
+      "note": "Flat deck: off."
+    },
+    {
+      "id": "web_restraint_default",
+      "value": false,
+      "unit": "-",
+      "source": "PROPOSED",
+      "used_in": "roof bracing"
+    },
+    {
+      "id": "web_restraint_limit_mm",
+      "value": null,
+      "unit": "mm",
+      "source": "PROPOSED",
+      "used_in": "roof bracing",
+      "note": "Set when web restraint is switched on."
+    },
+    {
+      "id": "anchor_lb",
+      "value": {
+        "type": "M10",
+        "embedment_mm": 200,
+        "spacing_mm": 300
+      },
+      "unit": "-",
+      "source": "UNIQUBE",
+      "used_in": "anchors"
+    },
+    {
+      "id": "anchor_nlb",
+      "value": {
+        "type": "M8",
+        "embedment_mm": 100,
+        "spacing_mm": 300
+      },
+      "unit": "-",
+      "source": "UNIQUBE",
+      "used_in": "anchors"
+    },
+    {
+      "id": "rod_type",
+      "value": "M16 threaded rod + 2 nuts",
+      "unit": "-",
+      "source": "UNIQUBE",
+      "used_in": "rods"
+    },
+    {
+      "id": "rod_external_spacing_mm",
+      "value": 4572,
+      "unit": "mm",
+      "source": "UNIQUBE",
+      "used_in": "rods",
+      "note": "15 ft, plus a rod at every corner."
+    },
+    {
+      "id": "rod_internal_spacing_mm",
+      "value": 6096,
+      "unit": "mm",
+      "source": "UNIQUBE",
+      "used_in": "rods",
+      "note": "20 ft, stacked internal LB walls only."
+    },
+    {
+      "id": "rod_internal_end_rods",
+      "value": true,
+      "unit": "-",
+      "source": "PROPOSED",
+      "used_in": "rods"
+    },
+    {
+      "id": "rod_projection_mm",
+      "value": 75,
+      "unit": "mm",
+      "source": "PROPOSED",
+      "used_in": "rods",
+      "note": "Rod length = floor zone depth + 2 x projection."
+    },
+    {
+      "id": "stud_pack_studs",
+      "value": 3,
+      "unit": "studs",
+      "source": "PROPOSED",
+      "used_in": "load path loop"
+    },
+    {
+      "id": "height_conflict_tolerance_mm",
+      "value": 50,
+      "unit": "mm",
+      "source": "PROPOSED",
+      "used_in": "F-HEIGHT-CONFLICT"
+    },
+    {
+      "id": "stud_height_range_mm",
+      "value": [
+        2100,
+        4500
+      ],
+      "unit": "mm",
+      "source": "PROPOSED",
+      "used_in": "F-HEIGHT-RANGE"
+    },
+    {
+      "id": "screws_per_kg",
+      "value": 7,
+      "unit": "screws/kg net LGS",
+      "source": "UNIQUBE",
+      "used_in": "factors"
+    },
+    {
+      "id": "connector_aed_per_kg",
+      "value": 0.1,
+      "unit": "AED/kg net LGS",
+      "source": "UNIQUBE",
+      "used_in": "factors"
+    },
+    {
+      "id": "lgs_wastage",
+      "value": 0.05,
+      "unit": "fraction",
+      "source": "UNIQUBE",
+      "used_in": "wastage"
+    },
+    {
+      "id": "hrs_wastage",
+      "value": 0.05,
+      "unit": "fraction",
+      "source": "UNIQUBE",
+      "used_in": "wastage"
+    },
+    {
+      "id": "hrs_connection_allowance",
+      "value": 0.05,
+      "unit": "fraction",
+      "source": "UNIQUBE",
+      "used_in": "HRS"
+    },
+    {
+      "id": "calibration_lgs_tolerance",
+      "value": 0.05,
+      "unit": "fraction",
+      "source": "PROPOSED",
+      "used_in": "calibration"
+    }
+  ],
+  "rules": {
+    "drawing_set": {
+      "classify_sheets": [
+        "floor_plan",
+        "roof_plan",
+        "section",
+        "elevation"
+      ],
+      "typical_plans": "Read the level range from the plan title (e.g. 'Typical floor plan, 1st to 4th') and apply the plan to every level in the range.",
+      "missing_level": "F-LEVEL-MISSING; no quantities for that level.",
+      "conflict": "F-LEVEL-CONFLICT.",
+      "roof_plan_required_for": "pitched roofs (F-ROOF-PLAN).",
+      "continuity": "Vertical continuity checks run on levels as repeated."
+    },
+    "wall_height": {
+      "formula": "H_i = FFH_i - D_above;  FFH_i = level[i+1] - level[i]",
+      "D_above": {
+        "truss": "P.floor_zone_deduction_truss_mm",
+        "flat_roof_truss": "P.floor_zone_deduction_truss_mm",
+        "1200S350": "P.floor_zone_deduction_1200S350_mm",
+        "1400S350": "P.floor_zone_deduction_1400S350_mm",
+        "pitched_roof": "no deduction; H = eaves_level - FFL_i"
+      },
+      "build_up": "P.floor_buildup_mm (0)",
+      "flags": [
+        "F-HEIGHT-CONFLICT",
+        "F-HEIGHT-RANGE",
+        "F-HEIGHT-LOCAL"
+      ],
+      "fallback": "No sections or elevations: ask the user for floor-to-floor heights; never assume."
+    },
+    "walls": {
+      "run": "Continuous straight wall end to end or corner to corner; T and X junctions do not split the through wall.",
+      "n_p": "ceil(L_run / P.panel_max_length_mm)",
+      "L_p": "L_run / n_p   (equal split)",
+      "studs_regular": "n_p * (ceil(L_p / s) + 1)",
+      "studs_jamb": "openings * 2 * P.jamb_studs_per_side",
+      "studs_junction": "n_L * P.junction_studs.L + n_T * P.junction_studs.T + n_X * P.junction_studs.X",
+      "junction_attribution": "Count each junction once: T and X on the through wall, L on either run.",
+      "stud_length": "H for every stud (regular, jamb, junction)",
+      "tracks": "2 * L_run, stud section",
+      "nogging_rows": "floor((H - 1) / P.nogging_spacing_mm)",
+      "nogging": "nogging_rows * L_run, stud section",
+      "tiers": "If H > P.panel_max_height_mm: extra_track = 2 * L_run * (ceil(H / P.panel_max_height_mm) - 1)",
+      "weight_kg": "((studs_regular + studs_jamb + studs_junction) * H + 2 * L_run + nogging_rows * L_run + extra_track) / 1000 * kg_per_m(section)",
+      "section": "Level row LB or NLB section; tracks and nogging use the stud section (CNC tooling).",
+      "openings": "No deduction. Detected from door swings, window symbols and wall gaps. Width >= P.hrs_opening_limit_mm adds an HRS header suggestion.",
+      "flags": [
+        "F-OPENING-PANEL",
+        "F-WALL-GEOMETRY"
+      ]
+    },
+    "floor_trusses": {
+      "geometry": "Depth P.truss_depth_mm, Pratt, panels P.truss_panel_mm, weak axis; vertical P.truss_vertical_mm, diagonal P.truss_diagonal_mm.",
+      "positions": "Set out at s from a common grid line so trusses align across zones.",
+      "line": "At each position, join the spans crossed in the same framing direction into one truss line.",
+      "cut_rule": "Walk the line; extend the current piece over the next span while piece + next_span < P.truss_piece_max_length_mm; otherwise cut at that bearing wall.",
+      "panels": "p = sum(ceil(span_i / P.truss_panel_mm))  (panels per span, so a vertical sits on every support)",
+      "members_mm": {
+        "chords": "2 * L_piece",
+        "verticals": "(p + 1) * P.truss_vertical_mm",
+        "diagonals": "p * P.truss_diagonal_mm",
+        "reinforcing": "2 * L_piece if level.reinforcing_studs else 0"
+      },
+      "blocking_trusses": "Same section and configuration; one along each piece end, two at a cut, one along each intermediate support. Lines over P.truss_piece_max_length_mm split into equal pieces. Reinforcing follows the level toggle.",
+      "weight_kg": "total_length_mm / 1000 * kg_per_m(level.framing_section)"
+    },
+    "c_joists": {
+      "span": "Single span per zone; W = zone width perpendicular to span, L_j = span.",
+      "joists": "N = ceil(W / s) + 1; length N * L_j",
+      "blocking_rows": "r = ceil(L_j / P.joist_blocking_spacing_mm) - 1",
+      "blocking": "r * (N - 1) * s, joist section",
+      "rim_beams": "2 * W per zone, joist section; P.joist_rims_at_shared_wall at a shared bearing wall",
+      "web_stiffeners": "Allowance tab row."
+    },
+    "voids": "No deduction from floor steel. Voids wider than P.hrs_void_threshold_mm in at least one direction add an HRS trimmer suggestion.",
+    "balconies": {
+      "applies": "Cantilever c <= P.max_cantilever_mm, same floor type, section and spacing as the level.",
+      "members": "N = ceil(L_bal / s) + 1; L_member = c + P.balcony_backspan_ratio * c",
+      "truss_case": "truss formula on L_member",
+      "c_joist_case": "N * L_member",
+      "edges": "Rim beam (C-joist) or blocking truss (truss) along the free edge and both ends: L_bal + 2c",
+      "beyond_limit": "c > P.max_cantilever_mm: F-CANTILEVER, HRS cantilever suggestion, balcony excluded until engineer confirms.",
+      "flags": [
+        "F-BACKSPAN"
+      ]
+    },
+    "roof": {
+      "flat": {
+        "framing": "As floors, roof row section; D = P.floor_zone_deduction_truss_mm for trusses.",
+        "flat_deck": "No purlins, no roof plane bracing.",
+        "sheeting_on_purlins": "Purlins and roof plane bracing apply."
+      },
+      "pitched_inputs": "Outline, ridge, hip and valley lines (roof plan); pitch from labels (15 deg, 1:4, 3:12) or sections; eaves overhang O; verge overhang G; heel hh = P.heel_height_min_mm.",
+      "PR1_decomposition": "Split into gable, hip end, valley and mono-pitch areas; trusses span perpendicular to the ridge; spans over P.max_span_mm get the support check; pieces < P.truss_piece_max_length_mm.",
+      "PR2_common_truss": {
+        "count": "ceil(ridge_length / s) + 1",
+        "dual_pitch": {
+          "bottom_chord": "Lt",
+          "top_chord": "2 * (Lt/2 + O) / cos(theta)",
+          "verticals": "At x = 0, 600, ... < Lt/2 on each half plus the apex: v(x) = hh + x * tan(theta) - 2 * P.s162_flange_mm",
+          "diagonals": "One per panel: sqrt(panel_width^2 + v_outer^2), v_outer = shorter vertical of the panel (Pratt, sloping down toward mid-span)"
+        },
+        "mono_pitch": {
+          "bottom_chord": "Lt",
+          "top_chord": "(Lt + O_low + O_high) / cos(theta)",
+          "verticals": "v(x) from hh to hh + Lt * tan(theta)"
+        }
+      },
+      "PR3_eaves": "Overhang included in the top chord; fascia member (truss section) along eaves with O > 0; O > P.max_eaves_overhang_mm: F-OVERHANG.",
+      "PR4_gable_verge": {
+        "end_truss": "Common truss (already counted)",
+        "rake_length": "(Lt/2 + O) / cos(theta)",
+        "outriggers": "ceil(rake_length / s) + 1 per rake, each G * (1 + P.verge_backspan_ratio)",
+        "verge_member": "rake_length per rake",
+        "flag": "G > P.max_verge_overhang_mm: F-OVERHANG"
+      },
+      "PR5_hip_end": {
+        "system": "Hip rafters with jack trusses, equal pitch, span B",
+        "commons": "Stop at B/2 from the end wall; ridge_length = L - B",
+        "hip_rafters": "2 per hip end; true length = sqrt(2) * (B/2 + O) * sqrt(1 + 0.5 * tan(theta)^2); P.hip_rafter_ply members in the roof section",
+        "end_jacks": "Count ceil(B / s) - 1; span at y = min(y, B - y)",
+        "side_jacks": "Count per side ceil((B/2) / s) - 1; span at x = x",
+        "jack_geometry": "Mono truss of span a: bottom chord a, top chord (a + O) / cos(theta), verticals rising to hh + a * tan(theta)",
+        "short_jacks": "Span < P.min_jack_truss_span_mm: top-chord piece only"
+      },
+      "PR6_valley": {
+        "main_trusses": "Unchanged",
+        "secondary_commons": "Stop at the main eaves line",
+        "valley_trusses": "Count floor((W2/2) / s); k-th at t = k * s spans W2 - 2t; skip spans < P.min_valley_truss_span_mm",
+        "valley_member": "Along each valley line: plan length (W2/2) * sqrt(2), rise (W2/2) * tan(theta)"
+      },
+      "PR7_flags": [
+        "F-ROOF-SHAPE",
+        "F-PITCH",
+        "F-SPAN"
+      ],
+      "purlins": {
+        "section": "P.purlin_section",
+        "length": "A_slope / (P.purlin_spacing_mm / 1000) + L_eaves (m)",
+        "A_slope": "A_plan_including_overhangs / cos(theta)",
+        "flat_on_purlins": "theta = 0"
+      },
+      "bracing": {
+        "top_chord": "Strap X-bracing per slope; braced_bays = ceil(L_section / P.braced_bay_max_distance_mm) + 1; strap per bay = 2 * sqrt(2) * S (S = slope length)",
+        "bottom_chord": "Same rule, two halves of width Lt/2; on by P.bottom_chord_bracing_default",
+        "flat_on_purlins": "Same rule across the roof; P.flat_purlin_roof_bracing_default",
+        "web_restraint": "P.web_restraint_default; when on, continuous lateral brace (truss section) at mid-length of webs longer than P.web_restraint_limit_mm, diagonal at each end",
+        "strap": "P.strap_section"
+      }
+    },
+    "parapets": {
+      "applies": "Flat roofs where sections show a parapet",
+      "height": "top_of_parapet - top_of_roof_framing",
+      "framing": "Wall rules as NLB: panels, studs, tracks, nogging rows, L-corner studs, no openings",
+      "section": "level_row.parapet_section, default top-level NLB section",
+      "fixings": "No anchors or rods"
+    },
+    "anchors_and_rods": {
+      "lowest_level_lb": "ceil(L_run / P.anchor_lb.spacing_mm) + 1 x M10 x 200",
+      "lowest_level_nlb": "ceil(L_run / P.anchor_nlb.spacing_mm) + 1 x M8 x 100",
+      "upper_external": "corners + sum(ceil(L_run / P.rod_external_spacing_mm) - 1) per level; corners = convex + re-entrant",
+      "upper_internal_stacked": "ceil(L_stacked / P.rod_internal_spacing_mm) + 1 (both ends, P.rod_internal_end_rods)",
+      "rod_length": "D_floor_zone + 2 * P.rod_projection_mm",
+      "rod_hardware": "P.rod_type; washers and plates in the connector allowance",
+      "door_openings": "Not deducted",
+      "suspended_lowest_level": "Own floor row; anchor rules off; F-SUSPENDED"
+    },
+    "hrs": {
+      "suggested_markups": [
+        {
+          "trigger": "F-STACK (LB wall not stacking)",
+          "member": "transfer beam"
+        },
+        {
+          "trigger": "Span > P.max_span_mm, no intermediate wall",
+          "member": "intermediate beam"
+        },
+        {
+          "trigger": "Opening >= P.hrs_opening_limit_mm",
+          "member": "header beam"
+        },
+        {
+          "trigger": "Void > P.hrs_void_threshold_mm in one direction",
+          "member": "trimmer beams"
+        },
+        {
+          "trigger": "Cantilever > P.max_cantilever_mm",
+          "member": "cantilever beams"
+        },
+        {
+          "trigger": "Roof span > P.max_span_mm, no support",
+          "member": "roof beam"
+        }
+      ],
+      "pending": "Unresolved suggestion: F-HRS-PENDING",
+      "weight_kg": "length_m * kg_per_m * quantity * (1 + P.hrs_connection_allowance) * (1 + P.hrs_wastage)",
+      "manual_direct_kg": "direct_kg * (1 + P.hrs_wastage)  (no connection allowance)",
+      "library": "UB, UC, PFC, SHS, RHS, CHS, angles with supplier kg/m (to load)"
+    },
+    "load_path_loop": [
+      "Each accepted HRS beam becomes a support line; split zones and re-run truss lines and C-joist spans for that level.",
+      "Each beam end on an LGS wall: stud pack of P.stud_pack_studs studs (wall section, full height) in the wall below, every level down to the foundation.",
+      "Each stud pack and HRS column base passes a pad footing to the substructure estimate.",
+      "Repeat until no new beams are accepted; show quantity changes on the review screen.",
+      "Beam end on an HRS column: no stud pack; the column runs to the foundation as a markup or manual item."
+    ],
+    "allowances": {
+      "base": "Calculated net LGS (walls, floors, balconies, roof framing, purlins, roof bracing, parapets, modular frames)",
+      "rows": [
+        {
+          "item": "Wall strap bracing",
+          "mode": "percent"
+        },
+        {
+          "item": "LGS staircase",
+          "mode": "percent | fixed_kg_per_flight"
+        },
+        {
+          "item": "C-joist web stiffeners",
+          "mode": "percent | fixed_kg"
+        },
+        {
+          "item": "Transport bracing (modular)",
+          "mode": "fixed_kg_per_module"
+        },
+        {
+          "item": "Other (canopies, bulkheads, facade framing)",
+          "mode": "percent | fixed_kg"
+        }
+      ]
+    },
+    "calculation_order": [
+      "1. calculated_lgs_kg = sum of walls, floors, balconies, roof, purlins, bracing, parapets (+ modular frames)",
+      "2. net_lgs_kg = calculated_lgs_kg + allowances_kg",
+      "3. screws = P.screws_per_kg * net_lgs_kg; connectors_aed = P.connector_aed_per_kg * net_lgs_kg",
+      "4. gross_lgs_kg = net_lgs_kg * (1 + P.lgs_wastage)",
+      "5. hrs_kg = markup and manual per rules.hrs",
+      "6. anchors and rods are counted items, outside LGS weight and both factors"
+    ]
+  },
+  "flags": [
+    {
+      "id": "F-BASIS",
+      "trigger": "Project outside the design basis",
+      "severity": "red"
+    },
+    {
+      "id": "F-LEVEL-MISSING",
+      "trigger": "Level with no plan",
+      "severity": "red"
+    },
+    {
+      "id": "F-LEVEL-CONFLICT",
+      "trigger": "Two plans for one level",
+      "severity": "red"
+    },
+    {
+      "id": "F-ROOF-PLAN",
+      "trigger": "Pitched roof without a roof plan",
+      "severity": "red"
+    },
+    {
+      "id": "F-STACK",
+      "trigger": "LB wall not stacking on a wall below; cleared by an HRS markup",
+      "severity": "red"
+    },
+    {
+      "id": "F-SPAN",
+      "trigger": "Span over P.max_span_mm with no intermediate wall",
+      "severity": "red"
+    },
+    {
+      "id": "F-CANTILEVER",
+      "trigger": "Cantilever over P.max_cantilever_mm",
+      "severity": "red"
+    },
+    {
+      "id": "F-HRS-PENDING",
+      "trigger": "HRS suggestion not accepted or deleted",
+      "severity": "red"
+    },
+    {
+      "id": "F-HEIGHT-CONFLICT",
+      "trigger": "Sections disagree by more than P.height_conflict_tolerance_mm",
+      "severity": "amber"
+    },
+    {
+      "id": "F-HEIGHT-RANGE",
+      "trigger": "Stud height outside P.stud_height_range_mm",
+      "severity": "amber"
+    },
+    {
+      "id": "F-HEIGHT-LOCAL",
+      "trigger": "Double-height or split-level area",
+      "severity": "amber"
+    },
+    {
+      "id": "F-OPENING-PANEL",
+      "trigger": "Opening wider than P.panel_max_length_mm",
+      "severity": "amber"
+    },
+    {
+      "id": "F-WALL-GEOMETRY",
+      "trigger": "Curved or non-orthogonal wall",
+      "severity": "amber"
+    },
+    {
+      "id": "F-BACKSPAN",
+      "trigger": "Floor framing parallel to a balcony's supporting wall",
+      "severity": "amber"
+    },
+    {
+      "id": "F-OVERHANG",
+      "trigger": "Eaves or verge overhang over the limit",
+      "severity": "amber"
+    },
+    {
+      "id": "F-PITCH",
+      "trigger": "Pitch outside P.pitch_range_deg",
+      "severity": "amber"
+    },
+    {
+      "id": "F-ROOF-SHAPE",
+      "trigger": "Unequal pitches, Dutch gable, dormer, curved roof or box gutter",
+      "severity": "amber"
+    },
+    {
+      "id": "F-SUSPENDED",
+      "trigger": "Lowest level without a slab",
+      "severity": "amber"
+    },
+    {
+      "id": "F-SECTION-LIMIT",
+      "trigger": "Selection beyond the section limit table",
+      "severity": "amber"
+    },
+    {
+      "id": "F-KGM2",
+      "trigger": "kg/m2 outside the calibrated range",
+      "severity": "amber"
+    }
+  ],
+  "flag_policy": "Red blocks issue of the estimate; amber needs engineer acknowledgement.",
+  "section_limit_table": {
+    "policy": "Flag only (F-SECTION-LIMIT); never resize. Values filled by UNIQUBE engineering.",
+    "walls": {
+      "600S162-33": {
+        "lb_max_height_450": null,
+        "lb_max_height_600": null,
+        "nlb_max_height_450": null,
+        "nlb_max_height_600": null
+      },
+      "600S162-43": {
+        "lb_max_height_450": null,
+        "lb_max_height_600": null,
+        "nlb_max_height_450": null,
+        "nlb_max_height_600": null
+      },
+      "600S162-54": {
+        "lb_max_height_450": null,
+        "lb_max_height_600": null,
+        "nlb_max_height_450": null,
+        "nlb_max_height_600": null
+      },
+      "600S162-68": {
+        "lb_max_height_450": null,
+        "lb_max_height_600": null,
+        "nlb_max_height_450": null,
+        "nlb_max_height_600": null
+      },
+      "600S162-97": {
+        "lb_max_height_450": null,
+        "lb_max_height_600": null,
+        "nlb_max_height_450": null,
+        "nlb_max_height_600": null
+      },
+      "362S162-33": {
+        "lb_max_height_450": null,
+        "lb_max_height_600": null,
+        "nlb_max_height_450": null,
+        "nlb_max_height_600": null
+      },
+      "362S162-43": {
+        "lb_max_height_450": null,
+        "lb_max_height_600": null,
+        "nlb_max_height_450": null,
+        "nlb_max_height_600": null
+      },
+      "362S162-54": {
+        "lb_max_height_450": null,
+        "lb_max_height_600": null,
+        "nlb_max_height_450": null,
+        "nlb_max_height_600": null
+      }
+    },
+    "floors": {
+      "362S162-43": {
+        "type": "truss",
+        "max_span_450": null,
+        "max_span_600": null
+      },
+      "362S162-54": {
+        "type": "truss",
+        "max_span_450": null,
+        "max_span_600": null
+      },
+      "600S162-43": {
+        "type": "truss",
+        "max_span_450": null,
+        "max_span_600": null
+      },
+      "600S162-54": {
+        "type": "truss",
+        "max_span_450": null,
+        "max_span_600": null
+      },
+      "1400S350-97": {
+        "type": "c_joist",
+        "max_span_450": null,
+        "max_span_600": null
+      },
+      "1400S350-68": {
+        "type": "c_joist",
+        "max_span_450": null,
+        "max_span_600": null
+      },
+      "1400S350-54": {
+        "type": "c_joist",
+        "max_span_450": null,
+        "max_span_600": null
+      },
+      "1200S350-97": {
+        "type": "c_joist",
+        "max_span_450": null,
+        "max_span_600": null
+      },
+      "1200S350-68": {
+        "type": "c_joist",
+        "max_span_450": null,
+        "max_span_600": null
+      },
+      "1200S350-54": {
+        "type": "c_joist",
+        "max_span_450": null,
+        "max_span_600": null
+      }
+    }
+  },
+  "volumetric_modular_draft": {
+    "status": "draft; all values to set by UNIQUBE",
+    "module_layout": "From module joint lines, else split at max module width, length, height (to set)",
+    "walls": "Wall rules per module; mating walls count twice",
+    "floor_frame": "Perimeter chassis + joists at s across module width, blocking at 1200 mm (sections to set)",
+    "ceiling_frame": "Perimeter + ceiling joists at s, nogging at 1200 mm (sections to set)",
+    "corner_posts": "4 per module + intermediate posts on long sides (section, spacing to set)",
+    "vertical_connections": "1 per stacked module corner",
+    "horizontal_connections": "Along mating lines at max spacing (to set)",
+    "lifting_points": "4 per module",
+    "module_height": "floor frame + wall height + ceiling frame; floor-to-floor adds module gap (to set)",
+    "open_question": "Whether vertical module connections replace threaded rods"
+  },
+  "rates_aed": [
+    {
+      "item": "LGS supply and manufacture",
+      "unit": "kg gross",
+      "rate": null
+    },
+    {
+      "item": "LGS installation",
+      "unit": "kg net",
+      "rate": null
+    },
+    {
+      "item": "Screws",
+      "unit": "per 1000",
+      "rate": null
+    },
+    {
+      "item": "M10 x 200 anchor",
+      "unit": "each",
+      "rate": null
+    },
+    {
+      "item": "M8 x 100 anchor",
+      "unit": "each",
+      "rate": null
+    },
+    {
+      "item": "M16 rod with 2 nuts",
+      "unit": "each",
+      "rate": null
+    },
+    {
+      "item": "HRS supply and fabrication",
+      "unit": "kg gross",
+      "rate": null
+    },
+    {
+      "item": "HRS installation",
+      "unit": "kg",
+      "rate": null
+    },
+    {
+      "item": "Modular connections and lifting lugs",
+      "unit": "each",
+      "rate": null
+    },
+    {
+      "item": "Connectors",
+      "unit": "kg net LGS",
+      "rate": 0.1
+    },
+    {
+      "item": "Overheads and margin",
+      "unit": "%",
+      "rate": null
+    }
+  ],
+  "outputs": {
+    "summary": [
+      "net_lgs_kg",
+      "gross_lgs_kg",
+      "screws",
+      "anchors_by_type",
+      "rods_count",
+      "rods_length_m",
+      "connectors_aed",
+      "hrs_kg_markup",
+      "hrs_kg_manual",
+      "allowance_items",
+      "kg_per_m2_by_level"
+    ],
+    "by_level_and_element": [
+      "walls_lb",
+      "walls_nlb",
+      "floor_members",
+      "floor_blocking",
+      "rims_and_blocking_trusses",
+      "balconies",
+      "roof_trusses",
+      "jacks",
+      "hip_rafters",
+      "valley_trusses",
+      "purlins",
+      "bracing",
+      "parapets"
+    ],
+    "by_section": "metres and kg per section (coil planning)",
+    "schedules": [
+      "hrs_members",
+      "flags_with_resolutions",
+      "priced_boq_when_rates_filled"
+    ],
+    "exports": [
+      "xlsx",
+      "pdf"
+    ],
+    "imperial": "Show lb and ft-in beside kg and mm"
+  },
+  "snapshot": [
+    "rule_set_version",
+    "all_parameter_values",
+    "level_selections",
+    "drawing_files_and_revisions",
+    "engineer_edits_with_user_and_time",
+    "flags_and_resolutions",
+    "outputs"
+  ],
+  "calibration": {
+    "projects": "5 to 10 completed UNIQUBE projects",
+    "lgs_weight_tolerance": "P.calibration_lgs_tolerance",
+    "compare": {
+      "lgs_weight": "production BOM",
+      "screws": "actual consumption",
+      "anchors_rods": "site records",
+      "hrs_weight": "fabrication records",
+      "connectors": "purchase records"
+    },
+    "tune": [
+      "junction studs",
+      "jamb rule",
+      "allowance percentages",
+      "wastage",
+      "screw and connector factors"
+    ],
+    "derive": "kg/m2 range per building type and level for F-KGM2"
+  },
+  "test_cases": [
+    {
+      "id": "T01",
+      "rule": "walls.panels",
+      "input": {
+        "L_run_mm": 9600,
+        "s_mm": 600
+      },
+      "expected": {
+        "panels": 4,
+        "panel_length_mm": 2400.0,
+        "studs": 20
+      }
+    },
+    {
+      "id": "T02",
+      "rule": "walls.panels",
+      "input": {
+        "L_run_mm": 9600,
+        "s_mm": 450
+      },
+      "expected": {
+        "panels": 4,
+        "panel_length_mm": 2400.0,
+        "studs": 28
+      },
+      "note": "Each 2400 mm panel restarts its spacing, so 450 c/c gives 7 studs per panel."
+    },
+    {
+      "id": "T03",
+      "rule": "walls.nogging_rows",
+      "input": {
+        "H_mm": [
+          2400,
+          3000,
+          1100
+        ]
+      },
+      "expected": {
+        "rows": [
+          1,
+          2,
+          0
+        ]
+      }
+    },
+    {
+      "id": "T04",
+      "rule": "walls.weight",
+      "input": {
+        "L_run_mm": 10000,
+        "H_mm": 3000,
+        "s_mm": 600,
+        "section": "600S162-54",
+        "openings": 1,
+        "L_corners": 1,
+        "T_junctions": 0,
+        "X_junctions": 0
+      },
+      "expected": {
+        "panels": 5,
+        "studs_regular": 25,
+        "studs_jamb": 4,
+        "studs_junction": 1,
+        "nogging_rows": 2,
+        "total_length_m": 130.0,
+        "weight_kg": 366.6
+      }
+    },
+    {
+      "id": "T05",
+      "rule": "wall_height",
+      "input": {
+        "FFH_mm": 3200,
+        "framing_above": [
+          "truss",
+          "1200S350",
+          "1400S350"
+        ]
+      },
+      "expected": {
+        "H_mm": [
+          2600,
+          2895,
+          2844
+        ]
+      }
+    },
+    {
+      "id": "T06",
+      "rule": "floor_trusses.cut_rule",
+      "input": {
+        "spans_mm": [
+          [
+            4000,
+            4000
+          ],
+          [
+            6000,
+            6000
+          ],
+          [
+            5000,
+            5000,
+            5000
+          ],
+          [
+            6000,
+            1800,
+            6000
+          ]
+        ]
+      },
+      "expected": {
+        "pieces_mm": [
+          [
+            8000
+          ],
+          [
+            6000,
+            6000
+          ],
+          [
+            10000,
+            5000
+          ],
+          [
+            7800,
+            6000
+          ]
+        ]
+      }
+    },
+    {
+      "id": "T07",
+      "rule": "floor_trusses.piece",
+      "input": {
+        "spans_mm": [
+          6000
+        ],
+        "reinforcing": false
+      },
+      "expected": {
+        "length_mm": 6000,
+        "panels": 10,
+        "chords_mm": 12000,
+        "verticals_mm": 5698,
+        "diagonals_mm": 7930,
+        "reinforcing_mm": 0,
+        "total_m": 25.628
+      }
+    },
+    {
+      "id": "T08",
+      "rule": "floor_trusses.piece",
+      "input": {
+        "spans_mm": [
+          6000
+        ],
+        "reinforcing": true
+      },
+      "expected": {
+        "length_mm": 6000,
+        "panels": 10,
+        "chords_mm": 12000,
+        "verticals_mm": 5698,
+        "diagonals_mm": 7930,
+        "reinforcing_mm": 12000,
+        "total_m": 37.628
+      }
+    },
+    {
+      "id": "T09",
+      "rule": "floor_trusses.piece",
+      "input": {
+        "spans_mm": [
+          5000,
+          5000
+        ],
+        "reinforcing": false
+      },
+      "expected": {
+        "length_mm": 10000,
+        "panels": 18,
+        "chords_mm": 20000,
+        "verticals_mm": 9842,
+        "diagonals_mm": 14274,
+        "reinforcing_mm": 0,
+        "total_m": 44.116
+      }
+    },
+    {
+      "id": "T10",
+      "rule": "c_joists.zone",
+      "input": {
+        "W_mm": 4800,
+        "L_j_mm": 5400,
+        "s_mm": 600,
+        "section": "1200S350-68"
+      },
+      "expected": {
+        "joists": 9,
+        "blocking_rows": 4,
+        "joists_m": 48.6,
+        "blocking_m": 19.2,
+        "rims_m": 9.6,
+        "total_m": 77.4,
+        "weight_kg": 571.99
+      }
+    },
+    {
+      "id": "T11",
+      "rule": "balconies",
+      "input": {
+        "L_bal_mm": 3600,
+        "c_mm": 900,
+        "s_mm": 600,
+        "floor_type": "c_joist"
+      },
+      "expected": {
+        "members": 7,
+        "member_length_mm": 2250.0,
+        "members_m": 15.75,
+        "edge_members_m": 5.4,
+        "total_m": 21.15
+      }
+    },
+    {
+      "id": "T12",
+      "rule": "anchors",
+      "input": {
+        "LB_run_mm": 10000,
+        "NLB_run_mm": 4500
+      },
+      "expected": {
+        "M10x200": 35,
+        "M8x100": 16
+      }
+    },
+    {
+      "id": "T13",
+      "rule": "rods.external",
+      "input": {
+        "plan": "rectangle 12000 x 8000 mm",
+        "corners": 4
+      },
+      "expected": {
+        "rods_per_upper_level": 10
+      }
+    },
+    {
+      "id": "T14",
+      "rule": "rods.internal",
+      "input": {
+        "L_stacked_mm": 9000
+      },
+      "expected": {
+        "rods": 3,
+        "rod_length_mm": 750
+      }
+    },
+    {
+      "id": "T15",
+      "rule": "pitched.common_truss",
+      "input": {
+        "Lt_mm": 6000,
+        "O_mm": 600,
+        "pitch_deg": 15,
+        "heel_mm": 150
+      },
+      "expected": {
+        "bottom_chord_mm": 6000,
+        "top_chord_mm": 7454.0,
+        "verticals_count": 11,
+        "verticals_mm": 4760.6,
+        "diagonals_count": 10,
+        "diagonals_mm": 7408.8,
+        "total_m": 25.623
+      },
+      "note": "Diagonal per panel = sqrt(panel_width^2 + v_outer^2), v_outer = the shorter vertical of the panel."
+    },
+    {
+      "id": "T16",
+      "rule": "pitched.hip_end",
+      "input": {
+        "B_mm": 6000,
+        "s_mm": 600,
+        "O_mm": 600,
+        "pitch_deg": 15
+      },
+      "expected": {
+        "end_jacks": 9,
+        "end_jack_spans_mm": [
+          600,
+          1200,
+          1800,
+          2400,
+          3000,
+          2400,
+          1800,
+          1200,
+          600
+        ],
+        "side_jacks_per_side": 4,
+        "side_jack_spans_mm": [
+          600,
+          1200,
+          1800,
+          2400
+        ],
+        "hip_rafters": 2,
+        "hip_rafter_true_length_mm": 5181.7
+      }
+    },
+    {
+      "id": "T17",
+      "rule": "roof.purlins",
+      "input": {
+        "building_mm": [
+          12000,
+          6000
+        ],
+        "O_mm": 600,
+        "G_mm": 600,
+        "pitch_deg": 15,
+        "roof": "gable"
+      },
+      "expected": {
+        "plan_area_m2": 95.04,
+        "slope_area_m2": 98.39,
+        "eaves_length_m": 26.4,
+        "purlin_length_m": 108.39,
+        "weight_kg": 144.16
+      }
+    },
+    {
+      "id": "T18",
+      "rule": "roof.bracing",
+      "input": {
+        "L_section_mm": 12000,
+        "Lt_mm": 6000,
+        "O_mm": 600,
+        "pitch_deg": 15
+      },
+      "expected": {
+        "braced_bays_per_slope": 2,
+        "slope_length_m": 3.727,
+        "strap_per_bay_m": 10.542,
+        "top_chord_strap_m": 42.17,
+        "bottom_chord_strap_m": 33.94,
+        "weight_kg": 35.77
+      },
+      "note": "Bottom chord plane treated as two halves of width Lt/2."
+    },
+    {
+      "id": "T19",
+      "rule": "calculation_order",
+      "input": {
+        "calculated_lgs_kg": 10000,
+        "allowances_kg": 300,
+        "hrs_markup_kg": 1000,
+        "hrs_manual_direct_kg": 200
+      },
+      "expected": {
+        "net_lgs_kg": 10300,
+        "screws": 72100,
+        "connectors_aed": 1030.0,
+        "gross_lgs_kg": 10815.0,
+        "hrs_kg": 1312.5
+      },
+      "note": "Direct-kg manual HRS entries skip the connection allowance but take wastage."
+    },
+    {
+      "id": "T20",
+      "rule": "load_path_loop",
+      "input": {
+        "beam_ends_on_lgs_walls": 2,
+        "levels_below": 2
+      },
+      "expected": {
+        "stud_pack_studs": 12,
+        "pads_to_substructure": 2
+      }
+    }
+  ]
+}

@@ -119,6 +119,8 @@
     color: var(--uq-ink);
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
     font-family: var(--uq-font);
+    font-optical-sizing: none;
+    font-synthesis: none;
     letter-spacing: -0.011em;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -506,6 +508,13 @@
   border: 0;
   border-radius: 12px;
   transition: background 140ms ease, color 140ms ease;
+}
+
+.uq-nav-item-nested {
+  width: calc(100% - 22px);
+  min-height: 36px;
+  margin-left: 22px;
+  padding-left: 10px;
 }
 
 .uq-nav-item:hover,

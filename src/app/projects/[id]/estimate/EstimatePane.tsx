@@ -249,8 +249,7 @@ export function EstimatePane({
           <div className="h-full flex flex-col items-center justify-center gap-2 px-6 text-center">
             <p className="text-sm font-semibold text-slate-900">No items in this revision yet</p>
             <p className="text-xs text-slate-500 max-w-xs">
-              Auto generate reads PDF drawing text and prices from past jobs, then drafts a BOQ.
-              Or add items manually — totals stay at zero until there is something to price.
+              Add items to price this revision. Totals stay at zero until there is something to price.
             </p>
             {canManage && onAddLine && (
               <button

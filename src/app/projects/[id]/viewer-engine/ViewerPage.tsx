@@ -1144,6 +1144,7 @@ export default function ViewerPage() {
           )}
           <button
             className="toolbar-button toolbar-text-btn toolbar-back-btn"
+            title={searchParams.get('element') ? 'Report' : 'Back'}
             onClick={() => {
               const elementId = searchParams.get('element');
               if (elementId) {
@@ -1171,11 +1172,11 @@ export default function ViewerPage() {
               <i className="fas fa-project-diagram toolbar-icon" aria-hidden="true"></i>
               <span className="toolbar-label">Browser</span>
             </button>
-            <button id="selection-tool-btn" className="toolbar-button toolbar-text-btn">
+            <button id="selection-tool-btn" className="toolbar-button toolbar-text-btn" title="Select">
               <i className="fas fa-mouse-pointer toolbar-icon" aria-hidden="true"></i>
               <span className="toolbar-label">Select</span>
             </button>
-            <button id="status-toggle-btn" className="toolbar-button toolbar-text-btn">
+            <button id="status-toggle-btn" className="toolbar-button toolbar-text-btn" title="Status">
               <i className="fas fa-tags toolbar-icon" aria-hidden="true"></i>
               <span className="toolbar-label">Status</span>
             </button>
