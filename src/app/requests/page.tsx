@@ -52,6 +52,7 @@ export default function RequestsPage() {
   const [open, setOpen] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [confirmId, setConfirmId] = useState<string | null>(null)
+  const [detailId, setDetailId] = useState<string | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -164,6 +165,11 @@ export default function RequestsPage() {
                     {row.name} · {row.email}
                     {row.note ? ` · ${row.note}` : ''}
                   </p>
+                  {row.note && (
+                    <button type="button" onClick={() => setDetailId(detailId === row.id ? null : row.id)} aria-expanded={detailId === row.id} className="mt-1 text-xs font-semibold text-[var(--uq-blue)] hover:underline">
+                      {detailId === row.id ? 'Hide details' : 'Show details'}
+                    </button>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 shrink-0 flex-wrap">
                   {canDelete && (confirmId === row.id ? (
@@ -198,6 +204,15 @@ export default function RequestsPage() {
                   ) : null}
                 </div>
               </div>
+              {detailId === row.id && (
+                <div className="mt-4 rounded-xl border border-black/5 bg-white px-4 py-3 text-sm text-[var(--uq-ink)]">
+                  <p className="mb-2 text-[var(--uq-muted)]">
+                    {row.name} · <a href={`mailto:${row.email}`} className="text-[var(--uq-blue)] hover:underline">{row.email}</a>
+                    {row.drawingName ? ` · Drawing: ${row.drawingName}` : ''}
+                  </p>
+                  <p className="whitespace-pre-line break-words">{row.note}</p>
+                </div>
+              )}
             </article>
           ))}
         </div>
