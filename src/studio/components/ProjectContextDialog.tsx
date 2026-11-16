@@ -16,6 +16,7 @@ import {
   type ElementDef,
   type ElementSize as ElementSizeKey,
 } from '../lib/elements'
+import { VOLATILE_MAX_AGE_DAYS, daysSince } from '../lib/rateStatus'
 
 type Section = 'project' | 'floors' | 'elements' | 'commercials' | 'scope'
 
@@ -30,13 +31,14 @@ const SECTIONS: Array<{ id: Section; label: string }> = [
 type NumField = { key: keyof Commercials; label: string; step?: number; suffix?: string; help?: string }
 
 const MARKUP_FIELDS: NumField[] = [
-  { key: 'overheadPct', label: 'Head office overhead', suffix: '% on cost', help: 'UNIQUBE: 15% on direct cost' },
-  { key: 'financePct', label: 'Finance', suffix: '%', help: '2% on subtotal' },
-  { key: 'contingencyPct', label: 'Contingency', suffix: '%', help: '2% on subtotal' },
-  { key: 'designPct', label: 'Design and engineering', suffix: '%', help: '2%' },
-  { key: 'customsPct', label: 'Customs and duties', suffix: '%', help: '0 when ex-works UAE' },
-  { key: 'corporateTaxPct', label: 'Corporate tax', suffix: '%', help: 'Leave 0 unless the offer must carry it' },
-  { key: 'commissionPct', label: 'Commission', suffix: '%', help: '7% = 3.5% + 3.5% agents' },
+  { key: 'contingencyPct', label: 'Contingency', suffix: '% of direct', help: 'Size it by drawing maturity: 2% IFC set, 5% concept, 8–10% sketch' },
+  { key: 'designPct', label: 'Design and engineering', suffix: '% of direct', help: '2%' },
+  { key: 'financePct', label: 'Finance', suffix: '% of cost', help: 'Cash tied up between payments: 2%' },
+  { key: 'customsPct', label: 'Customs and duties', suffix: '% of imported', help: '5% GCC duty on imported material; 0 when ex-works UAE' },
+  { key: 'importedMaterialPct', label: 'Imported share of material', suffix: '%', help: 'Customs applies to this share of material only' },
+  { key: 'overheadPct', label: 'Head office overhead', suffix: '% of cost', help: 'UNIQUBE: 15%' },
+  { key: 'marginPct', label: 'Margin', suffix: '% of selling price', help: 'What you keep. UAE corporate tax (9% of profit) comes out of this' },
+  { key: 'commissionPct', label: 'Commission', suffix: '% of selling price', help: '7% = 3.5% + 3.5% agents' },
   { key: 'usdRate', label: 'AED per USD', step: 0.01, help: '3.67 fixed peg' },
 ]
 
@@ -53,7 +55,8 @@ const STEEL_FIELDS: NumField[] = [
 ]
 
 const SITE_FIELDS: NumField[] = [
-  { key: 'installPerM2', label: 'Site installation', suffix: 'AED/m² GFA', help: 'Zuha: 55–111 AED/m²' },
+  { key: 'installPerM2', label: 'Site installation (fallback)', suffix: 'AED/m² GFA', help: 'Used only until the Dry cost labour model covers every in-scope row. Zuha: 55–111' },
+  { key: 'labourDayRate', label: 'Labourer day rate, all-in', suffix: 'AED/day', help: 'Wage, visa, housing, transport. PROPOSED 160, confirm with HR' },
   { key: 'm2PerContainer', label: 'GFA per 40 ft container', suffix: 'm²', help: '≈ 60 m² per container' },
   { key: 'trailerPerContainer', label: 'Trailer per container', suffix: 'AED' },
   { key: 'palletPerContainer', label: 'Pallets per container', suffix: 'AED' },
@@ -263,6 +266,7 @@ export function ProjectContextDialog({ onClose }: { onClose: () => void }) {
   const [section, setSection] = useState<Section>('project')
   const commercials = ctx.commercials
   const multiplier = sellMultiplier(commercials)
+  const ratesAge = daysSince(commercials.ratesReviewedAt)
   const totalAreaM2 = ctx.floors.reduce((sum, floor) => sum + (floor.areaM2 ?? 0), 0)
   const [openElement, setOpenElement] = useState<string | null>(null)
 
@@ -423,11 +427,23 @@ export function ProjectContextDialog({ onClose }: { onClose: () => void }) {
                     <strong className="context-multiplier__value">× {multiplier.toFixed(4)}</strong>
                   </div>
                   <p className="context-help">
-                    direct × (1 + OH) ÷ (1 − margin) × (1 + finance + contingency) × (1 + design) × (1 + customs) × (1 + tax) × (1 +
-                    commission). UNIQUBE Zuha jobs: 1.5357.
+                    cost = direct × (1 + contingency + design) × (1 + finance) + customs on imported material, then × (1 + OH). Price =
+                    cost ÷ (1 − margin − commission), so margin and commission are exact shares of the selling price. Corporate tax is paid
+                    from profit and is not added to the price.
                   </p>
                   <button type="button" className="btn btn--ghost" onClick={() => setCommercials(defaultCommercials())}>
                     <RotateCcw size={14} /> Reset to UNIQUBE defaults
+                  </button>
+                </div>
+
+                <div className="context-rates-review">
+                  <span>
+                    Steel, site and logistics rates last reviewed:{' '}
+                    <strong>{commercials.ratesReviewedAt || 'never'}</strong>
+                    {ratesAge != null && ratesAge > VOLATILE_MAX_AGE_DAYS ? ` (${ratesAge} days ago: re-check before quoting)` : ''}
+                  </span>
+                  <button type="button" className="btn btn--ghost" onClick={() => setCommercials({ ratesReviewedAt: new Date().toISOString().slice(0, 10) })}>
+                    Mark reviewed today
                   </button>
                 </div>
 

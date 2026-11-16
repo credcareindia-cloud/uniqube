@@ -46,11 +46,18 @@ export async function loadSuperState(projectId: string, storeyCount: number): Pr
 }
 
 export async function saveSuperState(projectId: string, state: SuperState) {
+  let saved = state
   try {
     await apiJson(`/api/projects/${projectId}/superstructure`, { method: 'PUT', body: JSON.stringify(state) })
   } catch {
-    await apiJson(`/api/projects/${projectId}/superstructure`, { method: 'PUT', body: JSON.stringify({ ...state, result: null }) })
+    saved = { ...state, result: null }
+    await apiJson(`/api/projects/${projectId}/superstructure`, { method: 'PUT', body: JSON.stringify(saved) })
   }
+  // Pricing reads the measured steel; keep it in step with what was stored.
+  const { syncMeasuredSteel } = await import('../measured')
+  syncMeasuredSteel(projectId, saved)
+  const { bumpSidebarMarks } = await import('../sidebarMarks')
+  bumpSidebarMarks()
 }
 
 /** The approved (or at least run) foundation result this project's superstructure builds on. */

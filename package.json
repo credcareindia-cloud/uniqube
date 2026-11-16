@@ -8,8 +8,11 @@
     "build": "vite build",
     "build:check": "tsc -b && vite build",
     "lint": "eslint . --max-warnings=50",
+    "check:architecture": "node scripts/check-architecture-rules.ts",
     "preview": "vite preview",
-    "vercel-build": "vite build"
+    "vercel-build": "vite build",
+    "test:estimation": "node --import ./scripts/register-ts.mjs --test scripts/estimation.test.ts",
+    "check:rules-drift": "python3 ../../revitPlugins/tools/check_rules_drift.py"
   },
   "dependencies": {
     "@ai-sdk/react": "^4.0.163",

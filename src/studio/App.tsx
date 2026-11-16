@@ -1,9 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import clsx from 'clsx'
-import { AgentPanel } from './components/AgentPanel'
-import { EstimationStage } from './components/EstimationStage'
-import { FileRail } from './components/FileRail'
 import { LandingPage } from './components/LandingPage'
 import { LoginPage } from './components/LoginPage'
 import { OsShell, readSession, writeSession, type AgentFocus, type OsScreen, type OsUser } from './components/OsChrome'
@@ -12,7 +8,6 @@ import { ProjectNameDialog } from './components/ProjectNameDialog'
 import { AgentsPage } from './components/AgentsPage'
 import { BoqPage } from './components/BoqPage'
 import { DryCostPage } from './components/DryCostPage'
-import { CostingPage } from './components/CostingPage'
 import { PackageRegisterPage } from './components/PackageRegisterPage'
 import { QuotationPage } from './components/QuotationPage'
 import { EstimationsPage } from './components/EstimationsPage'
@@ -20,6 +15,7 @@ import type { CreatedEstimate } from './components/CreateEstimatePage'
 import { openSettings } from './lib/settingsDialog'
 import { DocumentsPanel } from './components/DocumentsPanel'
 import { RulesPage } from './components/RulesPage'
+import { EstimationAgentPage } from './components/EstimationAgentPage'
 import {
   beginSession,
   createProject,
@@ -38,23 +34,7 @@ import { agentFrom, estimateLocation, parseEstimateLocation, parsePath, screenFr
 import { useAppStore } from './store'
 import { restoreMissingDrawings } from './lib/restoreDrawing'
 
-const MIN = 180
-const MAX = 520
-const LEFT_DEFAULT = 300
-const RIGHT_DEFAULT = 260
-const LEFT_KEY = 'estimation-left-width'
-const RIGHT_KEY = 'estimation-right-width'
 const ACTIVE_KEY = 'estimation-active-project-id'
-
-function loadWidth(key: string, fallback: number) {
-  try {
-    const n = Number(localStorage.getItem(key))
-    if (!Number.isFinite(n)) return fallback
-    return Math.min(MAX, Math.max(MIN, n))
-  } catch {
-    return fallback
-  }
-}
 
 function rememberActive(id: string) {
   try {
@@ -67,14 +47,11 @@ function rememberActive(id: string) {
 export default function App({ embed }: { embed?: { projectId: string; projectName: string; user: OsUser } } = {}) {
   const projectId = useAppStore((s) => s.projectId)
   const projectName = useAppStore((s) => s.projectSetup.projectName)
-  const [left, setLeft] = useState(() => loadWidth(LEFT_KEY, LEFT_DEFAULT))
-  const [right, setRight] = useState(() => loadWidth(RIGHT_KEY, RIGHT_DEFAULT))
   const stageView = useAppStore((s) => s.stageView)
   const embeddedStart = embed ? parseEstimateLocation(window.location.pathname) : null
   const [screen, setScreen] = useState<OsScreen>(() => embeddedStart?.screen ?? (embed ? 'documents' : screenFrom(parsePath(window.location.pathname))))
   const [agentFocus, setAgentFocus] = useState<AgentFocus>(() => embeddedStart?.agent ?? agentFrom(parsePath(window.location.pathname)))
   const [documentsOpen, setDocumentsOpen] = useState(false)
-  const [settingsNonce, setSettingsNonce] = useState(0)
   const [user, setUser] = useState<OsUser | null>(() => embed?.user ?? readSession())
   const [gate, setGate] = useState<'site' | 'studio'>(() => (parsePath(window.location.pathname).kind === 'site' ? 'site' : 'studio'))
   useEffect(() => {
@@ -86,60 +63,10 @@ export default function App({ embed }: { embed?: { projectId: string; projectNam
   const [nameError, setNameError] = useState<string | null>(null)
   const [listError, setListError] = useState<string | null>(null)
   const [booting, setBooting] = useState(true)
-  const [dragging, setDragging] = useState<'left' | 'right' | null>(null)
-  const dragRef = useRef<{ side: 'left' | 'right'; startX: number; startW: number } | null>(null)
   const openExistingRef = useRef<(id: string, next?: OsScreen) => void>(() => {})
   const holdUrl = useRef(false)
   const userRef = useRef(user)
   userRef.current = user
-  const leftRef = useRef(left)
-  const rightRef = useRef(right)
-  leftRef.current = left
-  rightRef.current = right
-
-  const persist = useCallback((side: 'left' | 'right', w: number) => {
-    try {
-      localStorage.setItem(side === 'left' ? LEFT_KEY : RIGHT_KEY, String(w))
-    } catch {
-      /* ignore */
-    }
-  }, [])
-
-  const onPointerDown = useCallback((side: 'left' | 'right', e: React.PointerEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    e.currentTarget.setPointerCapture(e.pointerId)
-    dragRef.current = {
-      side,
-      startX: e.clientX,
-      startW: side === 'left' ? leftRef.current : rightRef.current,
-    }
-    setDragging(side)
-  }, [])
-
-  const onPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current
-    if (!drag) return
-    const dx = e.clientX - drag.startX
-    const next = Math.min(MAX, Math.max(MIN, drag.side === 'left' ? drag.startW + dx : drag.startW - dx))
-    if (drag.side === 'left') setLeft(next)
-    else setRight(next)
-  }, [])
-
-  const endDrag = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      const drag = dragRef.current
-      if (!drag) return
-      dragRef.current = null
-      setDragging(null)
-      try {
-        e.currentTarget.releasePointerCapture(e.pointerId)
-      } catch {
-        /* already released */
-      }
-      persist(drag.side, drag.side === 'left' ? leftRef.current : rightRef.current)
-    },
-    [persist],
-  )
 
   const embedId = embed?.projectId ?? null
   const embedName = embed?.projectName ?? ''
@@ -317,11 +244,6 @@ export default function App({ embed }: { embed?: { projectId: string; projectNam
   const go = useCallback((next: OsScreen, view?: 'takeoff' | 'pricing' | 'summary' | 'settings', agent?: AgentFocus) => {
     setNameError(null)
     if (agent) setAgentFocus(agent)
-    if (view === 'settings') {
-      setSettingsNonce((n) => n + 1)
-      setScreen('workspace')
-      return
-    }
     if (next === 'documents') setDocumentsOpen(false)
     if (view) useAppStore.getState().setStageView(view)
     if (embed && (next === 'projects' || next === 'create')) return
@@ -440,30 +362,6 @@ export default function App({ embed }: { embed?: { projectId: string; projectNam
     void openExisting(id, next)
   }
 
-  useEffect(() => {
-    if (!dragging) return
-    const prev = document.body.style.cursor
-    const select = document.body.style.userSelect
-    document.body.style.cursor = 'col-resize'
-    document.body.style.userSelect = 'none'
-    return () => {
-      document.body.style.cursor = prev
-      document.body.style.userSelect = select
-    }
-  }, [dragging])
-
-  const sashProps = (side: 'left' | 'right') => ({
-    className: clsx('sash', dragging === side && 'sash--active'),
-    role: 'separator' as const,
-    'aria-orientation': 'vertical' as const,
-    'aria-label': side === 'left' ? 'Resize estimator' : 'Resize files',
-    tabIndex: 0,
-    onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => onPointerDown(side, e),
-    onPointerMove,
-    onPointerUp: endDrag,
-    onPointerCancel: endDrag,
-  })
-
   const dialog = naming ? (
     <ProjectNameDialog
       busy={saving}
@@ -533,30 +431,18 @@ export default function App({ embed }: { embed?: { projectId: string; projectNam
       <BoqPage projectId={projectId} />
     ) : screen === 'dry-cost' ? (
       <DryCostPage projectId={activeProjectId ?? ''} />
-    ) : screen === 'costing' ? (
-      <CostingPage />
-    ) : screen === 'packages' ? (
+    ) : screen === 'packages' || screen === 'costing' ? (
       <PackageRegisterPage />
     ) : screen === 'share' ? (
-      <QuotationPage projectId={projectId} onBack={() => setScreen('agents')} />
+      <QuotationPage projectId={projectId} onBack={() => setScreen('workspace')} />
     ) : screen === 'rules' ? (
       <RulesPage />
     ) : screen === 'documents' || screen === 'setup' ? (
       <DocumentsPanel variant="page" />
+    ) : screen === 'workspace' ? (
+      <EstimationAgentPage projectId={activeProjectId ?? ''} onOpenOffer={() => setScreen('share')} />
     ) : (
-    <div className="app-frame">
-      <div className={clsx('app-shell', dragging && 'app-shell--dragging')}>
-        <div className="pane-slot" style={{ width: left }}>
-          <AgentPanel key={projectId ?? 'none'} projectId={projectId} />
-        </div>
-        <div {...sashProps('left')} />
-        <EstimationStage settingsNonce={settingsNonce} />
-        <div {...sashProps('right')} />
-        <div className="pane-slot" style={{ width: right }}>
-          <FileRail booting={booting} onCreateProject={() => setNaming(true)} />
-        </div>
-      </div>
-    </div>
+      <DocumentsPanel variant="page" />
     )
 
   return (

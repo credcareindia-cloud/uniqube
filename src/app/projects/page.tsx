@@ -1,16 +1,6 @@
 ﻿import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import {
-  Building2,
-  Plus,
-  Calendar,
-  Activity,
-  TrendingUp,
-  Package,
-  Box,
-  Eye,
-  Layers,
-} from 'lucide-react'
+import { Plus, Package, Box, Eye, Layers } from 'lucide-react'
 import { CubeLoader } from '@/components/ui/CubeLoader'
 import { QubeCharacter } from '@/components/ui/QubeCharacter'
 import { ModelCreation } from '@/components/projects/ModelCreation'
@@ -19,7 +9,7 @@ import { useNotifications } from '@/hooks/useNotifications'
 import { useRBAC } from '@/contexts/RBACContext'
 import type { BuildSystem } from '@/services/api'
 
-type FilterStatus = 'all' | 'active' | 'completed' | 'planning'
+type FilterStatus = 'all' | 'active' | 'completed' | 'planning' | 'cancelled'
 
 const BUILD_SYSTEM_PILL: Record<BuildSystem, { label: string; hint: string; className: string }> = {
   LGS: {
@@ -45,7 +35,11 @@ export default function ProjectsPage() {
   const { userProjects, canCreateProjects, isLoading: rbacLoading, refreshUserProjects } = useRBAC()
   const [error, setError] = useState<string | null>(null)
   const searchQuery = searchParams.get('q') || ''
-  const [filterStatus, setFilterStatus] = useState<FilterStatus>('all')
+  const statusParam = (searchParams.get('status') || '').toLowerCase()
+  const filterStatus: FilterStatus =
+    statusParam === 'active' || statusParam === 'completed' || statusParam === 'planning' || statusParam === 'cancelled'
+      ? statusParam
+      : 'all'
   const [showModelCreation, setShowModelCreation] = useState(false)
   const [showMultiFileCreation, setShowMultiFileCreation] = useState(false)
   const [showCreationChoice, setShowCreationChoice] = useState(false)
@@ -129,6 +123,7 @@ export default function ProjectsPage() {
       case 'active':
       case 'completed':
       case 'planning':
+      case 'cancelled':
       case 'on-hold':
         return kebab
       default:
@@ -136,14 +131,20 @@ export default function ProjectsPage() {
     }
   }
 
+  const matchesFilter = (status?: string) => {
+    const s = normalizeStatus(status)
+    if (filterStatus === 'all') return true
+    if (filterStatus === 'planning') return s === 'planning' || s === 'on-hold'
+    return s === filterStatus
+  }
+
   // Filter projects based on search and status
-  const filteredProjects = userProjects.filter(project => {
-    const matchesSearch = project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+  const filteredProjects = userProjects.filter((project) => {
+    const matchesSearch =
+      project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (project.description?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false)
 
-    const matchesStatus = filterStatus === 'all' || normalizeStatus(project.status) === filterStatus
-
-    return matchesSearch && matchesStatus
+    return matchesSearch && matchesFilter(project.status)
   })
 
   // Paginate filtered projects
@@ -151,14 +152,6 @@ export default function ProjectsPage() {
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
   const endIndex = startIndex + ITEMS_PER_PAGE
   const paginatedProjects = filteredProjects.slice(startIndex, endIndex)
-
-  // Calculate stats
-  const stats = {
-    total: userProjects.length,
-    active: userProjects.filter(p => normalizeStatus(p.status) === 'active').length,
-    completed: userProjects.filter(p => normalizeStatus(p.status) === 'completed').length,
-    planning: userProjects.filter(p => normalizeStatus(p.status) === 'planning').length,
-  }
 
   // Only show skeleton on initial load (when no projects and loading)
   // This prevents flickering during background refreshes
@@ -168,36 +161,6 @@ export default function ProjectsPage() {
 
   return (
     <div className="w-full max-w-[1400px] mx-auto space-y-6">
-      <div className="uq-stat-strip">
-        {(
-          [
-            { key: 'all' as FilterStatus, label: 'Total', value: stats.total, icon: Building2 },
-            { key: 'active' as FilterStatus, label: 'Active', value: stats.active, icon: Activity },
-            { key: 'completed' as FilterStatus, label: 'Completed', value: stats.completed, icon: TrendingUp },
-            { key: 'planning' as FilterStatus, label: 'Planning', value: stats.planning, icon: Calendar },
-          ]
-        ).map((item) => {
-          const selected = filterStatus === item.key
-          const Icon = item.icon
-          return (
-            <button
-              key={item.key}
-              type="button"
-              onClick={() => setFilterStatus(item.key)}
-              className={`uq-stat-cell ${selected ? 'uq-stat-cell-active' : ''}`}
-            >
-              <span className="uq-stat-glyph">
-                <Icon className="h-4 w-4" />
-              </span>
-              <span className="min-w-0">
-                <span className="uq-stat-label block">{item.label}</span>
-                <span className="uq-stat-value block">{item.value}</span>
-              </span>
-            </button>
-          )
-        })}
-      </div>
-
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4">
           <p className="text-red-600 text-sm">{error}</p>

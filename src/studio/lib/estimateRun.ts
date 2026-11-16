@@ -9,6 +9,7 @@ import { loadEngineState, runEngineForProject, saveEngineState, type EngineState
 import { mepBlocked, runMep } from './mep/engine'
 import { mepFromPlan, mergePlanTrades } from './mep/fromPlan'
 import { loadMepState, saveMepState } from './mep/run'
+import { syncMeasuredLabour, syncMeasuredSteel } from './measured'
 import type { MepState } from './mep/types'
 import { loadSuperState, resizeLevels, runSuper, saveSuperState, type SuperState } from './superstructure/run'
 import type { HrsDecision, SuperResult } from './superstructure/types'
@@ -523,7 +524,9 @@ export async function collectRunTotals(projectId: string): Promise<RunTotals> {
   const arch = await apiJson<ArchState | null>(`/api/projects/${projectId}/architecture`).catch(() => null)
   const mep = await loadMepState(projectId).catch(() => null)
   const sources = await collectSources(projectId).catch(() => [])
-  const dry = mergeDryCost(await loadDryCost(projectId).catch(() => null), sources)
+  const dry = mergeDryCost(await loadDryCost(projectId).catch(() => null), sources, useAppStore.getState().projectContext.commercials.labourDayRate)
+  if (superState) syncMeasuredSteel(projectId, superState)
+  syncMeasuredLabour(projectId, dry)
   return {
     foundationType: engine?.result ? `Type ${engine.result.foundationType}` : '—',
     foundationLines: engine?.result ? roundedBoq(engine.result).length : 0,

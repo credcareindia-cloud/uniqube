@@ -21,7 +21,11 @@ export function AppLayout({ children }: AppLayoutProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const isViewer = /\/projects\/[^/]+\/viewer-engine/.test(location.pathname)
-  const hideChrome = isViewer || location.pathname.startsWith('/requests') || /\/projects\/[^/]+\/estimate/.test(location.pathname)
+  const hideChrome =
+    isViewer ||
+    location.pathname.startsWith('/requests') ||
+    location.pathname.startsWith('/estimation/requests') ||
+    /\/projects\/[^/]+\/estimate/.test(location.pathname)
   const sessionSeenRef = useRef<Set<string>>(
     new Set<string>(
       (() => {

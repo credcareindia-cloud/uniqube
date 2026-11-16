@@ -25,7 +25,7 @@ export function parsePath(pathname: string): AppRoute {
   if (section === 'mep') return { kind: 'project', projectId, screen: 'agents', agent: 'mep' }
   if (section === 'boq') return { kind: 'project', projectId, screen: 'boq' }
   if (section === 'dry-cost') return { kind: 'project', projectId, screen: 'dry-cost' }
-  if (section === 'costing') return { kind: 'project', projectId, screen: 'costing' }
+  if (section === 'costing') return { kind: 'project', projectId, screen: 'packages' }
   if (section === 'packages') return { kind: 'project', projectId, screen: 'packages' }
   if (section === 'offer') return { kind: 'project', projectId, screen: 'share' }
   if (section === 'rules') return { kind: 'project', projectId, screen: 'rules' }
@@ -58,7 +58,7 @@ export function parseEstimateLocation(pathname: string): { screen: OsScreen; age
   if (section === 'mep') return { screen: 'agents', agent: 'mep' }
   if (section === 'boq') return { screen: 'boq', agent: 'foundation' }
   if (section === 'dry-cost') return { screen: 'dry-cost', agent: 'foundation' }
-  if (section === 'costing') return { screen: 'costing', agent: 'foundation' }
+  if (section === 'costing') return { screen: 'packages', agent: 'foundation' }
   if (section === 'packages') return { screen: 'packages', agent: 'foundation' }
   if (section === 'offer') return { screen: 'share', agent: 'foundation' }
   if (section === 'rules') return { screen: 'rules', agent: 'foundation' }
@@ -74,8 +74,7 @@ export function estimateLocation(numericProjectId: string, screen: OsScreen, age
   if (screen === 'agents') return `${base}/${agent}`
   if (screen === 'boq') return `${base}/boq`
   if (screen === 'dry-cost') return `${base}/dry-cost`
-  if (screen === 'costing') return `${base}/costing`
-  if (screen === 'packages') return `${base}/packages`
+  if (screen === 'costing' || screen === 'packages') return `${base}/packages`
   if (screen === 'share') return `${base}/offer`
   if (screen === 'rules') return `${base}/rules`
   if (screen === 'setup') return `${base}/settings`
@@ -93,8 +92,7 @@ export function studioPath(screen: OsScreen, projectId: string | null, agent: Ag
   if (screen === 'agents') return `${base}/${agent}`
   if (screen === 'boq') return `${base}/boq`
   if (screen === 'dry-cost') return `${base}/dry-cost`
-  if (screen === 'costing') return `${base}/costing`
-  if (screen === 'packages') return `${base}/packages`
+  if (screen === 'costing' || screen === 'packages') return `${base}/packages`
   if (screen === 'share') return `${base}/offer`
   if (screen === 'rules') return `${base}/rules`
   if (screen === 'setup') return `${base}/settings`

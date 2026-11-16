@@ -155,6 +155,12 @@ export interface Commercials {
   includeLogistics: boolean
   includePrelims: boolean
   includeMep: boolean
+  /** Share of material cost that is imported and attracts customs (0–100). */
+  importedMaterialPct?: number
+  /** All-in cost of one site labourer per day (wage, visa, housing, transport). */
+  labourDayRate?: number
+  /** ISO date the steel, site and logistics rates on this sheet were last reviewed. */
+  ratesReviewedAt?: string
 }
 
 /** A saved pricing snapshot (R0, R1 …) for comparison across revisions. */
@@ -208,6 +214,27 @@ export interface ProjectContext {
   commercials: Commercials
   /** Values entered once in Settings and read by every agent. */
   jobInputs?: JobInputs
+  /** Quantities from the approved engines, kept in step when an engine is saved. Pricing reads these. */
+  measured?: MeasuredQuantities | null
+}
+
+/** Engine quantities the pricing uses in place of kg/m² ratios. */
+export interface MeasuredQuantities {
+  /** Super structure: gross LGS (net × wastage), kg. */
+  lgsGrossKg: number
+  lgsNetKg: number
+  hrsKg: number
+  screws: number
+  connectorsAed: number
+  anchors: number
+  /** Super structure result timestamp the figures came from. */
+  superRanAt: string
+  superApprovedBy: string | null
+  /** Installation labour from the productivity model (dry cost sheet, in-scope lines), AED. */
+  labourAed?: number | null
+  labourGangDays?: number | null
+  labourUnmatched?: number
+  labourSavedAt?: string
 }
 
 export interface JobInputs {
@@ -352,6 +379,16 @@ export interface PriceSheetRow {
   materialCost?: number
   fabCost?: number
   installCost?: number
+  /**
+   * Where the rate stands. seed = keyword guess from the catalog (never quotable),
+   * listed = UNIQUBE price list with no review date, verified = checked by a person on rateDate.
+   * Missing means listed (rows saved before statuses existed).
+   */
+  status?: 'seed' | 'listed' | 'verified'
+  /** ISO date the rate was last checked (supplier quote, invoice or price list). */
+  rateDate?: string
+  /** Supplier, quote number or who checked it. */
+  rateSource?: string
 }
 
 export type ClientDocStatus = 'reading' | 'ready' | 'error'

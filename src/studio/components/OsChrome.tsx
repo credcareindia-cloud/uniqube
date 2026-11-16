@@ -1,4 +1,4 @@
-import { Bot, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, Plus, Search, Trash2 } from 'lucide-react'
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Clock, Plus, Search, Trash2 } from 'lucide-react'
 import { SCOPE_AGENTS } from '../lib/agentScopes'
 import { useSidebarMarks, type SidebarMarks } from '../lib/sidebarMarks'
 import { openSettings, useSettingsDialog } from '../lib/settingsDialog'
@@ -44,7 +44,6 @@ export function writeSession(user: OsUser | null) {
 
 const CONTEXT: Array<{ id: OsScreen; label: string; mark: keyof SidebarMarks }> = [
   { id: 'setup', label: 'Settings', mark: 'setup' },
-  { id: 'costing', label: 'Costing', mark: 'costing' },
   { id: 'packages', label: 'Packages', mark: 'packages' },
   { id: 'rules', label: 'Rules', mark: 'rules' },
 ]
@@ -52,6 +51,10 @@ const CONTEXT: Array<{ id: OsScreen; label: string; mark: keyof SidebarMarks }> 
 const OUTPUT: Array<{ id: OsScreen; label: string; mark: keyof SidebarMarks }> = [
   { id: 'boq', label: 'BOQ', mark: 'boq' },
   { id: 'dry-cost', label: 'Dry cost', mark: 'dryCost' },
+]
+
+const VERIFICATION: Array<{ id: OsScreen; label: string; mark: keyof SidebarMarks }> = [
+  { id: 'workspace', label: 'Estimation Agent', mark: 'workspace' },
   { id: 'share', label: 'Offer', mark: 'share' },
 ]
 
@@ -342,7 +345,7 @@ export function OsShell({
     const observer = new ResizeObserver(measure)
     observer.observe(rail)
     return () => observer.disconnect()
-  }, [inside, projectId])
+  }, [inside, projectId, marks])
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -390,20 +393,7 @@ export function OsShell({
             </ul>
           )}
         </div>
-        {inside && (
-          <>
-            <StartEstimateButton onClick={() => setRunOpen(true)} />
-            <button
-              type="button"
-              className={clsx('est-studio', active === 'workspace' && 'is-on')}
-              title="Studio"
-              onClick={() => onNavigate('workspace', 'settings')}
-            >
-              <Bot size={15} />
-              <span>Studio</span>
-            </button>
-          </>
-        )}
+        {inside && <StartEstimateButton onClick={() => setRunOpen(true)} />}
         {active === 'projects' && onNewProject && (
           <button type="button" className="est-primary" onClick={onNewProject}>
             <Plus size={15} /> New project
@@ -476,6 +466,10 @@ export function OsShell({
               ))}
               <span className="est-side__tag">Output</span>
               {OUTPUT.map((link) => (
+                <RailItem key={link.id} label={link.label} done={marks[link.mark]} on={active === link.id} onClick={() => onNavigate(link.id)} />
+              ))}
+              <span className="est-side__tag">Verification</span>
+              {VERIFICATION.map((link) => (
                 <RailItem key={link.id} label={link.label} done={marks[link.mark]} on={active === link.id} onClick={() => onNavigate(link.id)} />
               ))}
             </div>

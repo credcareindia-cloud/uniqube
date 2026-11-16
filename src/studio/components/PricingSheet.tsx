@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Plus, RotateCcw, Trash2 } from 'lucide-react'
 import { useAppStore } from '../store'
 import { DISCIPLINES, type DisciplineId } from '../lib/projectCatalog'
+import { checkRate } from '../lib/rateStatus'
 
 const UNITS = ['m²', 'lm', 'm³', 'nos', 'kg', 'set', 'ls'] as const
 
@@ -11,6 +12,8 @@ export function PricingSheet() {
   const addPriceRow = useAppStore((s) => s.addPriceRow)
   const removePriceRow = useAppStore((s) => s.removePriceRow)
   const resetPriceSheet = useAppStore((s) => s.resetPriceSheet)
+  const verifyPriceRows = useAppStore((s) => s.verifyPriceRows)
+  const [onlyToCheck, setOnlyToCheck] = useState(false)
 
   const [disciplineFilter, setDisciplineFilter] = useState<DisciplineId | 'all'>('all')
   const [search, setSearch] = useState('')
@@ -20,6 +23,7 @@ export function PricingSheet() {
     const q = search.trim().toLowerCase()
     return priceSheet.filter((r) => {
       if (disciplineFilter !== 'all' && r.discipline !== disciplineFilter) return false
+      if (onlyToCheck && checkRate(r).ok) return false
       if (!q) return true
       return (
         r.componentLabel.toLowerCase().includes(q) ||
@@ -28,7 +32,8 @@ export function PricingSheet() {
         r.notes.toLowerCase().includes(q)
       )
     })
-  }, [priceSheet, disciplineFilter, search])
+  }, [priceSheet, disciplineFilter, search, onlyToCheck])
+  const toCheck = useMemo(() => priceSheet.filter((r) => !checkRate(r).ok).length, [priceSheet])
 
   function markSaved() {
     setDirtyFlash(true)
@@ -41,8 +46,8 @@ export function PricingSheet() {
         <div className="pricing__title-block">
           <h2>Price sheet</h2>
           <p>
-            Seeded from building materials catalog · {priceSheet.length} rates · edits save
-            automatically
+            {priceSheet.length} rates · {toCheck} to check before quoting · typing a rate stamps it as checked today
+            · edits save automatically
             {dirtyFlash ? <span className="pricing__saved"> Saved</span> : null}
           </p>
         </div>
@@ -68,6 +73,24 @@ export function PricingSheet() {
               </option>
             ))}
           </select>
+          <label className="pricing__toggle">
+            <input type="checkbox" checked={onlyToCheck} onChange={(e) => setOnlyToCheck(e.target.checked)} /> Only rates to check ({toCheck})
+          </label>
+          <button
+            type="button"
+            className="btn btn--ghost"
+            title="Stamp the rows shown as checked today against the source you name"
+            onClick={() => {
+              const ids = filtered.filter((r) => r.unitPrice > 0).map((r) => r.id)
+              if (!ids.length) return
+              const source = window.prompt(`Mark ${ids.length} rate${ids.length === 1 ? '' : 's'} as checked today. Source (supplier quote no., price list, invoice):`)
+              if (!source?.trim()) return
+              verifyPriceRows(ids, source)
+              markSaved()
+            }}
+          >
+            Mark shown as checked
+          </button>
           <button type="button" className="btn" onClick={addPriceRow}>
             <Plus size={16} /> Add rate
           </button>
@@ -100,6 +123,7 @@ export function PricingSheet() {
               <th>Variant</th>
               <th>Unit</th>
               <th>Unit price</th>
+              <th>Status</th>
               <th>Currency</th>
               <th>Notes</th>
               <th />
@@ -185,6 +209,17 @@ export function PricingSheet() {
                   />
                 </td>
                 <td>
+                  {(() => {
+                    const check = checkRate(r)
+                    const text = check.label === 'current' ? `Checked ${r.rateDate}` : check.label === 'seed' ? 'Placeholder' : check.label === 'stale' ? `Old: ${r.rateDate}` : 'No review date'
+                    return (
+                      <span className={`pricing__status pricing__status--${check.label}`} title={check.reason ?? r.rateSource ?? ''}>
+                        {text}
+                      </span>
+                    )
+                  })()}
+                </td>
+                <td>
                   <input
                     value={r.currency}
                     onChange={(e) => {
@@ -220,7 +255,7 @@ export function PricingSheet() {
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={9} className="pricing__empty">
+                <td colSpan={10} className="pricing__empty">
                   No rates match this filter.
                 </td>
               </tr>

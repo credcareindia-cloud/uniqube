@@ -1,4 +1,6 @@
-import type { SystemId } from './elements'
+import type { ProjectContext, TakeoffLine } from '../types'
+import { ELEMENTS, SYSTEMS, buildUpFor, type SystemId } from './elements'
+import type { Estimate } from './estimate'
 import { roundedBoq } from './foundation/engine'
 import { foundationTypeName } from './foundation/rules'
 import type { EngineResult } from './foundation/types'
@@ -29,6 +31,9 @@ export const PAYMENT_TERMS = [
 ]
 
 /** Standard inclusion list. `included` matches the quotation template. */
+export const WALL_INCLUSION_DEFAULT =
+  'Supply and installation. External finish: 12 mm thick cement board. Internal finish: 12 and 15 mm thick gypsum board. Infill: rockwool insulation'
+
 export const INCLUSIONS: Array<{ description: string; included: boolean }> = [
   ['HRS - Supply and installation', true],
   ['LGS frames - Supply and installation', true],
@@ -74,8 +79,18 @@ export type QuoteRow = {
   measured: boolean
 }
 
+export type ScheduleRate = { system: string; unit: string; rate: number; basis: string }
+
 export type ShareQuotation = {
   date: string
+  /** Offer valid until (dd/mm/yyyy). */
+  validUntil: string
+  /** Date the steel, site and logistics rates were reviewed (dd/mm/yyyy), for the escalation clause. */
+  ratesDate: string
+  inclusions: Array<{ description: string; included: boolean }>
+  schedule: ScheduleRate[]
+  /** Foundation quantities for the main contractor: out of UNIQUBE scope, never priced. */
+  appendix: QuoteRow[]
   to: string
   project: string
   location: string
@@ -111,6 +126,94 @@ function stamp(iso: string | null) {
   return `${dd}/${mm}/${date.getFullYear()}`
 }
 
+/** Element build-ups in scope for one system, as offer text. Empty when nothing is selected. */
+function buildUpText(system: SystemId, ctx: ProjectContext): string[] {
+  return ELEMENTS.filter((el) => el.system === system && ctx.elements.includes(el.id))
+    .map((el) => {
+      const layers = buildUpFor(ctx, el).layers.map((layer) => layer.name.trim()).filter(Boolean)
+      return layers.length ? `${el.label}: ${layers.join(', ')}` : ''
+    })
+    .filter(Boolean)
+}
+
+/**
+ * Offer description for a system. Wall, roof, ceiling and floor are written from the build-ups the
+ * estimator priced, so the scope text cannot contradict the bill. Steel, openings and MEP describe
+ * scope rather than a specification and keep the standard copy.
+ */
+export function systemScopeText(system: SystemId, ctx: ProjectContext, fallback: string): string {
+  if (system === 'wall' || system === 'roof' || system === 'ceiling' || system === 'floor') {
+    const parts = buildUpText(system, ctx)
+    if (parts.length) {
+      const label = SYSTEMS.find((s) => s.id === system)?.label ?? 'System'
+      const steelNote = system === 'roof' ? '' : ' (steel structure considered separately)'
+      return `${label} – Supply and installation of the complete ${label.toLowerCase()}. ${parts.join('. ')}. Including fixing accessories, sealants, joint treatment and all associated components.${steelNote}`
+    }
+  }
+  if (system === 'openings') {
+    const notes = ['window', 'door'].map((id) => ctx.buildUps[id]?.notes?.trim()).filter(Boolean)
+    if (notes.length) return `Aluminum Doors & Windows – Supply, fabrication, glazing, delivery and installation of complete aluminum doors, windows, ironmongery, sealants and glazing accessories. ${notes.join('. ')}.`
+  }
+  return OFFER_COPY[system] ?? fallback
+}
+
+/** Inclusion list with the wall line written from the external and internal wall build-ups. */
+export function offerInclusions(ctx: ProjectContext): Array<{ description: string; included: boolean }> {
+  const walls = buildUpText('wall', ctx)
+  return INCLUSIONS.map((row) =>
+    row.description === WALL_INCLUSION_DEFAULT && walls.length ? { ...row, description: `Supply and installation. ${walls.join('. ')}` } : row,
+  )
+}
+
+const CONFLICTS: Array<{ exclusion: RegExp; layer: RegExp; label: string }> = [
+  { exclusion: /External envelope finish/i, layer: /render|paint|terraco|cladding|finish coat/i, label: 'external envelope finish' },
+  { exclusion: /^Waterproofing$/i, layer: /waterproof|membrane|tpo|bitumen/i, label: 'waterproofing' },
+  { exclusion: /acoustic insulation/i, layer: /acoustic/i, label: 'acoustic insulation' },
+  { exclusion: /Concrete or screed/i, layer: /screed|concrete topping/i, label: 'concrete or screed' },
+]
+
+/** Layers the bill prices that the exclusion list says are not in scope. Each one stops the offer. */
+export function scopeConflicts(ctx: ProjectContext): string[] {
+  const out: string[] = []
+  const excluded = INCLUSIONS.filter((row) => !row.included).map((row) => row.description)
+  for (const el of ELEMENTS.filter((item) => ctx.elements.includes(item.id) && item.system !== 'foundation')) {
+    for (const layer of buildUpFor(ctx, el).layers) {
+      for (const rule of CONFLICTS) {
+        if (rule.layer.test(layer.name) && excluded.some((text) => rule.exclusion.test(text))) {
+          out.push(`${el.label} prices "${layer.name}" but the offer excludes ${rule.label}. Remove the layer or include it in scope.`)
+        }
+      }
+    }
+  }
+  return out
+}
+
+/** Unit rates for variations: each system's selling amount over its measured quantity. */
+export function scheduleOfRates(estimate: Estimate, lines: TakeoffLine[]): ScheduleRate[] {
+  const out: ScheduleRate[] = []
+  for (const system of estimate.systems) {
+    if (!(system.sell > 0) || system.id === 'foundation' || system.id === 'additional') continue
+    if (system.id === 'steel') {
+      const kg = estimate.allowances.filter((a) => a.id === 'lgs' || a.id === 'hrs').reduce((sum, a) => sum + a.qty, 0)
+      if (kg > 0) out.push({ system: system.label, unit: 'kg', rate: Math.round((system.sell / kg) * 100) / 100, basis: 'per kg of LGS and HRS supplied and installed' })
+      continue
+    }
+    const own = lines.filter((line) => line.quantity > 0 && (ELEMENTS.find((el) => el.id === line.element)?.system ?? '') === system.id)
+    const byUnit = new Map<string, number>()
+    for (const line of own) byUnit.set(line.unit, (byUnit.get(line.unit) ?? 0) + line.quantity)
+    const top = [...byUnit.entries()].sort((a, b) => b[1] - a[1])[0]
+    if (!top || !(top[1] > 0)) continue
+    out.push({ system: system.label, unit: unitLabel(top[0]), rate: Math.round((system.sell / top[1]) * 100) / 100, basis: `per ${unitLabel(top[0])} measured, all layers included` })
+  }
+  return out
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date)
+  next.setDate(next.getDate() + days)
+  return next
+}
+
 export function buildShareQuotation(input: {
   projectName: string
   client: string
@@ -121,6 +224,8 @@ export function buildShareQuotation(input: {
   approver: string | null
   priced: Array<{ system: SystemId; text: string; amount: number }>
   foundation: EngineResult | null
+  context: ProjectContext
+  schedule?: ScheduleRate[]
 }): ShareQuotation {
   const bySystem = new Map(input.priced.filter((row) => row.amount > 0).map((row) => [row.system, row]))
   const rows: QuoteRow[] = []
@@ -129,7 +234,7 @@ export function buildShareQuotation(input: {
     if (!line) return
     rows.push({
       no: String(rows.length + 1),
-      description: OFFER_COPY[id] ?? line.text,
+      description: systemScopeText(id, input.context, line.text),
       qty: 1,
       unit: 'LS',
       unitAmount: line.amount,
@@ -138,8 +243,9 @@ export function buildShareQuotation(input: {
     })
   })
   const foundationRows = input.foundation ? roundedBoq(input.foundation) : []
+  const appendix: QuoteRow[] = []
   for (const row of foundationRows) {
-    rows.push({
+    appendix.push({
       no: row.boqCode,
       description: `${row.section} – ${row.description}`,
       qty: row.grossQty,
@@ -150,11 +256,16 @@ export function buildShareQuotation(input: {
     })
   }
   const total = rows.some((row) => row.totalAmount != null) ? rows.reduce((sum, row) => sum + (row.totalAmount ?? 0), 0) : null
+  const issued = input.approvedAt ? new Date(input.approvedAt) : new Date()
+  const stated = input.context.jobInputs?.quoteValidUntil ? new Date(input.context.jobInputs.quoteValidUntil) : null
+  const validUntil = stamp((stated && Number.isFinite(stated.getTime()) && stated > issued ? stated : addDays(issued, 30)).toISOString())
+  const reviewed = input.context.commercials.ratesReviewedAt
+  const ratesDate = reviewed ? stamp(new Date(reviewed).toISOString()) : stamp(issued.toISOString())
   const building = input.buildingType || input.projectName || 'the building'
   const result = input.foundation
   const foundationNote = result
     ? `Type ${result.foundationType} — ${foundationTypeName(result.foundationType)} · band ${result.band} · ${result.level.drawingNo ?? 'plan'} p${result.level.sourcePage} · ${result.scale.label} · ${result.parameterSetVersion}`
-    : 'No foundation quantity schedule on this approval.'
+    : ''
   const slug = (input.projectName || 'quotation').replace(/[^\w-]+/g, '_')
   return {
     date: stamp(input.approvedAt),
@@ -168,6 +279,11 @@ export function buildShareQuotation(input: {
     rows,
     approver: input.approver?.trim() || '—',
     foundationNote,
+    validUntil,
+    ratesDate,
+    inclusions: offerInclusions(input.context),
+    schedule: input.schedule ?? [],
+    appendix,
     fileSlug: slug,
   }
 }
@@ -199,7 +315,7 @@ export function quotationInnerHtml(quote: ShareQuotation, logoSrc = '/UniQube_Lo
     quote.total == null
       ? ''
       : `<tr class="total"><td colspan="5">TOTAL AMOUNT EXCLUDING VAT</td><td class="num">${esc(quote.currency)} ${esc(money(quote.total))}</td></tr>`
-  const inclusions = INCLUSIONS.map(
+  const inclusions = quote.inclusions.map(
     (row, index) => `<tr>
       <td>${index + 1}</td>
       <td>${esc(row.description)}</td>
@@ -218,6 +334,9 @@ export function quotationInnerHtml(quote: ShareQuotation, logoSrc = '/UniQube_Lo
     'Equipment on the roof is not considered in the design and no provision is included.',
     'Any third-party design review is excluded.',
     'This offer is prepared based on the drawings received for this project. If any design changes, a variation will be applicable.',
+    `This offer is valid until ${quote.validUntil}.`,
+    `Steel and aluminium are priced at rates checked on ${quote.ratesDate}. If mill or LME prices move by more than 5% before order confirmation, the steel and aluminium portion will be adjusted by the same percentage.`,
+    'Variations are valued at the schedule of rates in this offer, adjusted pro rata for quantity.',
     'VAT is excluded.',
   ]
   const scope = [
@@ -240,7 +359,7 @@ export function quotationInnerHtml(quote: ShareQuotation, logoSrc = '/UniQube_Lo
         <img class="uq-logo" src="${esc(logoSrc)}" alt="UNIQUBE" />
         <p>UNIQUBE Unitized Building System<br>Post Box No. 42642P<br>Hamriyah Freezone<br>Sharjah, United Arab Emirates</p>
       </div>
-      <p>Date: ${esc(quote.date)}</p>
+      <p>Date: ${esc(quote.date)}<br>Valid until: ${esc(quote.validUntil)}</p>
     </header>
     <p>To: ${esc(quote.to)}</p>
     <p>Project: ${esc(quote.project)}</p>
@@ -255,7 +374,7 @@ export function quotationInnerHtml(quote: ShareQuotation, logoSrc = '/UniQube_Lo
     <p>Project Address: ${esc(address)}</p>
     <p>This proposal includes the Supply and installation of Steel Structural building (Shell and Core).</p>
     <h2>2. Estimated Project Costs</h2>
-    <p class="note">${esc(quote.foundationNote)}. Approved by ${esc(quote.approver)}. Lines with a blank unit amount are measured quantities and are not added into the total.</p>
+    <p class="note">Quantities measured from the drawings and approved by ${esc(quote.approver)}.</p>
     <table class="uq-table">
       <thead>
         <tr><th>Sl No.</th><th>Description</th><th>Qty</th><th>Unit</th><th>Unit Amount (${esc(quote.currency)})</th><th>Total Amount (${esc(quote.currency)})</th></tr>
@@ -265,6 +384,11 @@ export function quotationInnerHtml(quote: ShareQuotation, logoSrc = '/UniQube_Lo
         ${totalRow}
       </tbody>
     </table>
+    ${quote.schedule.length ? `<h3>Schedule of rates for variations (${esc(quote.currency)}, excluding VAT)</h3>
+    <table class="uq-table">
+      <thead><tr><th>System</th><th>Unit</th><th>Rate</th><th>Basis</th></tr></thead>
+      <tbody>${quote.schedule.map((r) => `<tr><td>${esc(r.system)}</td><td>${esc(r.unit)}</td><td class="num">${esc(money(r.rate))}</td><td>${esc(r.basis)}</td></tr>`).join('')}</tbody>
+    </table>` : ''}
     <h2>3. Payment Terms</h2>
     <ul>${PAYMENT_TERMS.map((line) => `<li>${esc(line)}</li>`).join('')}</ul>
     <h2>4. Terms and Conditions</h2>
@@ -275,6 +399,12 @@ export function quotationInnerHtml(quote: ShareQuotation, logoSrc = '/UniQube_Lo
       <thead><tr><th>Sl. No.</th><th>Description</th><th>Included</th><th>Excluded</th></tr></thead>
       <tbody>${inclusions}</tbody>
     </table>
+    ${quote.appendix.length ? `<h2>Appendix A. Foundation quantities (for reference, not in UNIQUBE scope)</h2>
+    <p class="note">Measured for the main contractor's convenience. Foundation works are excluded and these lines are not priced. ${esc(quote.foundationNote)}</p>
+    <table class="uq-table">
+      <thead><tr><th>Ref</th><th>Description</th><th>Qty</th><th>Unit</th></tr></thead>
+      <tbody>${quote.appendix.map((r) => `<tr><td>${esc(r.no)}</td><td>${esc(r.description)}</td><td class="num">${r.qty == null ? '' : esc(qtyText(r.qty, r.unit))}</td><td>${esc(r.unit)}</td></tr>`).join('')}</tbody>
+    </table>` : ''}
     <p>Thank you for considering UNIQUBE for your contracting needs.</p>
     <p>We look forward to working with you on this exciting project.</p>
   `
@@ -335,12 +465,14 @@ export function quotationWorkbookXml(quote: ShareQuotation) {
     .join('')
   const total = quote.total == null ? '' : row(['', 'TOTAL AMOUNT EXCLUDING VAT', '', '', '', quote.total], ['String', 'String', 'String', 'String', 'String', 'Number'])
   const inclusionHeader = row(['Sl. No.', 'Description', 'Included', 'Excluded'], ['String', 'String', 'String', 'String'])
-  const inclusionBody = INCLUSIONS.map((line, index) => row([index + 1, line.description, line.included ? '√' : '', line.included ? '' : '√'], ['Number', 'String', 'String', 'String'])).join('')
+  const inclusionBody = quote.inclusions.map((line, index) => row([index + 1, line.description, line.included ? '√' : '', line.included ? '' : '√'], ['Number', 'String', 'String', 'String'])).join('')
   return `<?xml version="1.0"?>
 <?mso-application progid="Excel.Sheet"?>
 <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
 <Worksheet ss:Name="BOQ"><Table>${header}${body}${total}</Table></Worksheet>
 <Worksheet ss:Name="Inclusions"><Table>${inclusionHeader}${inclusionBody}</Table></Worksheet>
+<Worksheet ss:Name="Schedule of rates"><Table>${row(['System', 'Unit', 'Rate', 'Basis'], ['String', 'String', 'String', 'String'])}${quote.schedule.map((r) => row([r.system, r.unit, r.rate, r.basis], ['String', 'String', 'Number', 'String'])).join('')}</Table></Worksheet>
+<Worksheet ss:Name="Foundation (reference)"><Table>${row(['Ref', 'Description', 'Qty', 'Unit'], ['String', 'String', 'String', 'String'])}${quote.appendix.map((r) => row([r.no, r.description, r.qty, r.unit], ['String', 'String', 'Number', 'String'])).join('')}</Table></Worksheet>
 </Workbook>`
 }
 

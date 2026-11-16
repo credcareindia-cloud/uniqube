@@ -4,6 +4,7 @@ import type {
   FloorSpec,
   Measurement,
   PageScale,
+  MeasuredQuantities,
   PriceSheetRow,
   ProjectContext,
   TakeoffLine,
@@ -15,6 +16,7 @@ import {
   computeQuantities,
   elementById,
   floorName,
+  priceShares,
   sellMultiplier,
   type SystemId,
 } from './elements'
@@ -217,13 +219,29 @@ function floorAreas(input: EstimateInput): Estimate['floorAreas'] {
   return out
 }
 
-function allowances(c: Commercials, gfaM2: number, directLines: number): Allowance[] {
+/** Share of a measured figure that may differ from the ratio before the estimator is told. */
+const RATIO_TOLERANCE = 0.25
+
+function allowances(c: Commercials, gfaM2: number, directLines: number, measured: MeasuredQuantities | null | undefined, warnings: string[]): Allowance[] {
   const out: Allowance[] = []
   const gfaSqft = gfaM2 * SQFT_PER_M2
-  if (c.includeSteelAllowance && gfaM2 > 0) {
-    const lgsKg = gfaM2 * c.lgsKgPerM2
-    const hrsKg = gfaM2 * c.hrsKgPerM2
+  const steel = measured && measured.lgsGrossKg > 0 ? measured : null
+  if (c.includeSteelAllowance && (gfaM2 > 0 || steel)) {
+    const ratioLgsKg = gfaM2 * c.lgsKgPerM2
+    const lgsKg = steel ? steel.lgsGrossKg : ratioLgsKg
+    const hrsKg = steel ? steel.hrsKg : gfaM2 * c.hrsKgPerM2
     const lgsMaterialShare = 3.5 / 5.9
+    const measuredBasis = steel
+      ? `measured: super structure ${steel.superApprovedBy ? `approved by ${steel.superApprovedBy}` : 'NOT approved'} · net ${round(steel.lgsNetKg)} kg + wastage`
+      : ''
+    if (steel) {
+      if (!steel.superApprovedBy) warnings.push('Steel is priced from a super structure run that is not approved yet.')
+      if (gfaM2 > 0 && ratioLgsKg > 0 && Math.abs(lgsKg - ratioLgsKg) / ratioLgsKg > RATIO_TOLERANCE) {
+        warnings.push(`Measured LGS is ${round(lgsKg / gfaM2, 1)} kg/m², the ratio says ${round(c.lgsKgPerM2, 1)} kg/m². Check the super structure before quoting.`)
+      }
+    } else {
+      warnings.push(`Steel is priced from the ${round(c.lgsKgPerM2, 1)} kg/m² ratio, not measured. Run and approve the super structure to price measured steel.`)
+    }
     out.push({
       id: 'lgs',
       label: 'LGS structure',
@@ -235,7 +253,7 @@ function allowances(c: Commercials, gfaM2: number, directLines: number): Allowan
       material: lgsKg * c.lgsRatePerKg * lgsMaterialShare,
       fab: lgsKg * c.lgsRatePerKg * (1 - lgsMaterialShare),
       install: 0,
-      basis: `${round(c.lgsKgPerM2, 1)} kg/m² × ${round(gfaM2)} m² (${round(lgsKg / gfaSqft, 2)} kg/sqft)`,
+      basis: steel ? measuredBasis : `RATIO ${round(c.lgsKgPerM2, 1)} kg/m² × ${round(gfaM2)} m² (${round(lgsKg / gfaSqft, 2)} kg/sqft)`,
     })
     out.push({
       id: 'hrs',
@@ -248,9 +266,9 @@ function allowances(c: Commercials, gfaM2: number, directLines: number): Allowan
       material: hrsKg * c.hrsRatePerKg,
       fab: 0,
       install: 0,
-      basis: `${round(c.hrsKgPerM2, 1)} kg/m² × ${round(gfaM2)} m² (${round(hrsKg / gfaSqft, 2)} kg/sqft)`,
+      basis: steel ? `measured: HRS markups and manual members` : `RATIO ${round(c.hrsKgPerM2, 1)} kg/m² × ${round(gfaM2)} m² (${round(hrsKg / gfaSqft, 2)} kg/sqft)`,
     })
-    const screws = gfaM2 * c.screwsPerM2
+    const screws = steel && steel.screws > 0 ? steel.screws : gfaM2 * c.screwsPerM2
     out.push({
       id: 'screws',
       label: 'Self-drilling screws',
@@ -262,22 +280,23 @@ function allowances(c: Commercials, gfaM2: number, directLines: number): Allowan
       material: screws * c.screwRate,
       fab: 0,
       install: 0,
-      basis: `${round(c.screwsPerM2)} nr/m²`,
+      basis: steel && steel.screws > 0 ? 'measured: super structure' : `${round(c.screwsPerM2)} nr/m²`,
     })
+    const anchors = steel && steel.anchors > 0 ? steel.anchors : c.anchorsCount
     out.push({
       id: 'anchors',
       label: 'Anchor bolts',
       system: 'steel',
-      qty: c.anchorsCount,
+      qty: anchors,
       unit: 'nr',
       rate: c.anchorRate,
-      direct: c.anchorsCount * c.anchorRate,
-      material: c.anchorsCount * c.anchorRate,
+      direct: anchors * c.anchorRate,
+      material: anchors * c.anchorRate,
       fab: 0,
       install: 0,
-      basis: 'lump allowance',
+      basis: steel && steel.anchors > 0 ? 'measured: M10 + M8 from the super structure' : 'lump allowance',
     })
-    const connectors = lgsKg * c.connectorsPerKgLgs
+    const connectors = steel && steel.connectorsAed > 0 ? steel.connectorsAed : lgsKg * c.connectorsPerKgLgs
     out.push({
       id: 'connectors',
       label: 'LGS connectors and accessories',
@@ -289,7 +308,7 @@ function allowances(c: Commercials, gfaM2: number, directLines: number): Allowan
       material: connectors,
       fab: 0,
       install: 0,
-      basis: `${round(c.connectorsPerKgLgs, 3)} AED per kg of LGS`,
+      basis: steel && steel.connectorsAed > 0 ? 'measured: super structure' : `${round(c.connectorsPerKgLgs, 3)} AED per kg of LGS`,
     })
   }
   if (c.includeMep && gfaM2 > 0) {
@@ -309,18 +328,31 @@ function allowances(c: Commercials, gfaM2: number, directLines: number): Allowan
     })
   }
   if (c.includeInstallation && gfaM2 > 0) {
+    const model = measured?.labourAed && measured.labourAed > 0 ? measured : null
+    const useModel = Boolean(model && !model.labourUnmatched)
+    if (model && !useModel) {
+      warnings.push(`Labour model has ${model.labourUnmatched} in-scope row${model.labourUnmatched === 1 ? '' : 's'} with no gang-days or rate; installation falls back to ${c.installPerM2} AED/m².`)
+    } else if (!model) {
+      warnings.push(`Installation is the ${c.installPerM2} AED/m² allowance. Open Dry cost to build it from productivity norms.`)
+    }
+    const amount = useModel ? model!.labourAed! : gfaM2 * c.installPerM2
+    if (useModel) {
+      const perM2 = amount / gfaM2
+      const band = BENCHMARKS.find((b) => b.id === 'installation')!
+      if (perM2 < band.low || perM2 > band.high) warnings.push(`Labour model gives ${round(perM2)} AED/m² installation; Zuha jobs ran ${band.low}–${band.high}. Check the norms.`)
+    }
     out.push({
       id: 'installation',
       label: 'Site installation labour',
       system: 'indirect',
-      qty: round(gfaM2, 1),
-      unit: 'm²',
-      rate: c.installPerM2,
-      direct: gfaM2 * c.installPerM2,
+      qty: useModel ? model!.labourGangDays ?? 0 : round(gfaM2, 1),
+      unit: useModel ? 'gang-days' : 'm²',
+      rate: useModel ? round(amount / Math.max(1, model!.labourGangDays ?? 1), 2) : c.installPerM2,
+      direct: amount,
       material: 0,
       fab: 0,
-      install: gfaM2 * c.installPerM2,
-      basis: `${c.installPerM2} AED/m² of built-up area`,
+      install: amount,
+      basis: useModel ? `labour model: ${model!.labourGangDays} gang-days from productivity norms (${round(amount / gfaM2)} AED/m²)` : `ALLOWANCE ${c.installPerM2} AED/m² of built-up area`,
     })
   }
   if (c.includeLogistics && gfaM2 > 0) {
@@ -438,7 +470,7 @@ export function buildEstimate(input: EstimateInput): Estimate {
   if (unconfirmed) warnings.push(`${unconfirmed} canvas line${unconfirmed === 1 ? ' is' : 's are'} not confirmed yet; the summary prices every line on the canvas.`)
 
   const directLines = [...systems.values()].reduce((sum, system) => sum + system.direct, 0)
-  const allowanceRows = allowances(c, gfaM2, directLines)
+  const allowanceRows = allowances(c, gfaM2, directLines, ctx.measured, warnings)
   for (const allowance of allowanceRows) {
     if (allowance.system === 'indirect') continue
     const system = systems.get(allowance.system)!
@@ -465,24 +497,27 @@ export function buildEstimate(input: EstimateInput): Estimate {
   const fab = [...systems.values()].reduce((sum, s) => sum + s.fab, 0)
   const install = [...systems.values()].reduce((sum, s) => sum + s.install, 0) + installationAllowance
 
-  // Commercial stack on the total direct cost.
-  const overhead = directTotal * (c.overheadPct / 100)
-  const sub1 = directTotal + overhead
-  const marginShare = Math.min(0.95, Math.max(0, c.marginPct / 100))
-  const margin = sub1 * (marginShare / (1 - marginShare))
-  const sub2 = sub1 + margin
-  const finance = sub2 * (c.financePct / 100)
-  const contingency = sub2 * (c.contingencyPct / 100)
-  const sub3 = sub2 + finance + contingency
-  const design = sub3 * (c.designPct / 100)
-  const sub4 = sub3 + design
-  const customs = sub4 * (c.customsPct / 100)
-  const sub5 = sub4 + customs
-  const tax = sub5 * (c.corporateTaxPct / 100)
-  const sub6 = sub5 + tax
-  const commission = sub6 * (c.commissionPct / 100)
-  const sellTotal = sub6 + commission
-  const costTotal = sellTotal - margin - commission
+  // Commercial build-up. Risk and engineering sit on cost; customs on imported material only;
+  // overhead on the cost subtotal; margin and commission are shares of the final selling price.
+  const contingency = directTotal * (c.contingencyPct / 100)
+  const design = directTotal * (c.designPct / 100)
+  const finance = (directTotal + contingency + design) * (c.financePct / 100)
+  const importedShare = Math.min(100, Math.max(0, c.importedMaterialPct ?? 100)) / 100
+  const customs = material * importedShare * (c.customsPct / 100)
+  const costBeforeOverhead = directTotal + contingency + design + finance + customs
+  const overhead = costBeforeOverhead * (c.overheadPct / 100)
+  const costTotal = costBeforeOverhead + overhead
+  const { marginShare, commissionShare } = priceShares(c)
+  const sellTotal = costTotal / (1 - marginShare - commissionShare)
+  const margin = sellTotal * marginShare
+  const commission = sellTotal * commissionShare
+  const tax = 0
+  if (c.corporateTaxPct > 0) warnings.push('Corporate tax is charged on profit, not added to the price. The corporate tax % is ignored; set the margin to cover it.')
+  const effectiveMultiplier = directTotal > 0 ? sellTotal / directTotal : multiplier
+  for (const system of systems.values()) {
+    system.sell = system.directWithIndirects * effectiveMultiplier
+    system.aedPerSqft = gfaSqft > 0 ? system.sell / gfaSqft : 0
+  }
   const sellRounded = Math.round(sellTotal / 10) * 10
   const usdTotal = c.usdRate > 0 ? sellTotal / c.usdRate : 0
 
@@ -499,12 +534,11 @@ export function buildEstimate(input: EstimateInput): Estimate {
     { code: 'C2', label: 'Logistic charges', amount: logistics, pct: pct(logistics) },
     { code: 'C', label: 'Preliminaries and logistics', amount: prelims + logistics, pct: pct(prelims + logistics), subtotal: true },
     { code: 'D', label: 'Design and engineering', amount: design, pct: pct(design), subtotal: true },
-    { code: 'E', label: 'Head office overheads', amount: overhead, pct: pct(overhead), subtotal: true },
-    { code: 'F', label: 'Contingency', amount: contingency, pct: pct(contingency), subtotal: true },
+    { code: 'F', label: 'Contingency (on direct cost)', amount: contingency, pct: pct(contingency), subtotal: true },
     { code: 'G', label: 'Finance charges', amount: finance, pct: pct(finance), subtotal: true },
-    ...(customs ? [{ code: 'G2', label: 'Customs', amount: customs, pct: pct(customs), subtotal: true }] : []),
-    ...(tax ? [{ code: 'G3', label: 'Corporate tax', amount: tax, pct: pct(tax), subtotal: true }] : []),
-    { code: '', label: 'Total project cost (A + B + C + D + E + F + G)', amount: costTotal, pct: pct(costTotal), total: true },
+    ...(customs ? [{ code: 'G2', label: 'Customs (imported material)', amount: customs, pct: pct(customs), subtotal: true }] : []),
+    { code: 'E', label: 'Head office overheads', amount: overhead, pct: pct(overhead), subtotal: true },
+    { code: '', label: 'Total project cost (A to G)', amount: costTotal, pct: pct(costTotal), total: true },
     { code: 'H', label: 'Margin / profit', amount: margin, pct: pct(margin), subtotal: true },
     { code: '', label: 'Total project value (cost + margin)', amount: costTotal + margin, pct: pct(costTotal + margin), total: true },
     { code: 'J', label: 'Commission', amount: commission, pct: pct(commission), subtotal: true },
@@ -545,7 +579,7 @@ export function buildEstimate(input: EstimateInput): Estimate {
     gfaM2,
     gfaSqft,
     floorAreas: areas,
-    multiplier: round(multiplier, 4),
+    multiplier: round(effectiveMultiplier, 4),
     systems: [...systems.values()],
     allowances: allowanceRows,
     direct: { material, fab, install, indirect, total: directTotal },

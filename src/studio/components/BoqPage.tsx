@@ -251,7 +251,7 @@ export function BoqPage({ projectId }: { projectId: string }) {
             <p className="doc-page__note">
               Material extra is {mep.inputs.settings.allowancePct}% of the base, applied once. Fixture counts are unchanged.
               {mep.overrides.approvedBy ? ` Approved by ${mep.overrides.approvedBy}.` : ' Provisional until MEP is approved.'}
-              {' '}Rates stay in Costing.
+              {' '}Rates stay in Packages.
             </p>
             {[...new Set(mep.result.boq.map((line) => line.module))].map((module) => (
               <table key={module} className="summary__table">

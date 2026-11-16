@@ -40,4 +40,6 @@ export async function loadMepState(projectId: string): Promise<MepState> {
 
 export async function saveMepState(projectId: string, state: MepState) {
   await apiJson(`/api/projects/${projectId}/mep`, { method: 'PUT', body: JSON.stringify(state) })
+  const { bumpSidebarMarks } = await import('../sidebarMarks')
+  bumpSidebarMarks()
 }

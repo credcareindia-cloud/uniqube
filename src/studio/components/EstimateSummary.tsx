@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react'
 import clsx from 'clsx'
 import { Download, Printer, Save, Trash2 } from 'lucide-react'
 import { useAppStore } from '../store'
+import { useMeasuredRefresh } from '../lib/measured'
+import { PAYMENT_TERMS } from '../lib/quotation'
 import type { EstimateRevision } from '../types'
 import { ELEMENTS, SQFT_PER_M2, SYSTEMS, buildUpFor, floorName, rateForLayer } from '../lib/elements'
 import { buildEstimate, fmtAed, type Estimate } from '../lib/estimate'
@@ -37,6 +39,7 @@ function download(name: string, text: string) {
 }
 
 export function EstimateSummary() {
+  useMeasuredRefresh()
   const lines = useAppStore((s) => s.lines)
   const measurements = useAppStore((s) => s.measurements)
   const pageScales = useAppStore((s) => s.pageScales)
@@ -526,12 +529,12 @@ function Offer({ estimate, currency }: { estimate: Estimate; currency: string })
   const revisionLabel = revisions.length ? revisions[revisions.length - 1].label : 'R0'
   const today = new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
   const inScope = ELEMENTS.filter((el) => ctx.elements.includes(el.id) && estimate.qto.rows.some((r) => r.elementId === el.id && r.total > 0))
-  const payment = [
-    ['10%', 'Advance payment on signing of the agreement'],
-    ['20%', 'On approval of shop drawings and start of fabrication'],
-    ['30%', 'On completion of fabrication, before shipping'],
-    ['40%', 'Progress payments against installation, monthly'],
-  ]
+  // Same payment terms as the client offer (lib/quotation.ts), so the two documents cannot disagree.
+  const payment = PAYMENT_TERMS.map((line) => {
+    const [, pct, rest] = /^(\d+%)\s*(.*)$/.exec(line) ?? ['', '', line]
+    return [pct, rest.charAt(0).toUpperCase() + rest.slice(1)]
+  })
+  const validity = ctx.jobInputs?.quoteValidUntil ? `until ${ctx.jobInputs.quoteValidUntil}` : '30 days from the date above'
   const exclusions = [
     'Civil works, foundations, ground slab and site preparation',
     'MEP material and second fix (only first-fix installation on panels is included where listed)',
@@ -545,7 +548,8 @@ function Offer({ estimate, currency }: { estimate: Estimate; currency: string })
     <div className="offer-doc">
       <header className="offer-doc__head">
         <div>
-          <h1>Commercial offer</h1>
+          <h1>Commercial offer · internal draft</h1>
+          <p className="muted">For checking only. The client document is produced on the Offer page once every check passes.</p>
           <p className="muted">
             {projectSetup.projectName || 'Project'} · {ctx.projectNumber || 'Ref —'} · Revision {revisionLabel} · {today}
           </p>
@@ -705,7 +709,7 @@ function Offer({ estimate, currency }: { estimate: Estimate; currency: string })
       <section>
         <h2>5. Terms and conditions</h2>
         <ol>
-          <li>Validity of this offer: 30 days from the date above.</li>
+          <li>Validity of this offer: {validity}.</li>
           <li>Prices are in {currency}, exclusive of VAT, based on the drawings and information received to date; changes in scope will be priced as variations.</li>
           <li>Programme and installation sequence to be agreed on award; site access, power and water to be provided by the client.</li>
           <li>Design is to the applicable UAE codes; third-party approvals are by the client unless otherwise agreed.</li>

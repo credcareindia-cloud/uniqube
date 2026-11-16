@@ -35,4 +35,6 @@ export async function saveArchState(projectId: string, state: ArchState) {
     method: 'PUT',
     body: JSON.stringify({ settings: state.settings, overrides: state.overrides, result: state.result }),
   })
+  const { bumpSidebarMarks } = await import('../sidebarMarks')
+  bumpSidebarMarks()
 }

@@ -85,7 +85,8 @@ export function ProjectHome({
     { id: 'mep', label: 'MEP', state: workState(mep) },
     { id: 'architecture', label: 'Architecture', state: workState(architecture) },
     { id: 'boq', label: 'Bill of quantities', state: 'open' },
-    { id: 'costing', label: 'Costing', state: 'open' },
+    { id: 'packages', label: 'Packages', state: 'open' },
+    { id: 'workspace', label: 'Estimation Agent', state: 'open' },
     { id: 'offer', label: 'Offer', state: 'open' },
   ]
 
@@ -118,11 +119,13 @@ export function ProjectHome({
                             ? { screen: 'agents', agent: 'architecture' }
                             : step.id === 'boq'
                               ? { screen: 'boq' }
-                              : step.id === 'costing'
-                                ? { screen: 'costing' }
-                                : step.id === 'offer'
-                                  ? { screen: 'share' }
-                                  : null
+                              : step.id === 'packages'
+                                ? { screen: 'packages' }
+                                : step.id === 'workspace'
+                                  ? { screen: 'workspace' }
+                                  : step.id === 'offer'
+                                    ? { screen: 'share' }
+                                    : null
                   const label = step.state === 'done' ? 'Done' : step.state === 'progress' ? 'In progress' : 'Open'
                   return (
                     <tr key={step.id} className={dest ? 'is-open' : undefined} onClick={() => { if (dest) onContinue(dest) }}>

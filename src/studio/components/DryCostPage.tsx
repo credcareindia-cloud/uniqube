@@ -16,6 +16,7 @@ import {
   type MaterialRow,
   type SourceLine,
 } from '../lib/dryCost'
+import { DEFAULT_LABOUR_DAY_RATE } from '../lib/labourNorms'
 
 function parseNum(value: string): number | null {
   const trimmed = value.trim()
@@ -26,6 +27,10 @@ function parseNum(value: string): number | null {
 
 function showNum(value: number | null) {
   return value == null ? '' : String(value)
+}
+
+function dayRate() {
+  return useAppStore.getState().projectContext.commercials.labourDayRate ?? DEFAULT_LABOUR_DAY_RATE
 }
 
 export function DryCostPage({ projectId }: { projectId: string }) {
@@ -49,13 +54,13 @@ export function DryCostPage({ projectId }: { projectId: string }) {
         if (!alive) return
         sourcesRef.current = sources
         readyRef.current = true
-        setSheet(mergeDryCost(saved, [...sources, ...takeoffSources(useAppStore.getState().lines)]))
+        setSheet(mergeDryCost(saved, [...sources, ...takeoffSources(useAppStore.getState().lines)], dayRate()))
       })
       .catch((error: unknown) => {
         if (!alive) return
         readyRef.current = true
         setNotice(error instanceof Error ? error.message : 'Could not open the dry cost sheet.')
-        setSheet(mergeDryCost(null, takeoffSources(useAppStore.getState().lines)))
+        setSheet(mergeDryCost(null, takeoffSources(useAppStore.getState().lines), dayRate()))
       })
     return () => {
       alive = false
@@ -64,7 +69,7 @@ export function DryCostPage({ projectId }: { projectId: string }) {
 
   useEffect(() => {
     if (!readyRef.current) return
-    setSheet((current) => (current ? mergeDryCost(current, [...sourcesRef.current, ...takeoffSources(lines)]) : current))
+    setSheet((current) => (current ? mergeDryCost(current, [...sourcesRef.current, ...takeoffSources(lines)], dayRate()) : current))
   }, [lines])
 
   const sheetRef = useRef(sheet)
@@ -264,9 +269,9 @@ export function DryCostPage({ projectId }: { projectId: string }) {
                       <td><input className="dry-cost__input dry-cost__input--trade" value={row.trade} onChange={(e) => patchLabour(row.id, { trade: e.target.value })} /></td>
                       <td><input className="dry-cost__input dry-cost__input--desc" value={row.description} onChange={(e) => patchLabour(row.id, { description: e.target.value })} /></td>
                       <td>{numberField(`${row.id}:gang`, row.gang, (gang) => patchLabour(row.id, { gang }))}</td>
-                      <td>{numberField(`${row.id}:qty`, row.qty, (qty) => patchLabour(row.id, { qty }))}</td>
+                      <td>{numberField(`${row.id}:qty`, row.qty, (qty) => patchLabour(row.id, { qty, qtyTyped: true }))}</td>
                       <td><input className="dry-cost__input dry-cost__input--unit" value={row.unit} onChange={(e) => patchLabour(row.id, { unit: e.target.value })} /></td>
-                      <td>{numberField(`${row.id}:rate`, row.rate, (rate) => patchLabour(row.id, { rate }))}</td>
+                      <td>{numberField(`${row.id}:rate`, row.rate, (rate) => patchLabour(row.id, { rate, rateTyped: true }))}</td>
                       <td className="num">{amount == null ? '' : fmtAed(amount, 2)}</td>
                       <td>{row.source}</td>
                       <td><input className="dry-cost__input dry-cost__input--note" value={row.remarks} onChange={(e) => patchLabour(row.id, { remarks: e.target.value })} /></td>

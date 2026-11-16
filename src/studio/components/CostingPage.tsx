@@ -1,10 +1,12 @@
 import { useMemo } from 'react'
 import { useAppStore } from '../store'
 import { buildEstimate, fmtAed } from '../lib/estimate'
+import { useMeasuredRefresh } from '../lib/measured'
 
 const n0 = (value: number) => fmtAed(value, 0)
 
 export function CostingPage() {
+  useMeasuredRefresh()
   const lines = useAppStore((s) => s.lines)
   const measurements = useAppStore((s) => s.measurements)
   const pageScales = useAppStore((s) => s.pageScales)

@@ -50,7 +50,8 @@ export function buildSeedPriceSheet(): PriceSheetRow[] {
           unit: defaultUnit(mat.label, v.label),
           unitPrice: defaultPrice(mat.label, v.label),
           currency: 'AED',
-          notes: '',
+          notes: 'Placeholder guessed from the material name. Enter a real rate before quoting.',
+          status: 'seed',
         })
       }
     }
@@ -62,13 +63,22 @@ export function loadPriceSheet(): PriceSheetRow[] {
   return buildSeedPriceSheet()
 }
 
+/**
+ * Rows saved before rates carried a status: a catalog row still on its guessed price is a seed,
+ * anything else keeps what it had (missing reads as listed).
+ */
+export function withRateStatus(rows: PriceSheetRow[]): PriceSheetRow[] {
+  const seeds = new Map(buildSeedPriceSheet().map((row) => [row.id, row.unitPrice]))
+  return rows.map((row) => (row.status || seeds.get(row.id) !== row.unitPrice ? row : { ...row, status: 'seed' as const }))
+}
+
 /** Replace the seed once the database answers. Moves a leftover browser copy up on the first run. */
 export async function hydratePriceSheet(): Promise<PriceSheetRow[] | null> {
   try {
     const remote = await apiJson<PriceSheetRow[] | null>('/api/price-sheet')
     if (Array.isArray(remote) && remote.length) {
       localStorage.removeItem(STORAGE_KEY)
-      return remote
+      return withRateStatus(remote)
     }
   } catch {
     return null
@@ -80,7 +90,7 @@ export async function hydratePriceSheet(): Promise<PriceSheetRow[] | null> {
     if (!Array.isArray(parsed) || !parsed.length) return null
     await apiJson('/api/price-sheet', { method: 'PUT', body: JSON.stringify(parsed) })
     localStorage.removeItem(STORAGE_KEY)
-    return parsed
+    return withRateStatus(parsed)
   } catch {
     return null
   }

@@ -41,6 +41,7 @@ import {
   type Quantities,
 } from './lib/elements'
 import { buildEstimate, nextRevisionLabel, revisionFromEstimate } from './lib/estimate'
+import { markVerified } from './lib/rateStatus'
 
 export function pageScaleKey(fileId: string, pageNumber: number) {
   return `${fileId}:${pageNumber}`
@@ -282,6 +283,8 @@ interface Actions {
   // Price sheet
   setStageView: (view: StageView) => void
   updatePriceRow: (id: string, patch: Partial<PriceSheetRow>) => void
+  /** Mark rates as checked today (supplier quote, price list or invoice named in source). */
+  verifyPriceRows: (ids: string[], source: string) => void
   addPriceRow: () => void
   removePriceRow: (id: string) => void
   resetPriceSheet: () => void
@@ -1340,9 +1343,20 @@ export const useAppStore = create<AppState & Actions>((set, get) => ({
 
   updatePriceRow: (id, patch) =>
     set((s) => {
-      const priceSheet = s.priceSheet.map((r) =>
-        r.id === id ? { ...r, ...patch } : r,
-      )
+      const priceSheet = s.priceSheet.map((r) => {
+        if (r.id !== id) return r
+        const next = { ...r, ...patch }
+        // A person typing a new rate is a review of that rate today.
+        return patch.unitPrice != null && patch.unitPrice !== r.unitPrice && patch.status == null ? markVerified(next, patch.rateSource) : next
+      })
+      savePriceSheet(priceSheet)
+      return { priceSheet }
+    }),
+
+  verifyPriceRows: (ids, source) =>
+    set((s) => {
+      const pick = new Set(ids)
+      const priceSheet = s.priceSheet.map((r) => (pick.has(r.id) && r.unitPrice > 0 ? markVerified(r, source) : r))
       savePriceSheet(priceSheet)
       return { priceSheet }
     }),

@@ -573,6 +573,8 @@ function rate(
     installCost: installing ? round2(labourCost) : 0,
     currency: 'AED',
     notes: 'UNIQUBE direct rate (material + labour) from the estimator data sheet. Markups are applied in the summary.',
+    status: 'listed',
+    rateSource: 'UNIQUBE estimator data sheet',
   }
 }
 
@@ -622,20 +624,28 @@ export function defaultCommercials(): Commercials {
     includeLogistics: true,
     includePrelims: true,
     includeMep: true,
+    importedMaterialPct: 100,
+    labourDayRate: 160,
+    ratesReviewedAt: '',
   }
 }
 
+/** Margin and commission as shares of the final selling price, kept below 95% together. */
+export function priceShares(c: Commercials): { marginShare: number; commissionShare: number } {
+  const marginShare = Math.min(0.9, Math.max(0, c.marginPct / 100))
+  const commissionShare = Math.min(0.95 - marginShare, Math.max(0, c.commissionPct / 100))
+  return { marginShare, commissionShare }
+}
+
 /**
- * Direct cost → selling price multiplier. Overhead on cost, margin as a share of price,
- * finance and contingency on that subtotal, then design charges, customs, corporate tax and commission.
- * With the defaults this is 1.5357, which reproduces the Zuha Island unit costs.
+ * Direct cost → selling price multiplier, before customs (which depends on the imported material share).
+ * Contingency and design on direct cost, finance on that, overhead on the cost subtotal,
+ * then margin and commission as shares of the selling price. Corporate tax is not a price item.
  */
 export function sellMultiplier(c: Commercials): number {
-  const margin = Math.min(0.95, Math.max(0, c.marginPct / 100))
-  const withOh = 1 + c.overheadPct / 100
-  const withMargin = withOh / (1 - margin)
-  const withRisk = withMargin * (1 + (c.financePct + c.contingencyPct) / 100)
-  return withRisk * (1 + c.designPct / 100) * (1 + c.customsPct / 100) * (1 + c.corporateTaxPct / 100) * (1 + c.commissionPct / 100)
+  const { marginShare, commissionShare } = priceShares(c)
+  const cost = (1 + (c.contingencyPct + c.designPct) / 100) * (1 + c.financePct / 100) * (1 + c.overheadPct / 100)
+  return cost / (1 - marginShare - commissionShare)
 }
 
 export function emptyProjectContext(): ProjectContext {

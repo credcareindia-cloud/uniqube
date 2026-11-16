@@ -1,0 +1,793 @@
+{
+  "meta": {
+    "title": "Architectural Estimation Rules: LGS Building System",
+    "version": "1.0",
+    "date": "2026-11-16",
+    "organisation": "UNIQUBE",
+    "module": "Architectural estimation module of the in-house estimation software",
+    "summary": "The software measures the surface, the estimator selects the material and then its specification for that usage location, and the software calculates the quantity, accessories, wastage and purchase units.",
+    "status": "Rates, sheet sizes, wastage percentages and default dimensions are typical starting defaults. They are editable master data and must be confirmed against UNIQUBE supplier data before use. See to_confirm.",
+    "conventions": {
+      "dimensions": "mm",
+      "quantity_units": ["m", "m2", "m3", "kg", "L", "nr"],
+      "percentages": "Whole-number percent: 10 means 10%.",
+      "requirement_codes": {"M": "mandatory", "C": "conditional", "O": "optional"},
+      "formulas": "Plain expressions. round_up is ceiling, round_down is floor. Areas are in m2 and lengths in m unless a name ends in _mm. Parameters stored in mm are converted to m before use.",
+      "rule_ids": "Two-letter group code plus number, for example GM-08. IDs match the specification document."
+    }
+  },
+
+  "enumerations": {
+    "zones": ["DRY", "WET", "EXTERNAL"],
+    "default_zone_by_room_type": {
+      "WET": ["bathroom", "toilet", "shower", "laundry", "kitchen"],
+      "EXTERNAL": ["balcony", "terrace"],
+      "DRY": "all other room types"
+    },
+    "procurement_modes": ["MATERIAL", "SUPPLY_INSTALL"],
+    "deduction_policies": ["THRESHOLD", "FULL", "NONE"],
+    "default_deduction_policy": "THRESHOLD",
+    "quantity_sources": ["AUTO", "DEPENDENT", "INPUT", "OVERRIDE"],
+    "ceiling_fixing_types": ["DIRECT_FIX", "SUSPENDED"],
+    "scope_precedence_most_specific_first": ["surface", "room", "wall_type", "room_type", "level", "project"],
+    "roles": {
+      "estimator": "Selects and overrides",
+      "reviewer": "Approves overrides and waivers",
+      "administrator": "Maintains master data and templates"
+    },
+    "validation_results": ["Error", "Error at pricing", "Blocked", "Warning", "Warning with suggestion"]
+  },
+
+  "terms": [
+    {"term": "Location", "meaning": "A usage position in the building, for example the outer face of an external wall. The list is fixed (see locations)."},
+    {"term": "Slot", "meaning": "A layer position inside a location. Each slot is mandatory (M), conditional (C) or optional (O)."},
+    {"term": "Material", "meaning": "What the estimator picks for a slot, for example cement board."},
+    {"term": "Specification", "meaning": "The purchasable variant of a material: thickness, sheet size, pack size, supplier and rate."},
+    {"term": "Surface", "meaning": "One measured face or area from geometry, for example the room-side face of one wall in one room. A surface belongs to exactly one location."},
+    {"term": "Zone", "meaning": "DRY, WET or EXTERNAL. An attribute of a room that decides which location its surfaces fall in."},
+    {"term": "Dependent", "meaning": "An accessory generated from a parent material by a consumption rule."},
+    {"term": "Net quantity", "meaning": "The installed quantity measured from geometry, after opening deductions and reveal additions."},
+    {"term": "Gross quantity", "meaning": "Net × (1 + wastage)."},
+    {"term": "Purchase quantity", "meaning": "Gross converted to purchase units (sheets, boxes, bags, rolls, pails) and rounded up."},
+    {"term": "Reveal", "meaning": "The return faces around an opening: jambs, head and sill."},
+    {"term": "Scope", "meaning": "The level at which a selection applies: project, level, room type, wall type, room or single surface."}
+  ],
+
+  "geometry_objects": [
+    {"object": "Project", "fields": ["Number of storeys", "Floor-to-floor height per storey", "Finished floor level per storey", "Plinth height", "Parapet height", "Roof type", "Roof slope", "Climate profile"]},
+    {"object": "Wall segment", "fields": ["ID", "Level", "Class (external or internal)", "Wall type tag (party, corridor, shaft)", "Centreline length", "Outer-face length", "Stud depth", "Stud spacing", "Stud steel thickness", "Structural panel height", "Fire rating in minutes", "Acoustic flag", "Room on side A", "Room on side B, or EXTERIOR"]},
+    {"object": "Room", "fields": ["ID", "Level", "Name", "Room type", "Zone", "Net floor area", "Perimeter", "Ceiling height", "Number of convex wall corners"]},
+    {"object": "Opening", "fields": ["ID", "Kind (door, window, void)", "Type mark", "Host wall", "Structural width", "Structural height", "Sill height", "Room on each side"]},
+    {"object": "Floor plate", "fields": ["Level", "Gross area to the outer face of structure", "Joist spacing", "Joist direction", "Void areas (stairs, shafts)"]},
+    {"object": "Roof", "fields": ["Plan area", "Slope", "Eaves length", "Ridge length", "Verge length", "Parapet length", "Number of outlets"]},
+    {"object": "Stair", "fields": ["Flights", "Risers per flight", "Width", "Going", "Rise", "Landing area"]}
+  ],
+
+  "data_model": {
+    "note": "Table names are suggestions; the fields are the requirement. New materials, specifications, rates and parameters are added by the administrator with no code change. A new location or slot needs a developer only when it introduces a new way of measuring.",
+    "tables": [
+      {"table": "location", "fields": ["code", "name", "element_class", "measure_basis"], "purpose": "Fixed list of usage locations"},
+      {"table": "slot", "fields": ["location_code", "slot_code", "name", "sequence", "requirement", "condition", "max_layers"], "purpose": "Layer positions per location"},
+      {"table": "material", "fields": ["code", "name", "family", "base_unit", "owner_module", "procurement_mode", "deduction_policy", "returns_into_reveal", "exterior_grade", "wet_grade", "default_wastage"], "purpose": "What can be selected"},
+      {"table": "slot_material", "fields": ["slot_code", "material_code"], "purpose": "Which materials are allowed in which slot"},
+      {"table": "specification", "fields": ["code", "material_code", "attributes", "purchase_unit", "base_units_per_purchase_unit", "supplier", "unit_rate", "effective_date"], "purpose": "Purchasable variants. Attributes include thickness, sheet size, density, colour and coverage."},
+      {"table": "dependent_rule", "fields": ["parent_material_or_family", "dependent_material", "basis", "rate_or_formula_id", "condition", "wastage"], "purpose": "Accessory generation. Basis is per m2, per m, per nr or formula."},
+      {"table": "parameter", "fields": ["key", "value", "unit", "scope"], "purpose": "Thresholds and default dimensions"},
+      {"table": "selection", "fields": ["project", "scope_type", "scope_id", "location", "slot", "material", "specification", "layers", "system_inputs", "user", "time"], "purpose": "What the estimator chose"},
+      {"table": "quantity_line", "fields": ["project", "level", "room", "surface_ids", "location", "slot", "material", "specification", "net", "wastage", "gross", "purchase_quantity", "purchase_unit", "source", "formula_id", "parent_line", "flags", "reason"], "purpose": "Results. Source is AUTO, DEPENDENT, INPUT or OVERRIDE."},
+      {"table": "template", "fields": ["name", "version", "selections"], "purpose": "Reusable sets of selections"}
+    ]
+  },
+
+  "parameters": [
+    {"key": "LINING_OVERRUN", "default": 150, "unit": "mm", "rule": "GM-04", "description": "Height the lining board runs above the ceiling"},
+    {"key": "SMALL_OPENING_AREA", "default": 0.5, "unit": "m2", "rule": "GM-08", "description": "Openings up to this area are not deducted"},
+    {"key": "REVEAL_DEPTH_EXT", "default": 100, "unit": "mm", "rule": "GM-09", "description": "Depth of the external reveal return"},
+    {"key": "REVEAL_DEPTH_INT", "default": 100, "unit": "mm", "rule": "GM-09", "description": "Depth of the internal reveal return"},
+    {"key": "DRILL_POINT_STEEL", "default": 0.7, "unit": "mm", "rule": "BD-05", "description": "Stud steel thickness above which drill-point screws are used"},
+    {"key": "WP_UPTURN", "default": 300, "unit": "mm", "rule": "IN-06", "description": "Height of the wet-room waterproofing upturn on walls"},
+    {"key": "WP_SHOWER_HEIGHT", "default": 2100, "unit": "mm", "rule": "IN-06", "description": "Height of waterproofing on shower walls"},
+    {"key": "WP_UPSTAND", "default": 300, "unit": "mm", "rule": "IN-07", "description": "Height of the roof waterproofing upstand at parapets, plinths and penetrations"},
+    {"key": "MJ_SPACING", "default": 6, "unit": "m", "rule": "EF-03", "description": "Spacing of vertical movement joints in render"},
+    {"key": "CJ_SPACING", "default": 9, "unit": "m", "rule": "OT-03", "description": "Spacing of control joints in continuous lining runs"},
+    {"key": "SAFETY_SILL", "default": 800, "unit": "mm", "rule": "DW-08", "description": "Sill height below which window glazing needs a tempered or laminated specification"},
+    {"key": "DP_AREA", "default": 80, "unit": "m2", "rule": "RF-04", "description": "Roof plan area served per downpipe, used for the suggested count until MEP confirms"},
+    {"key": "ATTIC_STOCK", "default": 0, "unit": "%", "rule": "TF-03", "description": "Extra tile stock added to the purchase quantity and shown separately"}
+  ],
+
+  "rule_constants": {
+    "note": "Numbers that appear inside rule texts, listed so they can be stored as master data (PR-07). Key names are suggestions.",
+    "constants": [
+      {"key": "INTERMEDIATE_DECIMALS", "value": 4, "unit": "decimals", "rule": "GM-14"},
+      {"key": "HEIGHT_FIT_ALLOWANCE", "value": 3, "unit": "%", "rule": "BD-03"},
+      {"key": "SCREW_PENETRATION_ALLOWANCE", "value": 10, "unit": "mm", "rule": "BD-05"},
+      {"key": "CORNER_BEAD_FALLBACK_RATE", "value": 0.3, "unit": "m per m2 of board", "rule": "BD-07"},
+      {"key": "EXT_INS_FIXINGS_RATE", "value": 6, "unit": "nr per m2", "rule": "IN-05"},
+      {"key": "ACP_RAIL_SPACING", "value": 600, "unit": "mm", "rule": "EF-07"},
+      {"key": "ACP_BRACKET_SPACING", "value": 1.0, "unit": "m", "rule": "EF-07"},
+      {"key": "GROUT_DENSITY_FACTOR", "value": 1.6, "unit": "kg per L", "rule": "TF-05"},
+      {"key": "SKIRTING_FROM_TILE_FACTOR", "value": 1.15, "unit": "factor", "rule": "TF-07"},
+      {"key": "SCREED_SAND_CEMENT_RATE", "value": 2.0, "unit": "kg per m2 per mm", "rule": "TF-09"},
+      {"key": "SCREED_SELF_LEVELLING_RATE", "value": 1.7, "unit": "kg per m2 per mm", "rule": "TF-09"},
+      {"key": "PLANK_UNDERLAY_FACTOR", "value": 1.05, "unit": "factor", "rule": "TF-10"},
+      {"key": "DECK_LAP_FACTOR", "value": 1.05, "unit": "factor", "rule": "TF-11"},
+      {"key": "RIB_FILL_FACTOR", "value": 0.5, "unit": "factor", "rule": "TF-11"},
+      {"key": "DECK_MESH_FACTOR", "value": 1.15, "unit": "factor", "rule": "TF-11"},
+      {"key": "DECK_SOFFIT_PROFILE_FACTOR", "value": 1.4, "unit": "factor", "rule": "TF-12"},
+      {"key": "CEILING_FURRING_SPACING", "value": 400, "unit": "mm", "rule": "CL-04"},
+      {"key": "CEILING_PRIMARY_SPACING", "value": 1200, "unit": "mm", "rule": "CL-04"},
+      {"key": "CEILING_HANGER_SPACING", "value": 1200, "unit": "mm", "rule": "CL-04"},
+      {"key": "METAL_TILE_FACTOR", "value": 1.05, "unit": "factor", "rule": "CL-05"},
+      {"key": "STRIP_CARRIER_SPACING", "value": 1.2, "unit": "m", "rule": "CL-07"},
+      {"key": "ROOF_COVER_FACTOR", "value": 1.05, "unit": "factor", "rule": "RF-02"},
+      {"key": "DOWNPIPE_MIN_COUNT", "value": 2, "unit": "nr", "rule": "RF-04"},
+      {"key": "DOWNPIPE_EXTRA_LENGTH", "value": 0.5, "unit": "m", "rule": "RF-04"},
+      {"key": "ROOF_INSULATION_FACTOR", "value": 1.05, "unit": "factor", "rule": "RF-05"},
+      {"key": "COPING_FACTOR", "value": 1.05, "unit": "factor", "rule": "RF-06"},
+      {"key": "TILED_FACE_THICKNESS", "value": 15, "unit": "mm", "rule": "DW-03"},
+      {"key": "HINGES_PER_LEAF_STANDARD", "value": 3, "unit": "nr", "rule": "DW-04"},
+      {"key": "HINGES_PER_LEAF_TALL_OR_FIRE", "value": 4, "unit": "nr", "rule": "DW-04"},
+      {"key": "HINGE_HEIGHT_LIMIT", "value": 2100, "unit": "mm", "rule": "DW-04"},
+      {"key": "FLUSH_BOLTS_INACTIVE_LEAF", "value": 2, "unit": "nr", "rule": "DW-04"},
+      {"key": "ARCHITRAVE_FACTOR", "value": 1.1, "unit": "factor", "rule": "DW-05"},
+      {"key": "FRAME_FIXINGS_PER_FRAME", "value": 8, "unit": "nr", "rule": "DW-05"},
+      {"key": "FLASHING_TAPE_EXTRA", "value": 0.6, "unit": "m", "rule": "DW-07"},
+      {"key": "WINDOW_ANCHOR_SPACING", "value": 0.6, "unit": "m", "rule": "DW-07"},
+      {"key": "SILL_EXTRA_LENGTH", "value": 0.1, "unit": "m", "rule": "DW-07"},
+      {"key": "SEALANT_PACK_VOLUME", "value": 600, "unit": "ml", "rule": "DP-06"},
+      {"key": "SEALANT_BEAD_WIDTH", "value": 10, "unit": "mm", "rule": "DP-06"},
+      {"key": "SEALANT_BEAD_DEPTH", "value": 5, "unit": "mm", "rule": "DP-06"},
+      {"key": "FRAME_DEPTH_TOLERANCE", "value": 5, "unit": "mm", "rule": "VL-12"},
+      {"key": "OVERRIDE_REVIEW_THRESHOLD", "value": 5, "unit": "%", "rule": "TA-06"}
+    ]
+  },
+
+  "locations": {
+    "notes": [
+      "Slots are listed from outside to inside, or from bottom to top.",
+      "The outer face of a parapet is part of EW-OUT, because façade height runs to the top of the parapet.",
+      "The ground floor slab belongs to the Structure module. FL-DECK applies to upper floors only.",
+      "A mandatory slot can be set to 'Not required' only with a reason (VL-01)."
+    ],
+    "list": [
+      {
+        "code": "EW-OUT", "name": "External wall, outer face", "measured_as": "Area: outer-face length × façade height",
+        "rules": ["GM-01", "GM-02", "GM-03", "GM-08", "GM-09"],
+        "slots": [
+          {"slot": "SHEATH", "requirement": "M", "options": "SHEATH"},
+          {"slot": "WRB", "requirement": "M", "options": "WRB"},
+          {"slot": "EXT-INS", "requirement": "O", "options": "EXT-INS"},
+          {"slot": "FINISH", "requirement": "M", "options": "FINISH_EXTERNAL"}
+        ]
+      },
+      {
+        "code": "EW-CAV", "name": "External wall, cavity", "measured_as": "Area: centreline length × stud height",
+        "rules": ["GM-02", "GM-07", "GM-08"],
+        "slots": [
+          {"slot": "CAV-INS", "requirement": "M", "options": "CAV-INS"},
+          {"slot": "VCL", "requirement": "C", "condition": "Cold-climate profiles", "options": "VCL"}
+        ]
+      },
+      {
+        "code": "EW-IN-DRY", "name": "External wall, inner face to a dry room", "zone": "DRY", "measured_as": "Area: room-side length × lining height",
+        "rules": ["GM-02", "GM-04", "GM-05", "GM-06", "GM-08", "GM-09"],
+        "slots": [
+          {"slot": "LINING", "requirement": "M", "options": "LINING"},
+          {"slot": "FINISH", "requirement": "M", "options": "FINISH_WALL_INTERNAL"}
+        ]
+      },
+      {
+        "code": "EW-IN-WET", "name": "External wall, inner face to a wet room", "zone": "WET", "measured_as": "Area: room-side length × lining height",
+        "rules": ["GM-02", "GM-04", "GM-05", "GM-06", "GM-08", "GM-09"],
+        "slots": [
+          {"slot": "LINING", "requirement": "M", "options": "LINING"},
+          {"slot": "WP", "requirement": "C", "condition": "Shower walls", "options": "WP"},
+          {"slot": "FINISH", "requirement": "M", "options": "FINISH_WALL_INTERNAL"}
+        ]
+      },
+      {
+        "code": "IW-DRY", "name": "Internal wall, face to a dry room", "zone": "DRY", "measured_as": "Area per face: room-side length × lining height",
+        "rules": ["GM-02", "GM-04", "GM-05", "GM-06", "GM-08", "GM-09"],
+        "slots": [
+          {"slot": "LINING", "requirement": "M", "options": "LINING"},
+          {"slot": "FINISH", "requirement": "M", "options": "FINISH_WALL_INTERNAL"}
+        ]
+      },
+      {
+        "code": "IW-WET", "name": "Internal wall, face to a wet room", "zone": "WET", "measured_as": "Area per face: room-side length × lining height",
+        "rules": ["GM-02", "GM-04", "GM-05", "GM-06", "GM-08", "GM-09"],
+        "slots": [
+          {"slot": "LINING", "requirement": "M", "options": "LINING"},
+          {"slot": "WP", "requirement": "C", "condition": "Shower walls", "options": "WP"},
+          {"slot": "FINISH", "requirement": "M", "options": "FINISH_WALL_INTERNAL"}
+        ]
+      },
+      {
+        "code": "IW-CAV", "name": "Internal wall, cavity", "measured_as": "Area: centreline length × stud height",
+        "rules": ["GM-02", "GM-07", "GM-08"],
+        "slots": [
+          {"slot": "CAV-INS", "requirement": "C", "condition": "Acoustic or fire-rated walls", "options": "CAV-INS"}
+        ]
+      },
+      {
+        "code": "PAR", "name": "Parapet, inner face and top", "zone": "EXTERNAL", "measured_as": "Area: parapet length × height; coping by length",
+        "rules": ["RF-06"],
+        "slots": [
+          {"slot": "SHEATH", "requirement": "M", "options": "SHEATH"},
+          {"slot": "WRB", "requirement": "M", "options": "WRB"},
+          {"slot": "FINISH", "requirement": "M", "options": "FINISH_EXTERNAL"},
+          {"slot": "COPING", "requirement": "M", "options": "COPING"}
+        ]
+      },
+      {
+        "code": "FL-DECK", "name": "Floor deck on LGS joists", "measured_as": "Area: gross floor plate less voids",
+        "rules": ["GM-10", "BD-09", "TF-11"],
+        "slots": [
+          {"slot": "DECK", "requirement": "M", "options": "DECK"},
+          {"slot": "CAV-INS", "requirement": "O", "options": "CAV-INS"}
+        ]
+      },
+      {
+        "code": "FL-DRY", "name": "Floor, dry room", "zone": "DRY", "measured_as": "Area: room net floor area",
+        "rules": ["GM-10", "GM-13"],
+        "slots": [
+          {"slot": "ACOUSTIC", "requirement": "O", "options": "ACOUSTIC"},
+          {"slot": "SCREED", "requirement": "O", "options": "SCREED"},
+          {"slot": "FINISH", "requirement": "M", "options": "FINISH_FLOOR"},
+          {"slot": "SKIRTING", "requirement": "M", "options": "SKIRTING"}
+        ]
+      },
+      {
+        "code": "FL-WET", "name": "Floor, wet room", "zone": "WET", "measured_as": "Area: room net floor area",
+        "rules": ["GM-10", "IN-06", "TF-08"],
+        "slots": [
+          {"slot": "WP", "requirement": "M", "options": "WP"},
+          {"slot": "SCREED", "requirement": "O", "options": "SCREED"},
+          {"slot": "FINISH", "requirement": "M", "options": "FINISH_FLOOR"},
+          {"slot": "THRESHOLD", "requirement": "M", "options": "THRESHOLD_EDGE"}
+        ]
+      },
+      {
+        "code": "FL-EXT", "name": "Floor, balcony or terrace", "zone": "EXTERNAL", "measured_as": "Area: room net floor area",
+        "rules": ["GM-10", "IN-07"],
+        "slots": [
+          {"slot": "WP", "requirement": "M", "options": "WP"},
+          {"slot": "SCREED", "requirement": "M", "options": "SCREED"},
+          {"slot": "FINISH", "requirement": "M", "options": "FINISH_FLOOR"},
+          {"slot": "EDGE", "requirement": "O", "options": "THRESHOLD_EDGE"}
+        ]
+      },
+      {
+        "code": "ST", "name": "Stairs", "measured_as": "Count and length from stair geometry",
+        "rules": ["TF-13", "OT-07"],
+        "slots": [
+          {"slot": "TREAD", "requirement": "M", "options": "STAIR_FINISH"},
+          {"slot": "RISER", "requirement": "M", "options": "STAIR_FINISH"},
+          {"slot": "LANDING", "requirement": "M", "options": "STAIR_FINISH"},
+          {"slot": "NOSING", "requirement": "O", "options": "NOSING"},
+          {"slot": "BALUSTRADE", "requirement": "M", "options": "BALUSTRADE"}
+        ]
+      },
+      {
+        "code": "CL-DRY", "name": "Ceiling, dry room", "zone": "DRY", "measured_as": "Area: room net floor area",
+        "rules": ["GM-11", "CL-01"],
+        "slots": [
+          {"slot": "SYSTEM", "requirement": "M", "options": "SYSTEM_CEILING"},
+          {"slot": "CAV-INS", "requirement": "O", "options": "CAV-INS"},
+          {"slot": "FINISH", "requirement": "M", "options": "FINISH_CEILING"}
+        ]
+      },
+      {
+        "code": "CL-WET", "name": "Ceiling, wet room", "zone": "WET", "measured_as": "Area: room net floor area",
+        "rules": ["GM-11", "CL-01"],
+        "slots": [
+          {"slot": "SYSTEM", "requirement": "M", "options": "SYSTEM_CEILING"},
+          {"slot": "FINISH", "requirement": "M", "options": "FINISH_CEILING"}
+        ]
+      },
+      {
+        "code": "CL-EXT", "name": "External soffit", "zone": "EXTERNAL", "measured_as": "Area",
+        "rules": ["CL-10"],
+        "slots": [
+          {"slot": "SYSTEM", "requirement": "M", "options": "SYSTEM_CEILING"},
+          {"slot": "FINISH", "requirement": "M", "options": "FINISH_EXTERNAL"}
+        ]
+      },
+      {
+        "code": "RF-FLAT", "name": "Flat roof", "zone": "EXTERNAL", "measured_as": "Area: plan area",
+        "rules": ["RF-05", "IN-07"],
+        "slots": [
+          {"slot": "DECK", "requirement": "M", "options": "DECK"},
+          {"slot": "VCL", "requirement": "O", "options": "VCL"},
+          {"slot": "INS", "requirement": "M", "options": "INS_ROOF"},
+          {"slot": "SCREED", "requirement": "M", "options": "SCREED"},
+          {"slot": "WP", "requirement": "M", "options": "WP"},
+          {"slot": "PROT", "requirement": "O", "options": "PROT"}
+        ]
+      },
+      {
+        "code": "RF-PITCH", "name": "Pitched roof", "zone": "EXTERNAL", "measured_as": "Area: plan area ÷ cos(slope)",
+        "rules": ["RF-01", "RF-02", "RF-03"],
+        "slots": [
+          {"slot": "COVER", "requirement": "M", "options": "COVER"},
+          {"slot": "UNDERLAY", "requirement": "O", "options": "UNDERLAY"},
+          {"slot": "INS", "requirement": "C", "condition": "Single-skin cover", "options": "INS_ROOF"}
+        ]
+      },
+      {
+        "code": "RF-EDGE", "name": "Roof edges and drainage", "zone": "EXTERNAL", "measured_as": "Length and count",
+        "rules": ["RF-03", "RF-04"],
+        "slots": [
+          {"slot": "GUTTER", "requirement": "C", "condition": "Pitched roofs", "options": "GUTTER_DOWNPIPE"},
+          {"slot": "DOWNPIPE", "requirement": "M", "options": "GUTTER_DOWNPIPE"},
+          {"slot": "FLASHING", "requirement": "M", "options": "FLASHING_FASCIA"},
+          {"slot": "FASCIA", "requirement": "O", "options": "FLASHING_FASCIA"}
+        ]
+      },
+      {
+        "code": "DR", "name": "Doors", "measured_as": "Count by type mark",
+        "rules": ["DW-01", "DW-02", "DW-03", "DW-04", "DW-05", "DW-10"],
+        "slots": [
+          {"slot": "DOORSET", "requirement": "M", "options": "DOORSET"},
+          {"slot": "IRONMONGERY", "requirement": "M", "options": "IRONMONGERY"}
+        ]
+      },
+      {
+        "code": "WN", "name": "Windows and glazed screens", "measured_as": "Count and area by type mark",
+        "rules": ["DW-06", "DW-07", "DW-08", "DW-09", "DW-10"],
+        "slots": [
+          {"slot": "WINDOW", "requirement": "M", "options": "WINDOW"},
+          {"slot": "SILL-EXT", "requirement": "O", "options": "SILL"},
+          {"slot": "SILL-INT", "requirement": "O", "options": "SILL"},
+          {"slot": "SCREEN", "requirement": "O", "options": "SCREEN"}
+        ]
+      },
+      {
+        "code": "MISC", "name": "Estimator-input items", "measured_as": "As entered",
+        "rules": ["OT-01", "OT-02", "OT-03", "OT-04", "OT-05", "OT-07", "OT-08"],
+        "slots": [],
+        "items": ["Backing", "Fire stopping", "Boxing", "Joinery", "Sanitary accessories", "Balustrades", "Canopies", "Signage"]
+      }
+    ]
+  },
+
+  "slot_options": {
+    "note": "Starting list of materials offered in each slot and the specification attributes the estimator selects. The administrator extends it.",
+    "options": {
+      "SHEATH": {"label": "Sheathing board", "materials": ["Fibre cement board", "Glass mat gypsum sheathing"], "specification_attributes": ["Thickness", "Sheet size", "Edge type"]},
+      "WRB": {"label": "Weather barrier", "materials": ["Breather membrane", "Liquid-applied barrier", "Integrated (sheathing with sealed joints)"], "specification_attributes": ["Product", "Roll size or coverage"]},
+      "EXT-INS": {"label": "External insulation", "materials": ["EPS", "XPS", "Mineral wool slab"], "specification_attributes": ["Thickness", "Density"]},
+      "FINISH_EXTERNAL": {"label": "External finish", "materials": ["Terraco textured render system", "Render with exterior paint", "ACP cladding", "Fibre cement plank", "HPL panel", "WPC cladding", "Stone or brick slip"], "specification_attributes": ["System", "Texture or grain", "Colour", "Panel module (cladding)"]},
+      "CAV-INS": {"label": "Cavity insulation", "materials": ["Rockwool", "Glasswool", "PIR board"], "specification_attributes": ["Thickness", "Density", "Form (batt, roll or board)"]},
+      "VCL": {"label": "Vapour control layer", "materials": ["Polyethylene sheet", "Foil-faced membrane"], "specification_attributes": ["Thickness", "Roll size"]},
+      "LINING": {"label": "Lining board", "materials": ["Gypsum board regular", "Gypsum board MR", "Gypsum board FR", "Gypsum board FR-MR", "Cement board", "Glass mat tile backer"], "specification_attributes": ["Thickness", "Sheet size", "Number of layers (1 to 3)"]},
+      "WP": {"label": "Waterproofing", "materials": ["Cementitious coating", "Liquid polyurethane", "Torch-applied bituminous sheet", "PVC or TPO sheet"], "specification_attributes": ["System", "Coats or thickness", "Consumption"]},
+      "FINISH_WALL_INTERNAL": {"label": "Internal wall finish", "materials": ["Paint system", "Textured coating", "Wall tiles", "Wall panel", "Wallpaper"], "specification_attributes": ["Paint: primer, coats, sheen, colour", "Tiles: size, layout, tiling height"]},
+      "DECK": {"label": "Floor or roof deck", "materials": ["Floor cement board", "Metal deck with concrete topping", "Structural plywood or OSB"], "specification_attributes": ["Board thickness and size", "Deck profile and gauge", "Topping thickness"]},
+      "ACOUSTIC": {"label": "Acoustic layer", "materials": ["Acoustic mat"], "specification_attributes": ["Thickness", "Roll size"]},
+      "SCREED": {"label": "Screed", "materials": ["Sand-cement screed", "Self-levelling compound", "Lightweight screed"], "specification_attributes": ["Thickness", "Product"]},
+      "FINISH_FLOOR": {"label": "Floor finish", "materials": ["Porcelain or ceramic tiles", "SPC or vinyl plank", "Laminate", "Carpet tiles", "Epoxy coating", "Sealer only"], "specification_attributes": ["Size", "Thickness", "Layout", "Colour"]},
+      "SKIRTING": {"label": "Skirting", "materials": ["Tile", "PVC", "MDF", "Aluminium"], "specification_attributes": ["Height", "Profile"]},
+      "THRESHOLD_EDGE": {"label": "Threshold or edge trim", "materials": ["Marble or granite", "Aluminium trim"], "specification_attributes": ["Width", "Finish"]},
+      "STAIR_FINISH": {"label": "Tread, riser and landing finish", "materials": ["Tiles", "Stone", "SPC", "Carpet", "Sealer only"], "specification_attributes": ["Size", "Thickness", "Finish"]},
+      "NOSING": {"label": "Stair nosing", "materials": ["Aluminium", "PVC", "Stone"], "specification_attributes": ["Profile"]},
+      "BALUSTRADE": {"label": "Balustrade", "materials": ["Steel", "Aluminium", "Glass"], "specification_attributes": ["Height", "Infill", "Finish"]},
+      "SYSTEM_CEILING": {"label": "Ceiling system", "materials": ["Gypsum board ceiling (regular, MR, FR)", "Metal tile", "Metal strip", "Mineral fibre tile", "Cement board soffit", "Exposed soffit, paint only"], "specification_attributes": ["Fixing (direct or suspended)", "Board thickness", "Tile or strip module", "Grid type"]},
+      "FINISH_CEILING": {"label": "Ceiling finish", "materials": ["Paint system", "Factory finished"], "specification_attributes": ["Coats", "Colour"]},
+      "COVER": {"label": "Pitched roof cover", "materials": ["Sandwich panel", "Single-skin profiled sheet", "Roof tiles or shingles"], "specification_attributes": ["Core thickness", "Gauge", "Profile", "Cover width", "Colour"]},
+      "UNDERLAY": {"label": "Roofing underlay", "materials": ["Roofing underlay membrane"], "specification_attributes": ["Product", "Roll size"]},
+      "INS_ROOF": {"label": "Roof insulation", "materials": ["XPS", "PIR", "Rockwool slab"], "specification_attributes": ["Thickness", "Density"]},
+      "PROT": {"label": "Roof protection layer", "materials": ["Geotextile with screed", "Tiles", "Gravel", "Reflective coating"], "specification_attributes": ["Thickness", "Product"]},
+      "COPING": {"label": "Parapet coping", "materials": ["Aluminium", "ACP", "Precast concrete"], "specification_attributes": ["Girth", "Finish"]},
+      "GUTTER_DOWNPIPE": {"label": "Gutter and downpipe", "materials": ["uPVC", "Aluminium", "Galvanised steel"], "specification_attributes": ["Size", "Profile"]},
+      "FLASHING_FASCIA": {"label": "Flashing and fascia", "materials": ["Pre-coated steel", "Aluminium"], "specification_attributes": ["Girth", "Thickness", "Colour"]},
+      "DOORSET": {"label": "Doorset", "materials": ["Timber", "WPC", "Steel", "Aluminium glazed", "uPVC", "Fire-rated doorset"], "specification_attributes": ["Leaf size", "Frame depth", "Fire rating", "Finish", "Configuration (single, double or sliding)"]},
+      "IRONMONGERY": {"label": "Ironmongery set by door function", "materials": ["Passage set", "Privacy set", "Keyed entry set", "Fire door set"], "specification_attributes": ["Finish", "Grade"]},
+      "WINDOW": {"label": "Window", "materials": ["Aluminium, thermal-break", "Aluminium, standard", "uPVC"], "specification_attributes": ["Opening type", "Glazing", "Colour"]},
+      "SILL": {"label": "External sill or internal sill board", "materials": ["Aluminium", "Stone", "MDF", "uPVC"], "specification_attributes": ["Width", "Finish"]},
+      "SCREEN": {"label": "Fly screen", "materials": ["Fly screen, fixed", "Fly screen, sliding", "Fly screen, retractable"], "specification_attributes": ["Mesh", "Frame colour"]}
+    }
+  },
+
+  "rule_groups": [
+    {
+      "code": "PR", "name": "Governing principles",
+      "rules": [
+        {"id": "PR-01", "title": "Usage-first selection", "rule": "Every item is selected by usage location. The estimator picks the material for the location, then the specification of that material. The software never picks a material by itself."},
+        {"id": "PR-02", "title": "Fixed hierarchy", "rule": "Location → Slot → Material → Specification → Quantity. A slot is one layer position inside a location, such as sheathing board, weather barrier or finish."},
+        {"id": "PR-03", "title": "Filtered lists", "rule": "The material list shows only materials allowed in that slot. The specification list shows only specifications of the chosen material. Both lists come from master data."},
+        {"id": "PR-04", "title": "Geometry automatic, selection manual, quantity automatic", "rule": "The estimator never types a dimension the software can measure. Where geometry cannot supply a dimension, the item becomes an estimator-input item and is flagged in the output."},
+        {"id": "PR-05", "title": "One method for all items", "rule": "Area, length, count and volume items all follow PR-01 to PR-04. Only the measurement formula differs."},
+        {"id": "PR-06", "title": "One owner per item", "rule": "Items quantified by the Structure module (studs, tracks, joists, trusses, bracing, lintels, structural deck, foundations) are never quantified again here. Every material carries an owner_module field."},
+        {"id": "PR-07", "title": "No hard-coded numbers", "rule": "Every rate, sheet size, wastage percentage, threshold and default height is master data with an effective date."},
+        {"id": "PR-08", "title": "Three quantities per line", "rule": "Net (installed), gross (net plus wastage) and purchase (gross converted to purchase units and rounded up) are all stored."},
+        {"id": "PR-09", "title": "Dependents are automatic", "rule": "Screws, tape, compound, adhesive, grout, primer, beads, sealant and fixings are generated from the parent selection by consumption rules. The estimator does not select them."},
+        {"id": "PR-10", "title": "Traceable", "rule": "Every quantity line stores its source surfaces, formula ID and parameter values, so a reviewer can recalculate it by hand."},
+        {"id": "PR-11", "title": "Override with reason", "rule": "A manual change to an automatic quantity, rate or validation needs a typed reason. The automatic value is kept and the line is flagged."},
+        {"id": "PR-12", "title": "SI storage", "rule": "Dimensions are stored in mm; quantities in m, m², m³, kg, L and nr. Imperial is a display conversion only."},
+        {"id": "PR-13", "title": "Procurement mode", "rule": "Each material is MATERIAL (broken down into components for in-house installation) or SUPPLY_INSTALL (a subcontract package measured as one line in m², m or nr). Dependents are generated only in MATERIAL mode."}
+      ]
+    },
+    {
+      "code": "GI", "name": "Geometry inputs",
+      "rules": [
+        {"id": "GI-01", "rule": "Each wall face is split at room boundaries. Every surface then faces exactly one room, or the exterior."},
+        {"id": "GI-02", "rule": "Zone comes from room type. Default WET: bathroom, toilet, shower, laundry, kitchen. Default EXTERNAL: balcony, terrace. All other rooms are DRY. The mapping is editable per project."},
+        {"id": "GI-03", "rule": "A missing field uses the project default parameter. Every line that depends on it is flagged 'assumed'."},
+        {"id": "GI-04", "rule": "Geometry is read-only in this module. Corrections are made in the plan reader, so Structure and Architecture stay aligned."},
+        {"id": "GI-05", "rule": "Opening sizes are structural opening sizes: the framed width and height."},
+        {"id": "GI-06", "rule": "Stud depth, stud spacing, steel thickness and joist spacing are read from the Structure module and never re-entered."}
+      ]
+    },
+    {
+      "code": "GM", "name": "General measurement rules",
+      "rules": [
+        {"id": "GM-01", "title": "Base formula", "rule": "Net area of a surface = length × height − deductible openings + reveals. Board slots multiply the result by the number of layers.", "formula": "net_area = length * height - sum(deductible_opening_areas) + sum(reveal_areas); board slots: net_area * layers"},
+        {"id": "GM-02", "title": "Length", "rule": "EW-OUT uses the outer-face length, outside corner to outside corner. Inner faces and internal wall faces use the length of the face inside the room. Cavities use the wall centreline length. If rooms are not available, use centreline length and flag the line 'assumed'."},
+        {"id": "GM-03", "title": "Façade height (EW-OUT)", "rule": "Per storey: finished floor level to the finished floor level above, so the floor zone is covered. The ground storey starts at the top of the plinth. The top storey runs to the top of the parapet, or to the eaves on a pitched roof. Gable ends add ½ × gable width × rise.", "formula": "gable_area = 0.5 * gable_width * rise"},
+        {"id": "GM-04", "title": "Lining height", "rule": "Ceiling height + LINING_OVERRUN (default 150 mm). The lining runs the full structural panel height when the room has no ceiling, when the wall is fire or acoustic rated, or when the estimator sets full height.", "formula": "lining_height = ceiling_height + LINING_OVERRUN; or structural_panel_height when full height applies", "parameters": ["LINING_OVERRUN"]},
+        {"id": "GM-05", "title": "Finish height", "rule": "Paint, tiles and wall panels are measured to ceiling height only. Tiles may stop at a tiling height chosen by the estimator."},
+        {"id": "GM-06", "title": "Height bands", "rule": "Two finishes on one face are measured as bands, for example tiles from 0 to 1200 mm and paint above. An opening is deducted from each band by its overlap: opening width × the part of its sill-to-head height that lies inside the band.", "formula": "band_deduction = opening_width * overlap_height(sill_height to sill_height + opening_height, band_bottom to band_top)"},
+        {"id": "GM-07", "title": "Cavity height", "rule": "Structural panel (stud) height."},
+        {"id": "GM-08", "title": "Opening deduction", "rule": "Openings larger than SMALL_OPENING_AREA (default 0.50 m²) are deducted in full. Smaller openings are not deducted, because the cut-out is waste. A material may be set to FULL or NONE instead of this default. One opening deducts from every slot on both faces of its host wall and from the cavity.", "formula": "deduct opening_width * opening_height when opening_width * opening_height > SMALL_OPENING_AREA", "parameters": ["SMALL_OPENING_AREA"]},
+        {"id": "GM-09", "title": "Reveals", "rule": "Materials flagged 'returns into reveal' add reveal perimeter × reveal depth. Door: 2 × height + width. Window, outer face: 2 × (height + width). Window, inner face: 2 × height + width when a sill board is selected, otherwise 2 × (height + width). Depths are REVEAL_DEPTH_EXT and REVEAL_DEPTH_INT (default 100 mm each).", "formula": "reveal_area = reveal_perimeter * reveal_depth; door: 2 * height + width; window outer face: 2 * (height + width); window inner face: 2 * height + width if sill board selected, else 2 * (height + width)", "parameters": ["REVEAL_DEPTH_EXT", "REVEAL_DEPTH_INT"]},
+        {"id": "GM-10", "title": "Floors", "rule": "Finish area = room net floor area + door strips. Each door adds door width × half the wall thickness to the room on each side. Deck area = gross floor plate less stair voids and shafts.", "formula": "finish_area = room_net_floor_area + sum(door_width * wall_thickness / 2); deck_area = gross_floor_plate - stair_voids - shafts"},
+        {"id": "GM-11", "title": "Ceilings", "rule": "Area = room net floor area. Bulkhead and drop faces add length × drop height, as estimator input unless read from a ceiling plan.", "formula": "ceiling_area = room_net_floor_area + sum(bulkhead_length * drop_height)"},
+        {"id": "GM-12", "title": "Slopes", "rule": "True area = plan area ÷ cos(slope).", "formula": "true_area = plan_area / cos(slope)"},
+        {"id": "GM-13", "title": "Lengths", "rule": "Skirting = room perimeter − door widths. Cornice and shadow gap = room perimeter. Copings and flashings = measured edge length.", "formula": "skirting_length = room_perimeter - sum(door_widths)"},
+        {"id": "GM-14", "title": "Order", "rule": "Net, then dependents from net, then wastage, then purchase conversion, then rounding. Intermediate values keep four decimals. Only the purchase quantity is rounded, always up."},
+        {"id": "GM-15", "title": "Aggregation", "rule": "Purchase rounding is applied once per specification per lot. The lot is the whole project by default, or one level when the project is delivered by level."},
+        {"id": "GM-16", "title": "Data errors", "rule": "If deductions exceed the gross area, or an opening does not fit its host wall, the line stops with an error. It is never set to zero silently."}
+      ]
+    },
+    {
+      "code": "BD", "name": "Boards and linings",
+      "rules": [
+        {"id": "BD-01", "rule": "Net board area per slot = sum of surface areas (GM-01) × layers. Each layer may have its own material and specification."},
+        {"id": "BD-02", "rule": "Sheets = round up [ net × (1 + wastage) ÷ (sheet length × sheet width) ].", "formula": "sheets = round_up(net * (1 + wastage) / (sheet_length * sheet_width))"},
+        {"id": "BD-03", "title": "Height fit", "rule": "When board height H is not more than sheet length Ls, the surface uses wastage = the larger of the default wastage and (Ls ÷ H − 1 + 3%). The software then suggests the stock length closest above H. When H is more than Ls, the default wastage applies.", "formula": "if H <= Ls: wastage = max(default_wastage, Ls / H - 1 + 0.03); else: wastage = default_wastage"},
+        {"id": "BD-04", "title": "Screws", "rule": "Quantity per layer = net area × the rate from DP-01, using the stud or joist spacing from the Structure module.", "formula": "screws = net_area * screw_rate_per_m2, per layer"},
+        {"id": "BD-05", "title": "Screw selection", "rule": "Length = the shortest stocked length not less than the total board thickness being fixed + 10 mm. Point = drill point when the stud steel is thicker than DRILL_POINT_STEEL (default 0.7 mm), otherwise sharp point.", "formula": "screw_length_mm = min(stocked_length_mm where stocked_length_mm >= total_board_thickness_mm + 10); point = drill if stud_steel_thickness_mm > DRILL_POINT_STEEL else sharp", "parameters": ["DRILL_POINT_STEEL"]},
+        {"id": "BD-06", "title": "Jointing, gypsum", "rule": "Tape and compound apply to the face layer only. Inner layers of a multi-layer lining are not taped unless the fire system requires it."},
+        {"id": "BD-07", "title": "Corner beads", "rule": "Length = convex corners in the room × lining height + reveal perimeters of the openings on that face (GM-09). If corner counts are not read, use 0.30 m per m² of board and flag 'assumed'.", "formula": "bead_length = convex_corners * lining_height + sum(reveal_perimeters); fallback: 0.30 * board_area"},
+        {"id": "BD-08", "title": "External cement board", "rule": "Board joints take joint filler and alkali-resistant tape. The render system supplies the remaining layers (EF-02)."},
+        {"id": "BD-09", "title": "Floor cement board", "rule": "Area = FL-DECK area. Sheets are laid with the long edge across the joists. A construction adhesive bead runs on every joist: length = area ÷ joist spacing.", "formula": "adhesive_bead_length = area / joist_spacing"},
+        {"id": "BD-10", "title": "Glass mat sheathing", "rule": "If the product is used as the weather barrier with sealed joints, the WRB slot is set to 'integrated' and the joint sealant becomes a dependent of the board."}
+      ]
+    },
+    {
+      "code": "IN", "name": "Membranes, insulation and waterproofing",
+      "rules": [
+        {"id": "IN-01", "title": "Weather barrier", "rule": "Net area = EW-OUT sheathing net area, reveals included. Laps are covered by 15% wastage. Rolls = round up (gross ÷ roll area).", "formula": "rolls = round_up(gross / roll_area)"},
+        {"id": "IN-02", "title": "Vapour control layer", "rule": "Net area = cavity net area of the wall. Laps are covered by 10% wastage. The slot is mandatory for cold-climate profiles and optional for GCC profiles. Its position in the wall is a design decision; the software only quantifies it."},
+        {"id": "IN-03", "title": "Cavity insulation", "rule": "Net area = centreline length × stud height − openings (GM-08). Studs are not deducted. Packs = round up (gross ÷ m² per pack).", "formula": "net_area = centreline_length * stud_height - sum(deductible_opening_areas); packs = round_up(gross / m2_per_pack)"},
+        {"id": "IN-04", "title": "Floor, ceiling and roof insulation", "rule": "Net area = floor plate, ceiling or roof area. Same pack rule."},
+        {"id": "IN-05", "title": "External insulation", "rule": "Net area = EW-OUT net area. Adhesive and mechanical fixings come from the system data sheet (default 6 fixings per m²)."},
+        {"id": "IN-06", "title": "Wet-room waterproofing", "rule": "Area = room floor area + room perimeter × WP_UPTURN (default 300 mm) + shower wall length × WP_SHOWER_HEIGHT (default 2100 mm). Shower wall length is read from the plan if the fixture is recognised, otherwise entered per room type. Quantity = area × consumption for all coats, from the specification.", "formula": "area = room_floor_area + room_perimeter * WP_UPTURN + shower_wall_length * WP_SHOWER_HEIGHT; quantity = area * consumption", "parameters": ["WP_UPTURN", "WP_SHOWER_HEIGHT"]},
+        {"id": "IN-07", "title": "Roof and terrace waterproofing", "rule": "Area = plan area + parapet length × WP_UPSTAND (default 300 mm) + upstands to plinths and penetrations (RF-07). Sheet membranes carry 15% wastage for laps. Liquid systems use consumption × area.", "formula": "area = plan_area + parapet_length * WP_UPSTAND + sum(penetration_perimeter * WP_UPSTAND)", "parameters": ["WP_UPSTAND"]},
+        {"id": "IN-08", "title": "Waterproofing accessories", "rule": "Primer by area. Reinforcing tape = room perimeter + number of wall corners × upturn height. Roofs add an angle fillet and a termination bar, each equal to the parapet length.", "formula": "reinforcing_tape = room_perimeter + wall_corners * upturn_height"},
+        {"id": "IN-09", "title": "Sill gasket", "rule": "Length under ground-floor base tracks = total ground-floor wall centreline length − door widths. Width follows stud depth.", "formula": "length = sum(ground_floor_wall_centreline_lengths) - sum(door_widths)"},
+        {"id": "IN-10", "title": "Perimeter sealant on rated walls", "rule": "Bead length = 2 faces × 2 × (wall length + lining height). Cartridges follow DP-06.", "formula": "bead_length = 2 * 2 * (wall_length + lining_height)"}
+      ]
+    },
+    {
+      "code": "EF", "name": "External finishes",
+      "rules": [
+        {"id": "EF-01", "rule": "Finish area = EW-OUT net area including reveals (GM-01). Parapet inner faces and soffits are measured in their own locations."},
+        {"id": "EF-02", "title": "Textured render system (Terraco or equivalent)", "rule": "One selection generates primer, basecoat, reinforcing mesh and finish coat. Consumption comes from the system data sheet. The finish coat rate varies with grain size and is stored on the specification."},
+        {"id": "EF-03", "title": "Render beads", "rule": "Corner bead = building convex corners × façade height + reveal perimeters. Drip bead = total width of window and door heads. Base bead = external perimeter − external door widths. Movement bead = one horizontal run per intermediate floor line, plus vertical joints at MJ_SPACING (default 6 m). Vertical joints per elevation = round down (elevation length ÷ spacing), each as long as the façade height.", "formula": "corner_bead = building_convex_corners * facade_height + sum(reveal_perimeters); drip_bead = sum(opening_head_widths); base_bead = external_perimeter - sum(external_door_widths); vertical_joints_per_elevation = round_down(elevation_length / MJ_SPACING)", "parameters": ["MJ_SPACING"]},
+        {"id": "EF-04", "title": "Exterior paint", "rule": "Litres = area × coats ÷ coverage. Coverage on textured surfaces is lower than on smooth ones and is stored on the specification.", "formula": "litres = area * coats / coverage"},
+        {"id": "EF-05", "title": "Mixed finishes", "rule": "Finishes are assigned per surface (elevation or wall segment). Where the split does not follow wall segments, the estimator enters the area of the second finish and the software deducts it from the first."},
+        {"id": "EF-06", "title": "ACP as SUPPLY_INSTALL", "rule": "One line in m² of finished area, reveals and returns included, plus copings and flashings by length."},
+        {"id": "EF-07", "title": "ACP as MATERIAL", "rule": "Sheets = round up [ net × (1 + wastage) ÷ sheet area ], with default wastage 20% for cassette returns and module cutting. Subframe rail length = area ÷ rail spacing (default 600 mm). Brackets = rail length ÷ bracket spacing (default 1.0 m). Joint sealant and backer rod length = area × (panel width + panel height) ÷ (panel width × panel height). The panel module is a specification input.", "formula": "sheets = round_up(net * (1 + wastage) / sheet_area); rail_length = area / rail_spacing; brackets = rail_length / bracket_spacing; joint_length = area * (panel_width + panel_height) / (panel_width * panel_height)"},
+        {"id": "EF-08", "title": "ACP fire grade", "rule": "Every ACP specification must carry a fire classification accepted by the fire code that applies to the project; in the UAE, the Fire and Life Safety Code. A specification without one cannot be selected."},
+        {"id": "EF-09", "title": "Plank and panel cladding", "rule": "Area with 10% wastage. Support rail length = area ÷ rail spacing. Corner, starter and opening trims by length. Fixings per m² from the specification.", "formula": "rail_length = area / rail_spacing"}
+      ]
+    },
+    {
+      "code": "TF", "name": "Tiles, screeds and floor finishes",
+      "rules": [
+        {"id": "TF-01", "rule": "Floor tile net area = floor finish area (GM-10). Wall tile net area = room perimeter × tiling height − openings + reveals + niches entered by the estimator.", "formula": "wall_tile_net = room_perimeter * tiling_height - sum(deductible_opening_areas) + sum(reveal_areas) + niches"},
+        {"id": "TF-02", "title": "Wastage by layout", "rule": "Straight lay with tile sides under 900 mm: 8%. Large format, any side 900 mm or more: 10%. Diagonal or herringbone: 15%."},
+        {"id": "TF-03", "rule": "Boxes = round up (gross ÷ m² per box). Attic stock (ATTIC_STOCK, default 0%) is added to the purchase quantity and shown separately.", "formula": "boxes = round_up(gross / m2_per_box)", "parameters": ["ATTIC_STOCK"]},
+        {"id": "TF-04", "title": "Adhesive", "rule": "Net area × rate by longest tile side: up to 300 mm, 3.5 kg/m²; 301 to 600 mm, 5.0 kg/m²; over 600 mm, 7.0 kg/m².", "formula": "adhesive_kg = net_area * rate_by_longest_tile_side"},
+        {"id": "TF-05", "title": "Grout", "rule": "kg per m² = (L + W) ÷ (L × W) × joint width × joint depth × 1.6, with tile length L, tile width W, joint width and joint depth all in mm.", "formula": "grout_kg_per_m2 = (L_mm + W_mm) / (L_mm * W_mm) * joint_width_mm * joint_depth_mm * 1.6"},
+        {"id": "TF-06", "title": "Trims", "rule": "External tile corners × tiling height, plus the top edge of the tiling where it stops below the ceiling (room perimeter − door widths)."},
+        {"id": "TF-07", "title": "Skirting", "rule": "Length per GM-13. Not generated on faces tiled down to the floor. If skirting is cut from floor tiles, add skirting length × skirting height × 1.15 to the floor tile area instead.", "formula": "extra_floor_tile_area = skirting_length * skirting_height * 1.15"},
+        {"id": "TF-08", "title": "Thresholds and transition strips", "rule": "One per door into a wet room, and one per door where the floor finish changes. Length = door width."},
+        {"id": "TF-09", "title": "Screed", "rule": "Volume = area × thickness. Bagged products: kg = area × thickness in mm × 2.0 for sand-cement, or × 1.7 for self-levelling compound. Screed to falls: average thickness = minimum thickness + fall × longest run ÷ 2.", "formula": "volume = area * thickness; bagged_kg = area * thickness_mm * 2.0 (sand-cement) or * 1.7 (self-levelling); average_thickness = minimum_thickness + fall * longest_run / 2"},
+        {"id": "TF-10", "title": "Plank floors (SPC, laminate)", "rule": "Boxes from area with 8% wastage. Underlay = net area × 1.05.", "formula": "underlay = net_area * 1.05"},
+        {"id": "TF-11", "title": "Metal deck with concrete topping", "rule": "Applies when the deck is not owned by the Structure module. Deck area = floor plate × 1.05. Concrete volume = area × (topping above ribs + rib depth × rib fill factor, default 0.5). Mesh = area × 1.15. Edge trim = floor plate perimeter + void perimeters.", "formula": "deck_area = floor_plate * 1.05; concrete_volume = area * (topping_above_ribs + rib_depth * rib_fill_factor); mesh = area * 1.15; edge_trim = floor_plate_perimeter + sum(void_perimeters)"},
+        {"id": "TF-12", "title": "Paint to an exposed deck soffit", "rule": "Area = plan area × the profile factor from the deck specification (default 1.4).", "formula": "area = plan_area * profile_factor"},
+        {"id": "TF-13", "title": "Stairs", "rule": "Tread finish = treads × width × (going + nosing). Riser finish = risers × width × rise. Landings by area. Nosing strips = treads × width.", "formula": "tread_finish = treads * width * (going + nosing); riser_finish = risers * width * rise; nosing_strips = treads * width"}
+      ]
+    },
+    {
+      "code": "CL", "name": "Ceilings",
+      "rules": [
+        {"id": "CL-01", "rule": "Ceiling area per GM-11. Lights, diffusers and hatches under 0.50 m² are not deducted."},
+        {"id": "CL-02", "title": "Gypsum board ceilings", "rule": "Boards per BD-02 with 10% wastage. The face layer is taped (BD-06)."},
+        {"id": "CL-03", "title": "Fixing type", "rule": "A specification attribute: DIRECT_FIX (furring channels screwed under the joists or trusses) or SUSPENDED (hangers, primary channels and furring channels)."},
+        {"id": "CL-04", "title": "Framing", "rule": "Furring length = area ÷ furring spacing. Primary channel length = area ÷ primary spacing. Hangers = area ÷ (primary spacing × hanger spacing), with one anchor each. Connecting clips = area ÷ (primary spacing × furring spacing). Perimeter channel = room perimeter. Primary channels, hangers and clips apply to SUSPENDED only. Default spacings: furring 400 mm, primary 1200 mm, hangers 1200 mm.", "formula": "furring_length = area / furring_spacing; primary_length = area / primary_spacing; hangers = area / (primary_spacing * hanger_spacing); clips = area / (primary_spacing * furring_spacing); perimeter_channel = room_perimeter"},
+        {"id": "CL-05", "title": "Metal tile, lay-in 600 × 600", "rule": "Tiles = round up [ area × 1.05 ÷ tile area ]. Main tee length = area ÷ 1.2. Cross tee 1200 length = area ÷ 0.6. Cross tee 600 length = area ÷ 1.2. Wall angle = room perimeter. Hangers = area ÷ 1.44.", "formula": "tiles = round_up(area * 1.05 / tile_area); main_tee = area / 1.2; cross_tee_1200 = area / 0.6; cross_tee_600 = area / 1.2; wall_angle = room_perimeter; hangers = area / 1.44"},
+        {"id": "CL-06", "title": "Metal tile, clip-in", "rule": "Carrier length = area ÷ tile module. Primary channel length = area ÷ 1.2. Hangers as CL-05.", "formula": "carrier_length = area / tile_module; primary_length = area / 1.2; hangers = area / 1.44"},
+        {"id": "CL-07", "title": "Metal strip", "rule": "Strip length = area ÷ strip module. Carrier length = area ÷ carrier spacing (default 1.2 m). Edge profile = room perimeter.", "formula": "strip_length = area / strip_module; carrier_length = area / carrier_spacing; edge_profile = room_perimeter"},
+        {"id": "CL-08", "title": "Bulkheads and drops", "rule": "Board and framing by face area. One corner bead per exposed edge."},
+        {"id": "CL-09", "title": "Access panels", "rule": "The count is estimator input, with a default of one per wet room and one per concealed AC unit."},
+        {"id": "CL-10", "title": "External soffit", "rule": "Exterior-grade board on framing per CL-04. Finish per the external finish rules."},
+        {"id": "CL-11", "title": "Ceiling paint", "rule": "Litres = ceiling area × coats ÷ coverage.", "formula": "litres = ceiling_area * coats / coverage"}
+      ]
+    },
+    {
+      "code": "RF", "name": "Roof",
+      "rules": [
+        {"id": "RF-01", "rule": "True roof area = plan area ÷ cos(slope), overhangs included.", "formula": "true_area = plan_area / cos(slope)"},
+        {"id": "RF-02", "title": "Pitched cover", "rule": "Sandwich panels and profiled sheets = true area × 1.05. Optional refinement: sheets per slope = round up (eaves length ÷ cover width), each as long as the rafter plus the overhang.", "formula": "cover_area = true_area * 1.05; optional: sheets_per_slope = round_up(eaves_length / cover_width)"},
+        {"id": "RF-03", "title": "Pitched accessories", "rule": "Ridge cap = ridge length. Eaves flashing = eaves length. Barge flashing = verge length. Each carries 10% for laps. Fixings per m² come from the specification."},
+        {"id": "RF-04", "title": "Gutters and downpipes", "rule": "Gutter length = eaves length. The downpipe count is estimator input; the software suggests round up (plan area ÷ DP_AREA), minimum 2, with DP_AREA at 80 m² until MEP confirms. Downpipe length = count × (eaves height + 0.5 m).", "formula": "suggested_downpipes = max(2, round_up(plan_area / DP_AREA)); downpipe_length = count * (eaves_height + 0.5)", "parameters": ["DP_AREA"]},
+        {"id": "RF-05", "title": "Flat roof build-up", "rule": "Deck per BD-09 or TF-11. Insulation boards = area × 1.05. Screed to falls per TF-09. Waterproofing per IN-07. Protection layer by area.", "formula": "insulation_boards = area * 1.05"},
+        {"id": "RF-06", "title": "Parapet", "rule": "Inner face area = parapet length × parapet height, with sheathing, weather barrier and finish as for an external wall. Coping = parapet length × 1.05, with corners and stop ends by count.", "formula": "inner_face_area = parapet_length * parapet_height; coping = parapet_length * 1.05"},
+        {"id": "RF-07", "title": "Penetrations and plinths", "rule": "AC units, tanks, hatches and skylights. The count is estimator input. Each adds waterproofing = its perimeter × WP_UPSTAND.", "formula": "waterproofing_area = perimeter * WP_UPSTAND", "parameters": ["WP_UPSTAND"]},
+        {"id": "RF-08", "rule": "Trusses, purlins and structural deck belong to the Structure module (PR-06)."}
+      ]
+    },
+    {
+      "code": "DW", "name": "Doors and windows",
+      "rules": [
+        {"id": "DW-01", "rule": "Count by type mark from the opening schedule. Each type holds width, height, usage (external, internal, wet room, fire rated) and configuration."},
+        {"id": "DW-02", "title": "Doorset", "rule": "The estimator selects material, configuration, fire rating and finish per door type. One doorset = leaf or leaves + frame."},
+        {"id": "DW-03", "title": "Frame depth", "rule": "Finished wall thickness = stud depth + all board thicknesses on both faces + 15 mm per tiled face. The software calculates it from the wall selections and offers only matching frame depths.", "formula": "finished_wall_thickness_mm = stud_depth_mm + sum(board_thicknesses_both_faces_mm) + 15 * tiled_faces"},
+        {"id": "DW-04", "title": "Ironmongery", "rule": "Selected as one set per door function. The set defines its own items: hinges (3 per leaf up to 2.1 m high; 4 above that or on fire doors), lock or latch, handles, door stop, and closer and seals on fire doors. Double doors add 2 flush bolts to the inactive leaf."},
+        {"id": "DW-05", "title": "Door surround", "rule": "Architrave = (2 × height + width) × faces with architrave × 1.10. Perimeter sealant = (2 × height + width) × 2 faces. Frame fixings = 8 per frame. External doors add one threshold with weather seal.", "formula": "architrave = (2 * height + width) * faces_with_architrave * 1.10; perimeter_sealant = (2 * height + width) * 2; frame_fixings = 8"},
+        {"id": "DW-06", "title": "Windows", "rule": "Count by type mark; area (width × height) is stored for m² pricing. The specification holds system, opening type, glazing and finish."},
+        {"id": "DW-07", "title": "Window surround", "rule": "Per window of width W and height H. Flashing tape = 2 × (W + H) + 0.6 m. External sealant with backer rod = 2 × (W + H). Internal sealant = 2 × (W + H). Fixing anchors = round up [ 2 × (W + H) ÷ 0.6 ]. External sill, internal sill board and head flashing = W + 0.1 m each, when selected.", "formula": "flashing_tape = 2 * (W + H) + 0.6; external_sealant = 2 * (W + H); internal_sealant = 2 * (W + H); anchors = round_up(2 * (W + H) / 0.6); sill = W + 0.1"},
+        {"id": "DW-08", "title": "Safety glazing", "rule": "Glazing in doors, in panels beside doors, and in windows with a sill below SAFETY_SILL (default 800 mm) needs a tempered or laminated specification.", "parameters": ["SAFETY_SILL"]},
+        {"id": "DW-09", "title": "Curtain wall, shopfronts and louvres", "rule": "Area per type, as SUPPLY_INSTALL."},
+        {"id": "DW-10", "rule": "Every opening applies GM-08 and GM-09 to its host wall automatically. Lintels and trimmers belong to the Structure module."}
+      ]
+    },
+    {
+      "code": "OT", "name": "Other items",
+      "rules": [
+        {"id": "OT-01", "title": "Fixture backing", "rule": "Plywood or steel plate inside stud walls. Wall cabinets: 2 rows × cabinet run. One plate each for wash basin, wall-hung WC, grab bar, TV point and AC indoor unit. Counts default by room type and are flagged 'assumed'."},
+        {"id": "OT-02", "title": "Fire stopping", "rule": "Head-of-wall sealant = fire-rated wall length × 2 faces. Penetration seals = count from the MEP module when available, otherwise estimator input.", "formula": "head_of_wall_sealant = fire_rated_wall_length * 2"},
+        {"id": "OT-03", "title": "Control joints in linings", "rule": "Joints per wall run = round down (run length ÷ CJ_SPACING, default 9 m). Length = count × lining height.", "formula": "joints = round_down(run_length / CJ_SPACING); length = joints * lining_height", "parameters": ["CJ_SPACING"]},
+        {"id": "OT-04", "title": "Boxing and pipe casings", "rule": "Board and framing = length × girth, as estimator input."},
+        {"id": "OT-05", "title": "Joinery and fitments", "rule": "Kitchen base units, wall units and countertops by length; splashback by area; wardrobes by front area or count; vanity units, mirrors and shower enclosures by count; one sanitary accessory set per bathroom."},
+        {"id": "OT-06", "title": "Sanitaryware", "rule": "WC, basin and mixers belong to the MEP module (PR-06)."},
+        {"id": "OT-07", "title": "Balustrades and handrails", "rule": "Length from stair geometry and from balcony and terrace edges. Posts = round up (length ÷ post spacing) + 1.", "formula": "posts = round_up(length / post_spacing) + 1"},
+        {"id": "OT-08", "title": "Canopies, pergolas, signage and screens", "rule": "Estimator input by count or area."},
+        {"id": "OT-09", "rule": "Scaffolding, protection, cleaning and site attendance are preliminaries and sit outside this module."}
+      ]
+    },
+    {
+      "code": "DP", "name": "Dependent items",
+      "rules": [
+        {"id": "DP-01", "title": "Screw rate", "rule": "Screws per sheet = (round down [ sheet dimension across the supports ÷ support spacing ] + 1) × (round down [ sheet dimension along the supports ÷ screw spacing ] + 1). Rate per m² = screws per sheet ÷ sheet area, rounded up to a whole number. On walls the sheet width runs across the studs. On ceilings and floors the sheet length runs across the supports.", "formula": "screws_per_sheet = (round_down(dimension_across_supports / support_spacing) + 1) * (round_down(dimension_along_supports / screw_spacing) + 1); rate_per_m2 = round_up(screws_per_sheet / sheet_area)"},
+        {"id": "DP-02", "rule": "Dependents are calculated from the parent's net quantity, then take their own wastage."},
+        {"id": "DP-03", "rule": "A dependent never generates further dependents. Conversions such as bead length to cartridges are purchase conversions."},
+        {"id": "DP-04", "rule": "A rule may carry a condition: face layer only, a stud spacing, a zone, or MATERIAL mode only."},
+        {"id": "DP-05", "rule": "The same dependent from several parents is summed into one purchase line per specification. Parent links are kept for tracing."},
+        {"id": "DP-06", "title": "Sealant", "rule": "Metres per cartridge = cartridge volume in ml ÷ (bead width × bead depth in mm). A 600 ml pack at 10 × 5 mm gives 12 m.", "formula": "metres_per_cartridge = cartridge_volume_ml / (bead_width_mm * bead_depth_mm)"}
+      ]
+    },
+    {
+      "code": "WR", "name": "Wastage, purchase units and rounding",
+      "rules": [
+        {"id": "WR-01", "rule": "Gross = net × (1 + wastage). Wastage comes from the material group, unless the specification, the project or a rule (BD-03, TF-02) sets another value.", "formula": "gross = net * (1 + wastage)"},
+        {"id": "WR-02", "rule": "Purchase quantity = round up (gross ÷ base units per purchase unit). Examples of the divisor: m² per sheet, m² per box, kg per bag, L per pail, m per length, nr per box.", "formula": "purchase_quantity = round_up(gross / base_units_per_purchase_unit)"},
+        {"id": "WR-03", "rule": "Linear stock: pieces = round up (gross length ÷ stock length). Cutting optimisation is not part of version 1.", "formula": "pieces = round_up(gross_length / stock_length)"},
+        {"id": "WR-04", "rule": "If the purchase quantity is below the supplier's minimum order, show the minimum order quantity and flag the line."},
+        {"id": "WR-05", "rule": "Version 1 uses one pack size per specification."}
+      ]
+    },
+    {
+      "code": "VL", "name": "Validation rules",
+      "note": "Errors stop the estimate from being issued. Warnings need the estimator's acknowledgement.",
+      "rules": [
+        {"id": "VL-01", "rule": "Every mandatory slot of every location present in the project has a selection, or 'Not required' with a reason.", "result": "Error"},
+        {"id": "VL-02", "rule": "Conditional slots are filled when their condition is true: cavity insulation in acoustic or fire-rated walls; waterproofing to shower walls; roof insulation under a single-skin cover; VCL in cold-climate profiles.", "result": "Error"},
+        {"id": "VL-03", "rule": "Linings and ceilings facing a wet room are MR gypsum, FR-MR gypsum, cement board or glass mat tile backer.", "result": "Error"},
+        {"id": "VL-04", "rule": "Linings on a fire-rated wall meet the minimum build-up in the fire table for that rating.", "result": "Error"},
+        {"id": "VL-05", "rule": "Materials in EW-OUT, PAR, CL-EXT and FL-EXT are flagged exterior grade.", "result": "Error"},
+        {"id": "VL-06", "rule": "Cavity insulation thickness is not more than the stud depth.", "result": "Error"},
+        {"id": "VL-07", "rule": "Every ACP specification carries a fire classification (EF-08).", "result": "Error"},
+        {"id": "VL-08", "rule": "Every room has a room type and zone. Every wall face is assigned to a room or to the exterior.", "result": "Error"},
+        {"id": "VL-09", "rule": "Room areas on a level do not exceed the floor plate area. Every opening fits its host wall.", "result": "Error"},
+        {"id": "VL-10", "rule": "A material owned by another module cannot be selected (PR-06).", "result": "Blocked"},
+        {"id": "VL-11", "rule": "A specification used in pricing has a valid unit rate and pack size.", "result": "Error at pricing"},
+        {"id": "VL-12", "rule": "Door frame depth matches the finished wall thickness within 5 mm (DW-03).", "result": "Warning"},
+        {"id": "VL-13", "rule": "Safety glazing is selected where DW-08 requires it.", "result": "Warning"},
+        {"id": "VL-14", "rule": "Sheet length suits the board height (BD-03).", "result": "Warning with suggestion"},
+        {"id": "VL-15", "rule": "A stocked screw length exists for the lining thickness (BD-05).", "result": "Warning"},
+        {"id": "VL-16", "rule": "Lines that use assumed values are counted on the summary.", "result": "Warning"}
+      ]
+    },
+    {
+      "code": "TA", "name": "Templates, overrides and audit trail",
+      "rules": [
+        {"id": "TA-01", "rule": "A template stores a full set of selections by location and slot, for example a standard villa build-up. Applying it fills the selections; the estimator can change any of them."},
+        {"id": "TA-02", "rule": "Templates are versioned. A project records the template name and version it started from."},
+        {"id": "TA-03", "title": "Scope precedence", "rule": "The most specific selection wins: surface, then room, then wall type, then room type, then level, then project default."},
+        {"id": "TA-04", "rule": "Selections can be copied from one level or room type to another."},
+        {"id": "TA-05", "rule": "An override can change a quantity, a wastage percentage or a dependent rate, or waive a validation. It needs a reason, keeps the automatic value and is flagged in the output."},
+        {"id": "TA-06", "rule": "A change to geometry, selection or master data marks the affected lines stale and recalculates them. An override is flagged for review if its automatic value moved by more than 5%."},
+        {"id": "TA-07", "rule": "Master data is effective-dated. An issued estimate is frozen with the rates and rules in force on its issue date."},
+        {"id": "TA-08", "rule": "Three roles: estimator (selects and overrides), reviewer (approves overrides and waivers), administrator (maintains master data and templates)."}
+      ]
+    },
+    {
+      "code": "CS", "name": "Outputs",
+      "note": "The calculation steps are listed in calculation_sequence.",
+      "rules": [
+        {"id": "CS-01", "title": "Bill of quantities", "rule": "By trade, location and specification: net, wastage, gross, purchase quantity, unit, rate, amount."},
+        {"id": "CS-02", "title": "Procurement list", "rule": "One line per specification with purchase quantity and supplier, split by lot."},
+        {"id": "CS-03", "title": "Room data sheet", "rule": "The selected build-up and finishes for each room."},
+        {"id": "CS-04", "title": "Exceptions report", "rule": "Assumed values, overrides, waivers and warnings."},
+        {"id": "CS-05", "title": "Trace view", "rule": "From any quantity to its surfaces, dimensions, formula ID and parameters."}
+      ]
+    }
+  ],
+
+  "calculation_sequence": [
+    {"step": 1, "action": "Load geometry, build surfaces and assign each surface to a location.", "rules": ["GI-01", "GI-02"]},
+    {"step": 2, "action": "Resolve the selection for every surface and slot by scope precedence.", "rules": ["TA-03"]},
+    {"step": 3, "action": "Run validations. Errors stop the run; warnings continue.", "rules": ["VL-01", "VL-02", "VL-03", "VL-04", "VL-05", "VL-06", "VL-07", "VL-08", "VL-09", "VL-10", "VL-11", "VL-12", "VL-13", "VL-14", "VL-15", "VL-16"]},
+    {"step": 4, "action": "Calculate the net quantity per surface and slot, using the GM rules and the rules of each material family.", "rules": ["GM-01"]},
+    {"step": 5, "action": "Generate dependents from the net quantities.", "rules": ["DP-01", "DP-02", "DP-03", "DP-04", "DP-05", "DP-06"]},
+    {"step": 6, "action": "Apply wastage to get gross quantities.", "rules": ["WR-01"]},
+    {"step": 7, "action": "Aggregate by specification and lot, convert to purchase units and round up.", "rules": ["WR-02", "GM-15"]},
+    {"step": 8, "action": "Price each line: purchase quantity × unit rate.", "rules": []},
+    {"step": 9, "action": "Write the quantity lines with their trace data.", "rules": ["PR-10"]}
+  ],
+
+  "screw_rates": {
+    "rule": "DP-01",
+    "note": "Rates at common spacings. dimension_across_supports says which sheet dimension runs across the studs, furring or joists.",
+    "rows": [
+      {"board": "Gypsum board, wall", "sheet_width_mm": 1200, "sheet_length_mm": 2400, "support": "studs", "support_spacing_mm": 600, "screw_spacing_mm": 300, "dimension_across_supports": "width", "screws_per_sheet": 27, "rate_per_m2": 10},
+      {"board": "Gypsum board, wall", "sheet_width_mm": 1200, "sheet_length_mm": 2400, "support": "studs", "support_spacing_mm": 400, "screw_spacing_mm": 300, "dimension_across_supports": "width", "screws_per_sheet": 36, "rate_per_m2": 13},
+      {"board": "Cement board, wall", "sheet_width_mm": 1220, "sheet_length_mm": 2440, "support": "studs", "support_spacing_mm": 600, "screw_spacing_mm": 200, "dimension_across_supports": "width", "screws_per_sheet": 39, "rate_per_m2": 14},
+      {"board": "Cement board, wall", "sheet_width_mm": 1220, "sheet_length_mm": 2440, "support": "studs", "support_spacing_mm": 400, "screw_spacing_mm": 200, "dimension_across_supports": "width", "screws_per_sheet": 52, "rate_per_m2": 18},
+      {"board": "Gypsum board, ceiling", "sheet_width_mm": 1200, "sheet_length_mm": 2400, "support": "furring", "support_spacing_mm": 400, "screw_spacing_mm": 200, "dimension_across_supports": "length", "screws_per_sheet": 49, "rate_per_m2": 18},
+      {"board": "Floor cement board", "sheet_width_mm": 1220, "sheet_length_mm": 2440, "support": "joists", "support_spacing_mm": 600, "screw_spacing_mm": 200, "dimension_across_supports": "length", "screws_per_sheet": 35, "rate_per_m2": 12},
+      {"board": "Floor cement board", "sheet_width_mm": 1220, "sheet_length_mm": 2440, "support": "joists", "support_spacing_mm": 400, "screw_spacing_mm": 200, "dimension_across_supports": "length", "screws_per_sheet": 49, "rate_per_m2": 17}
+    ]
+  },
+
+  "consumption_rates": [
+    {"parent": "Gypsum board, face layer", "dependent": "Joint tape", "basis": "PER_M2", "rate": 1.5, "rate_unit": "m", "wastage_pct": 5},
+    {"parent": "Gypsum board, face layer", "dependent": "Jointing compound", "basis": "PER_M2", "rate": 0.5, "rate_unit": "kg", "wastage_pct": 5},
+    {"parent": "Gypsum board under paint", "dependent": "Skim coat or putty", "basis": "PER_M2", "rate": 1.2, "rate_unit": "kg", "wastage_pct": 5, "condition": "When the finish level requires it"},
+    {"parent": "Cement board, external", "dependent": "Joint filler and alkali-resistant tape", "basis": "PER_M2", "rate": 1.5, "rate_unit": "m", "wastage_pct": 5},
+    {"parent": "Breather membrane, VCL", "dependent": "Seam tape", "basis": "PER_M2", "rate": 1.0, "rate_unit": "m", "wastage_pct": 5},
+    {"parent": "Render system", "dependent": "Primer", "basis": "PER_M2", "rate": 0.2, "rate_unit": "kg", "wastage_pct": 5},
+    {"parent": "Render system", "dependent": "Basecoat", "basis": "PER_M2", "rate": 4.5, "rate_unit": "kg", "wastage_pct": 5},
+    {"parent": "Render system", "dependent": "Reinforcing mesh", "basis": "PER_M2", "rate": 1.1, "rate_unit": "m2", "wastage_pct": 0, "note": "Laps included in the rate"},
+    {"parent": "Render system", "dependent": "Finish coat", "basis": "PER_M2", "rate": null, "rate_unit": "kg", "wastage_pct": 5, "note": "Rate comes from the specification, typically 2.0 to 3.0 kg per m2 depending on grain size", "typical_rate_range": [2.0, 3.0]},
+    {"parent": "Paint system", "dependent": "Primer", "basis": "FORMULA", "formula": "litres = area * coats / coverage", "default_coats": 1, "default_coverage_m2_per_L": 10, "rate_unit": "L", "wastage_pct": 5},
+    {"parent": "Paint system", "dependent": "Top coat", "basis": "FORMULA", "formula": "litres = area * coats / coverage", "default_coats": 2, "default_coverage_m2_per_L": 10, "rate_unit": "L", "wastage_pct": 5},
+    {"parent": "Tiles", "dependent": "Adhesive", "basis": "PER_M2", "rate": null, "rate_unit": "kg", "wastage_pct": 5, "note": "Rate by longest tile side, see tile_adhesive_rates and TF-04"},
+    {"parent": "Tiles", "dependent": "Grout", "basis": "FORMULA", "formula": "grout_kg_per_m2 = (L_mm + W_mm) / (L_mm * W_mm) * joint_width_mm * joint_depth_mm * 1.6", "rate_unit": "kg", "wastage_pct": 10, "note": "See TF-05"},
+    {"parent": "Sheet roof membrane", "dependent": "Bituminous primer", "basis": "PER_M2", "rate": 0.3, "rate_unit": "L", "wastage_pct": 5}
+  ],
+
+  "tile_adhesive_rates": {
+    "rule": "TF-04",
+    "rows": [
+      {"longest_tile_side_mm_from": 0, "longest_tile_side_mm_to": 300, "rate_kg_per_m2": 3.5},
+      {"longest_tile_side_mm_from": 301, "longest_tile_side_mm_to": 600, "rate_kg_per_m2": 5.0},
+      {"longest_tile_side_mm_from": 601, "longest_tile_side_mm_to": null, "rate_kg_per_m2": 7.0}
+    ]
+  },
+
+  "wastage_defaults": [
+    {"group": "Wall and ceiling boards", "wastage_pct": 10},
+    {"group": "Floor cement board", "wastage_pct": 7},
+    {"group": "Insulation", "wastage_pct": 5},
+    {"group": "Sheet membranes, laps included", "wastage_pct": 15},
+    {"group": "Vapour control layer, laps included", "wastage_pct": 10},
+    {"group": "Render, paint, adhesives, compounds", "wastage_pct": 5},
+    {"group": "Tiles, straight lay with sides under 900 mm", "wastage_pct": 8},
+    {"group": "Tiles, large format with any side 900 mm or more", "wastage_pct": 10},
+    {"group": "Tiles, diagonal or herringbone", "wastage_pct": 15},
+    {"group": "Plank floors and carpet tiles", "wastage_pct": 8},
+    {"group": "Metal ceiling tiles and grid", "wastage_pct": 5},
+    {"group": "Roof sheets and sandwich panels", "wastage_pct": 5},
+    {"group": "ACP sheets in MATERIAL mode", "wastage_pct": 20},
+    {"group": "Beads, trims, skirting, coping", "wastage_pct": 5},
+    {"group": "Flashings and architraves", "wastage_pct": 10},
+    {"group": "Screws and small fixings", "wastage_pct": 5},
+    {"group": "Doors, windows, ironmongery", "wastage_pct": 0}
+  ],
+
+  "fire_table": {
+    "rule": "VL-04",
+    "note": "Indicative only. Load-bearing LGS walls often need more lining than non-load-bearing partitions for the same rating. Replace with the tested assemblies UNIQUBE builds.",
+    "rows": [
+      {"fire_rating_minutes": 60, "layers_per_face": 1, "board_thickness_mm": 15, "board": "FR gypsum"},
+      {"fire_rating_minutes": 90, "layers_per_face": 2, "board_thickness_mm": 12.5, "board": "FR gypsum"},
+      {"fire_rating_minutes": 120, "layers_per_face": 2, "board_thickness_mm": 15, "board": "FR gypsum"}
+    ]
+  },
+
+  "worked_example": {
+    "description": "One external bedroom wall with one window and one door. It produces 11 cement boards, 8 gypsum boards and 5 packs of insulation. Use these figures as the first automated test.",
+    "note": "Pack sizes are illustrative. Render primer, seam tape and board joint filler follow the same pattern and are left out to keep the example short.",
+    "inputs": {
+      "wall": {
+        "outer_face_length_m": 10.0,
+        "centreline_length_m": 9.85,
+        "room_side_length_m": 9.7,
+        "facade_height_m": 3.0,
+        "stud_height_m": 3.0,
+        "ceiling_height_m": 2.7,
+        "lining_overrun_m": 0.15,
+        "lining_height_m": 2.85,
+        "stud_depth_mm": 150,
+        "stud_spacing_mm": 600
+      },
+      "openings": [
+        {"kind": "window", "width_m": 1.5, "height_m": 1.2, "sill_board": true},
+        {"kind": "door", "width_m": 1.0, "height_m": 2.1}
+      ],
+      "reveal_depth_ext_m": 0.1,
+      "reveal_depth_int_m": 0.1,
+      "selections": {
+        "EW-OUT": {
+          "SHEATH": "Fibre cement board 12 mm, sheet 1220 x 2440 mm",
+          "WRB": "Breather membrane, 75 m2 rolls",
+          "FINISH": "Textured render system, finish coat 2.5 kg per m2"
+        },
+        "EW-CAV": {
+          "CAV-INS": "Rockwool 100 mm, 5.76 m2 packs"
+        },
+        "EW-IN-DRY": {
+          "LINING": "Gypsum board regular 12.5 mm, sheet 1200 x 3000 mm, 1 layer",
+          "FINISH": "Paint system, 1 primer coat and 2 top coats at 10 m2 per L"
+        }
+      }
+    },
+    "intermediate": {
+      "opening_areas_m2": [1.8, 2.1],
+      "deducted_opening_area_m2": 3.9,
+      "external_reveal_perimeter_m": 10.6,
+      "external_reveal_area_m2": 1.06,
+      "internal_reveal_perimeter_m": 9.1,
+      "internal_reveal_area_m2": 0.91,
+      "gypsum_height_fit_wastage_pct": 8.3,
+      "gypsum_wastage_used_pct": 10,
+      "paint_area_m2": 23.2
+    },
+    "results": [
+      {"item": "Cement board 12 mm", "net_calculation": "10.00 * 3.00 - 3.90 + 1.06", "net": 27.16, "unit": "m2", "wastage_pct": 10, "gross": 29.876, "pack_size": 2.9768, "purchase_quantity": 11, "purchase_unit": "sheet 1220 x 2440 mm", "rules": ["GM-01", "GM-08", "GM-09", "BD-02"]},
+      {"item": "Screws, cement board", "net_calculation": "27.16 * 14", "net": 380.24, "unit": "nr", "wastage_pct": 5, "gross": 399.252, "pack_size": 500, "purchase_quantity": 1, "purchase_unit": "box of 500", "rules": ["BD-04", "DP-01"]},
+      {"item": "Breather membrane", "net_calculation": "same area as the cement board", "net": 27.16, "unit": "m2", "wastage_pct": 15, "gross": 31.234, "pack_size": 75, "purchase_quantity": 1, "purchase_unit": "roll of 75 m2", "rules": ["IN-01"]},
+      {"item": "Render basecoat", "net_calculation": "27.16 * 4.5", "net": 122.22, "unit": "kg", "wastage_pct": 5, "gross": 128.331, "pack_size": 25, "purchase_quantity": 6, "purchase_unit": "bag of 25 kg", "rules": ["EF-02"]},
+      {"item": "Reinforcing mesh", "net_calculation": "27.16 * 1.10", "net": 29.876, "unit": "m2", "wastage_pct": 0, "gross": 29.876, "pack_size": 50, "purchase_quantity": 1, "purchase_unit": "roll of 50 m2", "rules": ["EF-02"]},
+      {"item": "Render finish coat", "net_calculation": "27.16 * 2.5", "net": 67.9, "unit": "kg", "wastage_pct": 5, "gross": 71.295, "pack_size": 25, "purchase_quantity": 3, "purchase_unit": "pail of 25 kg", "rules": ["EF-02"]},
+      {"item": "Corner bead, external", "net_calculation": "5.40 + 5.20", "net": 10.6, "unit": "m", "wastage_pct": 5, "gross": 11.13, "pack_size": 3.0, "purchase_quantity": 4, "purchase_unit": "length of 3.0 m", "rules": ["EF-03", "WR-03"]},
+      {"item": "Rockwool 100 mm", "net_calculation": "9.85 * 3.00 - 3.90", "net": 25.65, "unit": "m2", "wastage_pct": 5, "gross": 26.9325, "pack_size": 5.76, "purchase_quantity": 5, "purchase_unit": "pack of 5.76 m2", "rules": ["IN-03"]},
+      {"item": "Gypsum board 12.5 mm", "net_calculation": "9.70 * 2.85 - 3.90 + 0.91", "net": 24.655, "unit": "m2", "wastage_pct": 10, "gross": 27.1205, "pack_size": 3.6, "purchase_quantity": 8, "purchase_unit": "sheet 1200 x 3000 mm", "rules": ["GM-01", "GM-04", "GM-08", "GM-09", "BD-02", "BD-03"]},
+      {"item": "Screws, gypsum board", "net_calculation": "24.655 * 10", "net": 246.55, "unit": "nr", "wastage_pct": 5, "gross": 258.8775, "pack_size": 1000, "purchase_quantity": 1, "purchase_unit": "box of 1000", "rules": ["BD-04", "DP-01"]},
+      {"item": "Joint tape", "net_calculation": "24.655 * 1.5", "net": 36.9825, "unit": "m", "wastage_pct": 5, "gross": 38.8316, "pack_size": 75, "purchase_quantity": 1, "purchase_unit": "roll of 75 m", "rules": ["BD-06"]},
+      {"item": "Jointing compound", "net_calculation": "24.655 * 0.5", "net": 12.3275, "unit": "kg", "wastage_pct": 5, "gross": 12.9439, "pack_size": 25, "purchase_quantity": 1, "purchase_unit": "bag of 25 kg", "rules": ["BD-06"]},
+      {"item": "Corner bead, internal", "net_calculation": "3.90 + 5.20", "net": 9.1, "unit": "m", "wastage_pct": 5, "gross": 9.555, "pack_size": 3.0, "purchase_quantity": 4, "purchase_unit": "length of 3.0 m", "rules": ["BD-07", "WR-03"]},
+      {"item": "Paint primer", "net_calculation": "(9.70 * 2.70 - 3.90 + 0.91) * 1 / 10", "net": 2.32, "unit": "L", "wastage_pct": 5, "gross": 2.436, "pack_size": 4, "purchase_quantity": 1, "purchase_unit": "can of 4 L", "rules": ["GM-05", "GM-09"]},
+      {"item": "Paint top coat", "net_calculation": "23.20 * 2 / 10", "net": 4.64, "unit": "L", "wastage_pct": 5, "gross": 4.872, "pack_size": 4, "purchase_quantity": 2, "purchase_unit": "can of 4 L", "rules": ["GM-05", "GM-09"]}
+    ]
+  },
+
+  "to_confirm": [
+    "Supplier sheet sizes, thicknesses and pack sizes for every board, membrane, insulation and finish",
+    "Consumption rates from the data sheets of the render, paint, adhesive and waterproofing products actually bought",
+    "Wastage percentages from past projects, comparing estimated against delivered quantities",
+    "Standard details: reveal depths, lining overrun above the ceiling, waterproofing upturns, parapet build-up",
+    "Fire-rated and acoustic wall build-ups in use, to replace the indicative fire table",
+    "Which packages are subcontracted (SUPPLY_INSTALL): ACP, aluminium doors and windows, waterproofing, joinery",
+    "What the plan reader can deliver: rooms with type and perimeter, convex corner counts, opening schedule with sill heights, ceiling heights, shower positions",
+    "Ownership split with the Structure and MEP modules: metal deck, sanitaryware, fire-stopping penetrations, downpipes",
+    "Screw spacings used in the factory and on site for each board type",
+    "Climate profiles needed, and what changes in each"
+  ]
+}

@@ -12,15 +12,16 @@ import ProjectsPage from '@/app/projects/page'
 import ProjectEstimatePage from '@/app/projects/[id]/estimate/page'
 import ProjectDetailPage from '@/app/projects/[id]/page'
 import ModelDetailPage from '@/app/models/[id]/page'
-import ProfilePage from '@/app/profile/page'
 import NotificationsPage from '@/app/notifications/page'
-import AdminPage from '@/app/admin/page'
 import ViewerPage from '@/app/projects/[id]/viewer-engine/ViewerPage'
 import ElementReportPage from '@/app/projects/[id]/element-report/page'
 import NotFoundPage from '@/app/not-found/page'
-import LandingPage from '@/app/site/LandingPage'
 import QuotePage from '@/app/site/QuotePage'
 import RequestsPage from '@/app/requests/page'
+import SettingsPage from '@/app/settings/page'
+import ModelingPage from '@/app/modeling/page'
+import RoughEstimationPage from '@/app/estimation/rough/page'
+import FinalQuotationPage from '@/app/modeling/final-quotation/page'
 import './App.css'
 
 function withLayout(page: ReactNode) {
@@ -40,10 +41,16 @@ function App() {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/signup" element={<SignupPage />} />
 
-            <Route path="/" element={<LandingPage />} />
+            <Route path="/" element={<Navigate to="/projects" replace />} />
             <Route path="/quote" element={<QuotePage />} />
             <Route path="/dashboard" element={<Navigate to="/projects" replace />} />
-            <Route path="/requests" element={withLayout(<PermissionGate permission="estimate.view"><RequestsPage /></PermissionGate>)} />
+            <Route path="/requests" element={<Navigate to="/estimation/requests" replace />} />
+            <Route path="/estimation/requests" element={withLayout(<PermissionGate permission="estimate.view"><RequestsPage /></PermissionGate>)} />
+            <Route path="/estimation/final" element={<Navigate to="/modeling/final-quotation" replace />} />
+            <Route path="/estimation/rough" element={withLayout(<PermissionGate permission="estimate.view"><RoughEstimationPage /></PermissionGate>)} />
+            <Route path="/estimation" element={<Navigate to="/estimation/rough" replace />} />
+            <Route path="/modeling" element={withLayout(<ModelingPage />)} />
+            <Route path="/modeling/final-quotation" element={withLayout(<FinalQuotationPage />)} />
             <Route path="/projects" element={withLayout(<PermissionGate permission="projects.view"><ProjectsPage /></PermissionGate>)} />
             <Route path="/projects/:id" element={withLayout(<PermissionGate permission="projects.view"><ProjectDetailPage /></PermissionGate>)} />
             <Route
@@ -116,9 +123,10 @@ function App() {
               )}
             />
             <Route path="/models/:id" element={withLayout(<ModelDetailPage />)} />
-            <Route path="/profile" element={withLayout(<ProfilePage />)} />
+            <Route path="/settings" element={withLayout(<SettingsPage />)} />
+            <Route path="/profile" element={<Navigate to="/settings?tab=profile" replace />} />
+            <Route path="/admin" element={<Navigate to="/settings?tab=admin" replace />} />
             <Route path="/notifications" element={withLayout(<PermissionGate permission="alerts"><NotificationsPage /></PermissionGate>)} />
-            <Route path="/admin" element={withLayout(<PermissionGate permission="admin"><AdminPage /></PermissionGate>)} />
 
             {/* Legacy global ops URLs → projects list */}
             <Route path="/manufacturing" element={<Navigate to="/projects" replace />} />

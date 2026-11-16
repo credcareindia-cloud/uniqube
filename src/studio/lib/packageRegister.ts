@@ -100,4 +100,6 @@ export async function loadPackageRegister(): Promise<PackageRegister> {
 
 export async function savePackageRegister(register: PackageRegister) {
   await apiJson('/api/package-register', { method: 'PUT', body: JSON.stringify(register) })
+  const { bumpSidebarMarks } = await import('./sidebarMarks')
+  bumpSidebarMarks()
 }

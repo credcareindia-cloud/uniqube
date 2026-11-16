@@ -440,6 +440,8 @@ export async function runClientTool(name: string, input: unknown): Promise<ToolR
     const current = s.projectContext.commercials
     const patch: Partial<Commercials> = {}
     for (const key of Object.keys(current) as Array<keyof Commercials>) {
+      // Only a person can say the rates were reviewed; the offer gate relies on it.
+      if (key === 'ratesReviewedAt') continue
       if (!(key in args)) continue
       const value = args[key]
       if (typeof current[key] === 'number') {

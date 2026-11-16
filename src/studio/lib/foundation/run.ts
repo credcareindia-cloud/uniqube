@@ -60,6 +60,8 @@ export async function saveEngineState(projectId: string, state: EngineState) {
   } catch {
     await apiJson(`/api/projects/${projectId}/engine`, { method: 'PUT', body: JSON.stringify({ ...state, result: null }) })
   }
+  const { bumpSidebarMarks } = await import('../sidebarMarks')
+  bumpSidebarMarks()
 }
 
 export interface PlanCandidate {

@@ -5,6 +5,7 @@ import { loadMepState } from './mep/run'
 import { loadSuperState } from './superstructure/run'
 import type { ArchState } from './architecture/types'
 import type { TakeoffLine } from '../types'
+import { DEFAULT_LABOUR_DAY_RATE, findNorm, labourFor } from './labourNorms'
 
 export interface SourceLine {
   key: string
@@ -40,6 +41,10 @@ export interface LabourRow {
   unit: string
   rate: number | null
   remarks: string
+  /** A person typed this rate: model refreshes keep it. */
+  rateTyped?: boolean
+  /** A person typed the gang-days: model refreshes keep them. */
+  qtyTyped?: boolean
 }
 
 export interface DryCostSheet {
@@ -128,6 +133,8 @@ function asLabour(value: unknown): LabourRow | null {
     unit: text(row.unit),
     rate: num(row.rate),
     remarks: text(row.remarks),
+    rateTyped: row.rateTyped === true,
+    qtyTyped: row.qtyTyped === true,
   }
 }
 
@@ -142,8 +149,24 @@ export function asDryCost(value: unknown): DryCostSheet | null {
   }
 }
 
-/** Keep typed rates. Refresh code, description, quantity and unit from the latest quantities. */
-export function mergeDryCost(saved: DryCostSheet | null, sources: SourceLine[]): DryCostSheet {
+/** Lines whose labour the offer prices from the productivity model (site works in UNIQUBE scope). */
+export const LABOUR_IN_SCOPE = new Set(['Super structure', 'Architecture', 'MEP'])
+
+/** Gang-days and rate for one source line, or a blank row asking for gang-days when no norm fits. */
+function labourFields(source: SourceLine, dayRate: number): Pick<LabourRow, 'trade' | 'gang' | 'qty' | 'unit' | 'rate' | 'remarks'> {
+  const norm = source.qty != null && source.qty > 0 ? findNorm(source) : null
+  if (!norm || source.qty == null) {
+    return { trade: source.source, gang: null, qty: null, unit: 'gang-day', rate: null, remarks: 'No productivity norm: enter gang-days and gang rate' }
+  }
+  const labour = labourFor(source.qty, norm, dayRate)
+  return { trade: norm.trade, gang: labour.gang, qty: labour.gangDays, unit: 'gang-day', rate: labour.gangDayRate, remarks: labour.basis }
+}
+
+/**
+ * Keep typed rates. Refresh code, description, quantity and unit from the latest quantities.
+ * Labour rows are gang-days from the productivity norms; a rate a person typed is kept.
+ */
+export function mergeDryCost(saved: DryCostSheet | null, sources: SourceLine[], dayRate: number = DEFAULT_LABOUR_DAY_RATE): DryCostSheet {
   const sheet = saved ?? emptyDryCost()
   const skipMaterial = new Set(sheet.dismissedMaterial)
   const skipLabour = new Set(sheet.dismissedLabour)
@@ -151,7 +174,6 @@ export function mergeDryCost(saved: DryCostSheet | null, sources: SourceLine[]):
   const labour = sheet.labour.filter((row) => !row.sourceKey || !skipLabour.has(row.sourceKey))
   const materialByKey = new Map(material.filter((row) => row.sourceKey).map((row) => [row.sourceKey as string, row]))
   const labourByKey = new Map(labour.filter((row) => row.sourceKey).map((row) => [row.sourceKey as string, row]))
-
   for (const source of sources) {
     if (!skipMaterial.has(source.key)) {
       const existing = materialByKey.get(source.key)
@@ -175,31 +197,43 @@ export function mergeDryCost(saved: DryCostSheet | null, sources: SourceLine[]):
       }
     }
     if (!skipLabour.has(source.key)) {
+      const fields = labourFields(source, dayRate)
       const existing = labourByKey.get(source.key)
       if (existing) {
-        existing.qty = source.qty
-        existing.unit = source.unit
+        // Old rows copied the material quantity; they become gang-days now.
+        if (fields.qty != null || existing.unit !== 'gang-day') {
+          if (!existing.qtyTyped) existing.qty = fields.qty
+          existing.gang = fields.gang
+          existing.unit = 'gang-day'
+          existing.trade = fields.trade
+          existing.remarks = fields.remarks
+          if (!existing.rateTyped) existing.rate = fields.rate
+        }
       } else {
         const row: LabourRow = {
           id: `${source.key}:labour`,
           sourceKey: source.key,
           source: source.source,
           code: source.code,
-          trade: source.source,
           description: source.description,
-          gang: null,
-          qty: source.qty,
-          unit: source.unit,
-          rate: null,
-          remarks: '',
+          ...fields,
         }
         labour.push(row)
         labourByKey.set(source.key, row)
       }
     }
   }
-
   return { material, labour, dismissedMaterial: sheet.dismissedMaterial, dismissedLabour: sheet.dismissedLabour }
+}
+
+/** Installation labour the offer uses: in-scope rows only (no sub structure, no canvas lines whose rates carry labour). */
+export function inScopeLabour(sheet: DryCostSheet): { amount: number; gangDays: number; unmatched: number } {
+  const rows = sheet.labour.filter((row) => LABOUR_IN_SCOPE.has(row.source))
+  return {
+    amount: sheetTotal(rows),
+    gangDays: Math.round(rows.reduce((sum, row) => sum + (row.unit === 'gang-day' ? row.qty ?? 0 : 0), 0) * 10) / 10,
+    unmatched: rows.filter((row) => row.qty == null || row.rate == null).length,
+  }
 }
 
 export function lineAmount(qty: number | null, rate: number | null): number | null {
@@ -296,4 +330,8 @@ export async function loadDryCost(projectId: string): Promise<DryCostSheet | nul
 
 export async function saveDryCost(projectId: string, sheet: DryCostSheet) {
   await apiJson(`/api/projects/${projectId}/dry-cost`, { method: 'PUT', body: JSON.stringify(sheet) })
+  const { syncMeasuredLabour } = await import('./measured')
+  syncMeasuredLabour(projectId, sheet)
+  const { bumpSidebarMarks } = await import('./sidebarMarks')
+  bumpSidebarMarks()
 }
