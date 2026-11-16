@@ -20,7 +20,12 @@ const STATUS_COLOUR: Record<FramingDecision['status'], string> = { auto: '#15803
 export function FoundationEnginePanel({ projectId }: { projectId: string }) {
   const documents = useAppStore((s) => s.documents)
   const projectName = useAppStore((s) => s.projectSetup.projectName)
-  const [state, setState] = useState<EngineState>({ inputs: { storeyCount: 1, foundationType: 1, plinthAboveNglMm: null, soilBearingKpa: null, lineLoadPerStoreyKnM: null, parameterOverrides: {} }, overrides: { directions: {}, promotedWallIds: [], beams: [], wallClasses: {}, approvedBy: null, approvedAt: null, changeLog: [] }, planKey: null, result: null })
+  const [state, setState] = useState<EngineState>({
+    inputs: { storeyCount: 1, foundationType: 1, plinthAboveNglMm: null, soilBearingKpa: null, lineLoadPerStoreyKnM: null, parameterOverrides: {} },
+    overrides: { directions: {}, promotedWallIds: [], beams: [], wallClasses: {}, scaleConfirmed: false, approvedBy: null, approvedAt: null, changeLog: [] },
+    planKey: null,
+    result: null,
+  })
   const [hydrated, setHydrated] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -191,7 +196,28 @@ export function FoundationEnginePanel({ projectId }: { projectId: string }) {
   }
 
   function resetOverrides() {
-    change('overrides', 'engineer edits', 'cleared', (s) => ({ ...s, overrides: { ...s.overrides, directions: {}, promotedWallIds: [], beams: [], wallClasses: {} } }))
+    change('overrides', 'engineer edits', 'cleared', (s) => ({
+      ...s,
+      overrides: { ...s.overrides, directions: {}, promotedWallIds: [], beams: [], wallClasses: {}, scaleConfirmed: false },
+    }))
+  }
+
+  async function confirmScale() {
+    const next = {
+      ...state,
+      overrides: {
+        ...state.overrides,
+        scaleConfirmed: true,
+        approvedBy: null,
+        approvedAt: null,
+        changeLog: [
+          ...state.overrides.changeLog,
+          { at: new Date().toISOString(), user, entity: 'scale', from: 'unconfirmed', to: 'confirmed' },
+        ],
+      },
+    }
+    setState(next)
+    await run(next)
   }
 
   function exportCsv() {
@@ -437,7 +463,15 @@ export function FoundationEnginePanel({ projectId }: { projectId: string }) {
               ))}
             </nav>
             <div className="fe__tab">
-              {tab === 'flags' && <FlagsTab result={result} stop={stopFlags} warn={warnFlags} />}
+              {tab === 'flags' && (
+                <FlagsTab
+                  result={result}
+                  stop={stopFlags}
+                  warn={warnFlags}
+                  scaleConfirmed={Boolean(state.overrides.scaleConfirmed)}
+                  onConfirmScale={() => void confirmScale()}
+                />
+              )}
               {tab === 'walls' && <WallsTab result={result} onSelect={(id) => setSelected({ kind: 'wall', id })} />}
               {tab === 'boq' && <BoqTab result={result} approver={state.overrides.approvedBy} projectName={projectName || projectId} />}
               {tab === 'rebar' && <RebarTab result={result} />}
@@ -669,7 +703,19 @@ function WallCard({ wall, result, override, promoted, onClass, onPromote }: { wa
 
 // ——— tabs ———
 
-function FlagsTab({ result, stop, warn }: { result: EngineResult; stop: EngineResult['flags']; warn: EngineResult['flags'] }) {
+function FlagsTab({
+  result,
+  stop,
+  warn,
+  scaleConfirmed,
+  onConfirmScale,
+}: {
+  result: EngineResult
+  stop: EngineResult['flags']
+  warn: EngineResult['flags']
+  scaleConfirmed: boolean
+  onConfirmScale: () => void
+}) {
   if (!result.flags.length) return <p className="fe__muted">No flags.</p>
   return (
     <ul className="fe__flags">
@@ -686,6 +732,11 @@ function FlagsTab({ result, stop, warn }: { result: EngineResult; stop: EngineRe
             <span>{f.message}</span>
           )}
           <em>{f.action}</em>
+          {f.code === 'F-SCALE' && !scaleConfirmed ? (
+            <button type="button" className="os-btn os-btn--primary" onClick={onConfirmScale}>
+              Confirm scale {result.scale.label}
+            </button>
+          ) : null}
         </li>
       ))}
     </ul>

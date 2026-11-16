@@ -155,7 +155,7 @@ export function applyPlanRevision(state: EngineState, raw: unknown, user: string
   }
 
   const overrides: EngineerOverrides = parsed.clearEdits
-    ? { ...state.overrides, directions: {}, promotedWallIds: [], beams: [], wallClasses: {} }
+    ? { ...state.overrides, directions: {}, promotedWallIds: [], beams: [], wallClasses: {}, scaleConfirmed: false }
     : {
         ...state.overrides,
         directions: { ...state.overrides.directions },

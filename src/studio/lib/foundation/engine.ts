@@ -12,7 +12,16 @@ import { extractWalls } from './walls.ts'
 
 export const ENGINE_VERSION = '0.1.0'
 
-export const EMPTY_OVERRIDES: EngineerOverrides = { directions: {}, promotedWallIds: [], beams: [], wallClasses: {}, approvedBy: null, approvedAt: null, changeLog: [] }
+export const EMPTY_OVERRIDES: EngineerOverrides = {
+  directions: {},
+  promotedWallIds: [],
+  beams: [],
+  wallClasses: {},
+  scaleConfirmed: false,
+  approvedBy: null,
+  approvedAt: null,
+  changeLog: [],
+}
 
 export const DEFAULT_INPUTS: EngineInputs = { storeyCount: 1, foundationType: 1, plinthAboveNglMm: null, soilBearingKpa: null, lineLoadPerStoreyKnM: null, parameterOverrides: {} }
 
@@ -35,10 +44,19 @@ export function runFoundationEngine(args: EngineRunArgs): EngineResult {
   const mmPerPt = scale.mmPerPt
 
   // PI-03 / PI-04: units and scale cross-check against written dimensions.
-  const matched = geo.dimensions.filter((d) => d.segment && d.unit === 'mm')
+  // Compare in millimetres for every dimension that has a line (mm, m, ft, cm all store valueMm).
+  const matched = geo.dimensions.filter((d) => d.segment && d.valueMm > 0)
   const within = matched.filter((d) => Math.abs(d.segment!.len * mmPerPt - d.valueMm) / d.valueMm <= P('scale_tol') / 100)
   if (!geo.dimensions.length) flags.push(makeFlag('F-UNITS', [level.id], 'No dimension strings were read on this sheet, so units could not be confirmed.'))
-  if (within.length < 2) flags.push(makeFlag('F-SCALE', [level.id], `Only ${within.length} written dimension(s) agree with the scale ${scale.label} within ${P('scale_tol')} % (need 2).`))
+  if (within.length < 2 && !overrides.scaleConfirmed) {
+    flags.push(
+      makeFlag(
+        'F-SCALE',
+        [level.id],
+        `Only ${within.length} written dimension(s) agree with the scale ${scale.label} within ${P('scale_tol')} % (need 2).`,
+      ),
+    )
+  }
 
   const region = planRegionFor(geo)
   const footprintPt = traceFootprint(geo, mmPerPt)

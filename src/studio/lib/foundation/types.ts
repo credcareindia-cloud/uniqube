@@ -183,6 +183,8 @@ export interface EngineerOverrides {
   beams: Array<{ id: string; axis: Axis; pos: number; a: number; b: number }>
   /** Wall class forced by the engineer. */
   wallClasses: Record<string, 'LB' | 'NLB'>
+  /** Engineer confirmed the page scale for PI-04 when written dims disagree or are imperial. */
+  scaleConfirmed: boolean
   /** Review gate approval (RG-03). */
   approvedBy: string | null
   approvedAt: string | null
