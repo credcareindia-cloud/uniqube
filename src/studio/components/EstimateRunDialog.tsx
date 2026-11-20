@@ -521,9 +521,17 @@ function ResultPane({
   )
 }
 
-export function StartEstimateButton({ onClick }: { onClick: () => void }) {
+export function StartEstimateButton({
+  onClick,
+  disabled,
+  title,
+}: {
+  onClick: () => void
+  disabled?: boolean
+  title?: string
+}) {
   return (
-    <button type="button" className="est-primary est-start" onClick={onClick}>
+    <button type="button" className="est-primary est-start" disabled={disabled} title={title} onClick={onClick}>
       <Play size={14} />
       <span>Quote now</span>
     </button>

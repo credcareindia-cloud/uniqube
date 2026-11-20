@@ -246,9 +246,11 @@ export function EstimationAgentPage({
     setPhase('uploading')
 
     try {
-      pushLog(`Uploading ${pdf.name} to the model…`, 'info')
-      setPhase('uploading')
-      const fileId = await uploadOpenAiFile(pdf, { signal: controller.signal, onStatus: (label) => pushLog(label, 'info') })
+      pushLog('Checking the model connection…', 'info')
+      const ready = await openaiReady()
+      if (!ready) {
+        throw new Error('The model proxy is not available. On the server, set OPENAI_API_KEY and restart uni-server.')
+      }
 
       pushLog('Cross-checking prepared output against every stage…', 'info')
       setPhase('checking')
@@ -261,8 +263,12 @@ export function EstimationAgentPage({
         found.some((item) => item.level === 'red') ? 'warn' : 'ok',
       )
 
-      const ready = await openaiReady()
-      if (!ready) throw new Error('The model is not available. Check the OpenAI proxy.')
+      pushLog(`Uploading ${pdf.name} to the model…`, 'info')
+      setPhase('uploading')
+      const fileId = await uploadOpenAiFile(pdf, {
+        signal: controller.signal,
+        onStatus: (label) => pushLog(label, 'info'),
+      })
 
       pushLog('Asking the Estimation Agent to resolve issues and confirm the offer path…', 'info')
       setPhase('model')
@@ -314,7 +320,10 @@ export function EstimationAgentPage({
       bumpSidebarMarks()
     } catch (err) {
       if (controller.signal.aborted) return
-      const message = err instanceof Error ? err.message : 'Verification failed.'
+      const raw = err instanceof Error ? err.message : 'Verification failed.'
+      const message = /failed to fetch/i.test(raw)
+        ? 'Could not reach the estimate API. Use the live API host (or local uni-server with OPENAI_API_KEY), then try again.'
+        : raw
       setError(message)
       pushLog(message, 'err')
       setPhase('error')

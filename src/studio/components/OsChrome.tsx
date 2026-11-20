@@ -1,14 +1,14 @@
-import { Check, ChevronDown, ChevronLeft, ChevronRight, Clock, Plus, Search, Trash2 } from 'lucide-react'
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Clock, Plus, Trash2 } from 'lucide-react'
 import { SCOPE_AGENTS } from '../lib/agentScopes'
 import { useSidebarMarks, type SidebarMarks } from '../lib/sidebarMarks'
 import { openSettings, useSettingsDialog } from '../lib/settingsDialog'
 import { SettingsDialogHost } from './CreateEstimatePage'
-import { EstimateRunDialog, StartEstimateButton } from './EstimateRunDialog'
 import { DocumentsPanel } from './DocumentsPanel'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { readIndex, refreshIndex } from '../lib/projectLibrary'
 import type { ProjectIndexItem } from '../lib/projectRecord'
+import { useAppStore } from '../store'
 
 export type OsScreen = 'projects' | 'guide' | 'create' | 'agents' | 'boq' | 'dry-cost' | 'costing' | 'packages' | 'rules' | 'share' | 'setup' | 'documents' | 'workspace'
 
@@ -253,7 +253,7 @@ export function OsShell({
   activeView,
   projectId,
   projectName,
-  onOpenProject,
+  onOpenProject: _onOpenProject,
   agentFocus,
   onNavigate,
   onNewProject,
@@ -276,40 +276,25 @@ export function OsShell({
   onToggleDocuments: () => void
   children: ReactNode
 }) {
-  const [query, setQuery] = useState('')
-  const [projects, setProjects] = useState<ProjectIndexItem[]>(() => readIndex())
-  const [searchOpen, setSearchOpen] = useState(false)
+  void _onOpenProject
   const [userOpen, setUserOpen] = useState(false)
-  const searchRef = useRef<HTMLDivElement>(null)
   const userRef = useRef<HTMLDivElement>(null)
   const railRef = useRef<HTMLDivElement>(null)
   const [railLine, setRailLine] = useState<{ top: number; height: number; left: number } | null>(null)
   const marks = useSidebarMarks(projectId)
   const settingsDialog = useSettingsDialog()
-  const [runOpen, setRunOpen] = useState(false)
+  const docsReading = useAppStore((s) => s.documents.some((doc) => doc.status === 'reading'))
+  const lockNav = docsReading
+  const lockTitle = 'Wait until the document finishes reading'
 
   useEffect(() => {
-    let cancelled = false
-    refreshIndex()
-      .then((list) => {
-        if (!cancelled) setProjects(list)
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [projectId, projectName])
-
-  useEffect(() => {
-    if (!searchOpen && !userOpen) return
+    if (!userOpen) return
     const close = (event: MouseEvent) => {
-      const target = event.target as Node
-      if (searchOpen && !searchRef.current?.contains(target)) setSearchOpen(false)
-      if (userOpen && !userRef.current?.contains(target)) setUserOpen(false)
+      if (!userRef.current?.contains(event.target as Node)) setUserOpen(false)
     }
     document.addEventListener('mousedown', close)
     return () => document.removeEventListener('mousedown', close)
-  }, [searchOpen, userOpen])
+  }, [userOpen])
 
   const inside = Boolean(projectId) && active !== 'projects'
 
@@ -347,12 +332,6 @@ export function OsShell({
     return () => observer.disconnect()
   }, [inside, projectId, marks])
 
-  const matches = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return projects.slice(0, 8)
-    return projects.filter((item) => item.name.toLowerCase().includes(q)).slice(0, 8)
-  }, [projects, query])
-
   return (
     <div className="os os-app est">
       <header className="est-bar">
@@ -360,40 +339,11 @@ export function OsShell({
           <img className="est-mark" src="/UniQube_Logo.png" alt="UNIQUBE" />
           <span className="est-title">Estimation</span>
         </div>
-        {inside && <span className="est-project">{projectName.trim() || 'Project'}</span>}
-        <div className="est-search" ref={searchRef}>
-          <Search size={14} />
-          <input
-            value={query}
-            placeholder="Find a project"
-            aria-label="Find a project"
-            onFocus={() => setSearchOpen(true)}
-            onChange={(event) => {
-              setQuery(event.target.value)
-              setSearchOpen(true)
-            }}
-          />
-          {searchOpen && (
-            <ul className="uq-search__menu">
-              {matches.length === 0 && <li className="uq-search__empty">No matching project</li>}
-              {matches.map((item) => (
-                <li key={item.id}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSearchOpen(false)
-                      setQuery('')
-                      onOpenProject(item.id)
-                    }}
-                  >
-                    {item.name}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-        {inside && <StartEstimateButton onClick={() => setRunOpen(true)} />}
+        {inside && (
+          <div className="est-project" title={projectName.trim() || 'Project'}>
+            <span className="est-project__name">{projectName.trim() || 'Project'}</span>
+          </div>
+        )}
         {active === 'projects' && onNewProject && (
           <button type="button" className="est-primary" onClick={onNewProject}>
             <Plus size={15} /> New project
@@ -445,9 +395,15 @@ export function OsShell({
                 <RailItem
                   key={link.id}
                   label={link.label}
-                  done={marks[link.mark]}
+                  done={link.id === 'setup' || link.id === 'rules' ? true : marks[link.mark]}
                   on={link.id === 'setup' ? settingsDialog.open : active === link.id}
-                  onClick={() => (link.id === 'setup' ? openSettings() : onNavigate(link.id))}
+                  disabled={lockNav}
+                  title={lockNav ? lockTitle : undefined}
+                  onClick={() => {
+                    if (lockNav) return
+                    if (link.id === 'setup') openSettings()
+                    else onNavigate(link.id)
+                  }}
                 />
               ))}
               <span className="est-side__tag">Agents</span>
@@ -457,20 +413,43 @@ export function OsShell({
                   label={item.label}
                   done={marks[item.id]}
                   on={active === 'agents' && agentFocus === item.id}
-                  disabled={!item.ready}
-                  title={item.ready ? item.label : 'Coming soon'}
+                  disabled={lockNav || !item.ready}
+                  title={lockNav ? lockTitle : item.ready ? item.label : 'Coming soon'}
                   onClick={() => {
-                    if (item.ready) onNavigate('agents', undefined, item.id)
+                    if (lockNav || !item.ready) return
+                    onNavigate('agents', undefined, item.id)
                   }}
                 />
               ))}
               <span className="est-side__tag">Output</span>
               {OUTPUT.map((link) => (
-                <RailItem key={link.id} label={link.label} done={marks[link.mark]} on={active === link.id} onClick={() => onNavigate(link.id)} />
+                <RailItem
+                  key={link.id}
+                  label={link.label}
+                  done={marks[link.mark]}
+                  on={active === link.id}
+                  disabled={lockNav}
+                  title={lockNav ? lockTitle : undefined}
+                  onClick={() => {
+                    if (lockNav) return
+                    onNavigate(link.id)
+                  }}
+                />
               ))}
               <span className="est-side__tag">Verification</span>
               {VERIFICATION.map((link) => (
-                <RailItem key={link.id} label={link.label} done={marks[link.mark]} on={active === link.id} onClick={() => onNavigate(link.id)} />
+                <RailItem
+                  key={link.id}
+                  label={link.label}
+                  done={marks[link.mark]}
+                  on={active === link.id}
+                  disabled={lockNav}
+                  title={lockNav ? lockTitle : undefined}
+                  onClick={() => {
+                    if (lockNav) return
+                    onNavigate(link.id)
+                  }}
+                />
               ))}
             </div>
           </nav>
@@ -479,14 +458,7 @@ export function OsShell({
           <div className="os-fill">{children}</div>
         </div>
         <SettingsDialogHost />
-        {runOpen && projectId ? (
-          <EstimateRunDialog
-            projectId={projectId}
-            onClose={() => setRunOpen(false)}
-            onOpenBoq={() => onNavigate('boq')}
-          />
-        ) : null}
-        {inside && active !== 'documents' && (
+        {inside && active !== 'documents' && !lockNav && (
           <div className={clsx('est-docs-dock', documentsOpen && 'is-open')}>
             <button
               type="button"

@@ -680,3 +680,65 @@ export function flushPersist() {
   )
   return run
 }
+
+const CLIENTS_KEY = 'uq-known-clients'
+
+function readRememberedClients(): string[] {
+  try {
+    const raw = localStorage.getItem(CLIENTS_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).map((item) => item.trim())
+  } catch {
+    return []
+  }
+}
+
+/** Remember a client name for later suggestions in Settings. */
+export function rememberClient(name: string) {
+  const trimmed = name.trim()
+  if (!trimmed) return
+  const next = [trimmed, ...readRememberedClients().filter((item) => item.toLowerCase() !== trimmed.toLowerCase())].slice(0, 60)
+  try {
+    localStorage.setItem(CLIENTS_KEY, JSON.stringify(next))
+  } catch {
+    /* ignore quota */
+  }
+}
+
+async function scanIndexedDbClients(): Promise<string[]> {
+  try {
+    const db = await openDb()
+    const tx = db.transaction(PROJECTS, 'readonly')
+    const rows = await requestToPromise(tx.objectStore(PROJECTS).getAll())
+    await txDone(tx)
+    const names: string[] = []
+    for (const row of rows as StoredProject[]) {
+      try {
+        const body = JSON.parse(row.body) as { projectContext?: { client?: unknown } }
+        const client = typeof body.projectContext?.client === 'string' ? body.projectContext.client.trim() : ''
+        if (client) names.push(client)
+      } catch {
+        /* skip bad rows */
+      }
+    }
+    return names
+  } catch {
+    return []
+  }
+}
+
+/** Unique client names from this device's projects plus remembered entries. */
+export async function listKnownClients(): Promise<string[]> {
+  const current = useAppStore.getState().projectContext.client?.trim() || ''
+  const [fromIdb, remembered] = await Promise.all([scanIndexedDbClients(), Promise.resolve(readRememberedClients())])
+  const seen = new Map<string, string>()
+  for (const name of [...fromIdb, ...remembered, current]) {
+    const trimmed = name.trim()
+    if (!trimmed) continue
+    const key = trimmed.toLowerCase()
+    if (!seen.has(key)) seen.set(key, trimmed)
+  }
+  return [...seen.values()].sort((a, b) => a.localeCompare(b))
+}

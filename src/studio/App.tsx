@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Loader2 } from 'lucide-react'
 import { LandingPage } from './components/LandingPage'
 import { LoginPage } from './components/LoginPage'
 import { OsShell, readSession, writeSession, type AgentFocus, type OsScreen, type OsUser } from './components/OsChrome'
@@ -189,9 +190,15 @@ export default function App({ embed }: { embed?: { projectId: string; projectNam
 
   useEffect(() => {
     const onPop = () => {
+      const reading = useAppStore.getState().documents.some((doc) => doc.status === 'reading')
       if (embed) {
         const here = parseEstimateLocation(window.location.pathname)
         if (!here) return
+        if (reading && here.screen !== 'documents') {
+          setScreen('documents')
+          setDocumentsOpen(false)
+          return
+        }
         setAgentFocus(here.agent)
         setScreen(here.screen)
         if (here.screen === 'documents') setDocumentsOpen(false)
@@ -201,6 +208,12 @@ export default function App({ embed }: { embed?: { projectId: string; projectNam
       holdUrl.current = true
       if (!userRef.current) {
         setGate(route.kind === 'site' ? 'site' : 'studio')
+        return
+      }
+      if (reading) {
+        setGate('studio')
+        setScreen('documents')
+        setDocumentsOpen(false)
         return
       }
       if (route.kind === 'site' || route.kind === 'login') {
@@ -242,6 +255,8 @@ export default function App({ embed }: { embed?: { projectId: string; projectNam
   }, [screen])
 
   const go = useCallback((next: OsScreen, view?: 'takeoff' | 'pricing' | 'summary' | 'settings', agent?: AgentFocus) => {
+    const reading = useAppStore.getState().documents.some((doc) => doc.status === 'reading')
+    if (reading && next !== 'documents') return
     setNameError(null)
     if (agent) setAgentFocus(agent)
     if (next === 'documents') setDocumentsOpen(false)
@@ -249,6 +264,23 @@ export default function App({ embed }: { embed?: { projectId: string; projectNam
     if (embed && (next === 'projects' || next === 'create')) return
     setScreen(next)
   }, [embed])
+
+  useEffect(() => {
+    if (!projectId) return
+    let wasReading = useAppStore.getState().documents.some((doc) => doc.status === 'reading')
+    if (wasReading) {
+      setDocumentsOpen(false)
+      setScreen('documents')
+    }
+    return useAppStore.subscribe((state) => {
+      const reading = state.documents.some((doc) => doc.status === 'reading')
+      if (reading && !wasReading) {
+        setDocumentsOpen(false)
+        setScreen('documents')
+      }
+      wasReading = reading
+    })
+  }, [projectId])
 
   const adopt = useCallback(async (record: ProjectRecord, next: OsScreen = 'workspace') => {
     await flushPersist()
@@ -397,8 +429,18 @@ export default function App({ embed }: { embed?: { projectId: string; projectNam
   }
 
   const page = booting && screen !== 'projects' && screen !== 'create' && !projectId ? (
-      <div className="projects uq-home">
-        <p className="projects__empty">Opening the project…</p>
+      <div className="boot-loading" role="status" aria-live="polite" aria-busy="true">
+        <div className="boot-loading__scrim" aria-hidden />
+        <div className="boot-loading__card">
+          <span className="boot-loading__mark" aria-hidden>
+            <Loader2 size={22} className="boot-loading__spin" />
+          </span>
+          <h2>Opening project</h2>
+          <p>Loading drawings, estimates, and workspace.</p>
+          <div className="boot-loading__bar" aria-hidden>
+            <i />
+          </div>
+        </div>
       </div>
     ) : !embed && (screen === 'projects' || screen === 'create' || !projectId) ? (
       <EstimationsPage

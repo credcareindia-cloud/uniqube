@@ -1,8 +1,8 @@
 import { useRef, useState } from 'react'
 import clsx from 'clsx'
-import { FileText, Pencil, Upload } from 'lucide-react'
+import { FileText, Pencil, Trash2, Upload } from 'lucide-react'
 import { useAppStore } from '../store'
-import { documentCategoryLabel, type DocumentCategory } from '../types'
+import { documentCategoryLabel, type ClientDocument, type DocumentCategory } from '../types'
 import { FilePagesDialog } from './FilePagesDialog'
 
 const CATEGORIES: Array<{ id: DocumentCategory; label: string }> = [
@@ -13,12 +13,19 @@ const CATEGORIES: Array<{ id: DocumentCategory; label: string }> = [
 
 type PendingFile = { file: File; name: string; category: DocumentCategory }
 
+function statusLabel(doc: ClientDocument, analyzeProgress: number) {
+  if (doc.status === 'reading') return `Reading ${Math.round(analyzeProgress * 100)}%`
+  if (doc.status === 'error') return doc.error ? `Error · ${doc.error}` : 'Error'
+  return 'Ready'
+}
+
 export function DocumentsPanel({ variant = 'drawer' }: { variant?: 'page' | 'drawer' }) {
   const documents = useAppStore((s) => s.documents)
   const analyzeProgress = useAppStore((s) => s.analyzeProgress)
   const addClientFiles = useAppStore((s) => s.addClientFiles)
   const updateDocument = useAppStore((s) => s.updateDocument)
   const retryDocument = useAppStore((s) => s.retryDocument)
+  const removeDocument = useAppStore((s) => s.removeDocument)
   const [openId, setOpenId] = useState<string | null>(null)
   const [pending, setPending] = useState<PendingFile[]>([])
   const [editId, setEditId] = useState<string | null>(null)
@@ -49,14 +56,23 @@ export function DocumentsPanel({ variant = 'drawer' }: { variant?: 'page' | 'dra
     setEditId(null)
   }
 
+  const deleteDocument = (id: string, name: string) => {
+    if (!window.confirm(`Delete “${name}”? This removes the PDF from this project.`)) return
+    if (openId === id) setOpenId(null)
+    if (editId === id) setEditId(null)
+    removeDocument(id)
+  }
+
   const Tag = variant === 'page' ? 'main' : 'aside'
   return (
     <Tag className={clsx('agents-files est-docs', variant === 'page' && 'est-docs--page')}>
       <header>
-        <div>
-          <h2>Documents</h2>
-          <span>{documents.length === 1 ? '1 PDF' : `${documents.length} PDFs`}</span>
-        </div>
+        {variant !== 'page' && (
+          <div>
+            <h2>Documents</h2>
+            <span>{documents.length === 1 ? '1 PDF' : `${documents.length} PDFs`}</span>
+          </div>
+        )}
         <label className="est-primary">
           <Upload size={14} />
           Add document
@@ -130,7 +146,16 @@ export function DocumentsPanel({ variant = 'drawer' }: { variant?: 'page' | 'dra
       {documents.length === 0 ? (
         <p className="agents-files__empty">No documents yet. Add a PDF to start.</p>
       ) : (
-        <ul>
+        <ul className="os-list est-docs__list">
+          {variant === 'page' && (
+            <li className="est-docs__head" aria-hidden>
+              <span className="est-docs__col est-docs__col--doc">Document</span>
+              <span className="est-docs__col est-docs__col--cat">Category</span>
+              <span className="est-docs__col est-docs__col--status">Status</span>
+              <span className="est-docs__col est-docs__col--pages">Pages</span>
+              <span className="est-docs__col est-docs__col--actions" />
+            </li>
+          )}
           {documents.map((doc) => (
             <li key={doc.id}>
               {editId === doc.id ? (
@@ -165,29 +190,34 @@ export function DocumentsPanel({ variant = 'drawer' }: { variant?: 'page' | 'dra
                   </div>
                 </form>
               ) : (
-                <div className="est-docs__row">
+                <div
+                  className={clsx(
+                    'os-list__row',
+                    'est-docs__row',
+                    openId === doc.id && 'is-on',
+                    doc.status === 'reading' && 'is-reading',
+                    doc.status === 'error' && 'is-error',
+                  )}
+                >
                   <button
                     type="button"
-                    className={clsx(openId === doc.id && 'is-on')}
+                    className="est-docs__open"
                     onClick={() => {
                       if (doc.status === 'ready') setOpenId(doc.id)
                       else if (doc.status === 'error' && doc.file.size > 0) retryDocument(doc.id)
                       else if (doc.status === 'error') uploadRef.current?.click()
                     }}
                   >
-                    <FileText size={16} />
-                    <span>
-                      <b>{doc.name}</b>
-                      <small>
-                        {documentCategoryLabel(doc.category)}
-                        {' · '}
-                        {doc.status === 'reading'
-                          ? `reading… ${Math.round(analyzeProgress * 100)} %`
-                          : doc.status === 'error'
-                            ? `error${doc.error ? `: ${doc.error}` : ''}`
-                            : 'ready'}
-                        {doc.analysis ? ` · ${doc.analysis.pageCount} pages` : ''}
-                      </small>
+                    <span className="est-docs__icon" aria-hidden>
+                      <FileText size={18} strokeWidth={1.75} />
+                    </span>
+                    <span className="est-docs__body">
+                      <span className="est-docs__title">{doc.name}</span>
+                      <span className="est-docs__sub">
+                        <span className="est-docs__chip">{documentCategoryLabel(doc.category)}</span>
+                        <span className={clsx('est-docs__status', `is-${doc.status}`)}>{statusLabel(doc, analyzeProgress)}</span>
+                        {doc.analysis ? <span className="est-docs__pages">{doc.analysis.pageCount} pages</span> : null}
+                      </span>
                       {doc.status === 'reading' && (
                         <span className="agents-files__progress" aria-hidden>
                           <i style={{ width: `${Math.round(analyzeProgress * 100)}%` }} />
@@ -195,9 +225,26 @@ export function DocumentsPanel({ variant = 'drawer' }: { variant?: 'page' | 'dra
                       )}
                     </span>
                   </button>
-                  <button type="button" className="est-docs__rename" aria-label={`Rename ${doc.name}`} onClick={() => startEdit(doc.id)}>
-                    <Pencil size={14} />
-                  </button>
+                  {variant === 'page' && (
+                    <>
+                      <span className="est-docs__col est-docs__col--cat">{documentCategoryLabel(doc.category)}</span>
+                      <span className={clsx('est-docs__col est-docs__col--status', `is-${doc.status}`)}>{statusLabel(doc, analyzeProgress)}</span>
+                      <span className="est-docs__col est-docs__col--pages">{doc.analysis ? doc.analysis.pageCount : '—'}</span>
+                    </>
+                  )}
+                  <div className="est-docs__actions">
+                    <button type="button" className="est-docs__rename" aria-label={`Rename ${doc.name}`} onClick={() => startEdit(doc.id)}>
+                      <Pencil size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      className="est-docs__delete"
+                      aria-label={`Delete ${doc.name}`}
+                      onClick={() => deleteDocument(doc.id, doc.name)}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </div>
               )}
             </li>

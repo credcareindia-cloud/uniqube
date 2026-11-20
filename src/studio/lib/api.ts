@@ -1,10 +1,16 @@
+import { getBrowserApiBase } from '@/config/browserApi'
+
 export class ApiError extends Error {}
 
-const STUDIO_API = '/api/studio'
-
-/** Studio calls use `/api/...` in the tool. Uniqube serves them under `/api/studio`. */
+/**
+ * Studio tool paths are `/api/...`. Uniqube serves them under `/api/studio/...`.
+ * On production hosts, call api.uniqube3d.co directly so large PDF uploads are not
+ * truncated by the Vercel rewrite (which surfaces in the browser as "Failed to fetch").
+ */
 export function apiUrl(path: string) {
-  return path.replace(/^\/api(?=\/|$)/, STUDIO_API)
+  const base = getBrowserApiBase().replace(/\/$/, '')
+  const studioPath = path.replace(/^\/api(?=\/|$)/, '/studio')
+  return `${base}${studioPath.startsWith('/') ? studioPath : `/${studioPath}`}`
 }
 
 export function studioAuthHeaders(): Record<string, string> {
@@ -13,12 +19,24 @@ export function studioAuthHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
-export function apiFetch(path: string, init?: RequestInit) {
+function networkErrorMessage(error: unknown, path: string) {
+  const raw = error instanceof Error ? error.message : 'Request failed'
+  if (/failed to fetch|networkerror|load failed/i.test(raw)) {
+    return `Could not reach the estimate API (${path}). Check that the server is running and OPENAI_API_KEY is set.`
+  }
+  return raw
+}
+
+export async function apiFetch(path: string, init?: RequestInit) {
   const headers = new Headers(init?.headers)
   for (const [key, value] of Object.entries(studioAuthHeaders())) {
     if (!headers.has(key)) headers.set(key, value)
   }
-  return fetch(apiUrl(path), { ...init, headers })
+  try {
+    return await fetch(apiUrl(path), { ...init, headers })
+  } catch (error) {
+    throw new ApiError(networkErrorMessage(error, path))
+  }
 }
 
 export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -27,7 +45,12 @@ export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   for (const [key, value] of Object.entries(studioAuthHeaders())) {
     if (!headers.has(key)) headers.set(key, value)
   }
-  const res = await fetch(apiUrl(path), { ...init, headers })
+  let res: Response
+  try {
+    res = await fetch(apiUrl(path), { ...init, headers })
+  } catch (error) {
+    throw new ApiError(networkErrorMessage(error, path))
+  }
   if (!res.ok) {
     let message = res.statusText
     try {

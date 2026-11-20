@@ -107,19 +107,31 @@ function RulesPanel({ rules, onClose }: { rules: RuleRow[]; onClose: () => void 
           <X size={14} />
         </button>
       </header>
-      <ul className="agents-rules__list">
-        {rules.map((rule) => (
-          <li key={rule.id}>
-            <b>{rule.id}</b>
-            <strong>{rule.name}</strong>
-            <small>
-              {rule.category} · unit {rule.unit} · {rule.status.replaceAll('_', ' ').toLowerCase()}
-            </small>
-            <span>{rule.logic}</span>
-            {rule.inputs.length > 0 && <em>Inputs: {rule.inputs.join(', ')}</em>}
-            {rule.check && <em>Check: {rule.check}</em>}
-          </li>
-        ))}
+      <ul className="os-list agents-rules__list">
+        {rules.map((rule) => {
+          const status = rule.status.replaceAll('_', ' ').toLowerCase()
+          const statusClass = status.includes('draft') ? 'is-draft' : 'is-ready'
+          return (
+            <li key={rule.id}>
+              <div className="os-list__row">
+                <div className="os-list__main">
+                  <span className="os-list__body">
+                    <span className="os-list__title">{rule.name}</span>
+                    <span className="os-list__meta">
+                      <span className="os-list__chip os-list__chip--id">{rule.id}</span>
+                      <span className="os-list__chip">{rule.category}</span>
+                      <span className="os-list__mute">unit {rule.unit}</span>
+                      <span className={`os-list__status ${statusClass}`}>{status}</span>
+                    </span>
+                    <span className="os-list__note">{rule.logic}</span>
+                    {rule.inputs.length > 0 && <span className="os-list__note">Inputs: {rule.inputs.join(', ')}</span>}
+                    {rule.check && <span className="os-list__note">Check: {rule.check}</span>}
+                  </span>
+                </div>
+              </div>
+            </li>
+          )
+        })}
       </ul>
     </div>
   )

@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { useAppStore } from '../store'
 import { closeSettings, SETTINGS_STEPS, stepForField, useSettingsDialog } from '../lib/settingsDialog'
+import { listKnownClients, rememberClient } from '../lib/projectLibrary'
 import type { JobInputs } from '../types'
 import clsx from 'clsx'
 import { Building2, Calendar, Check, FileText, Layers, MapPin, Upload } from 'lucide-react'
@@ -11,7 +12,6 @@ import { SpecTree } from './SpecTree'
 import { ELEMENT_RATE_SEEDS, floorName } from '../lib/elements'
 import {
   RULES,
-  RULE_CATEGORIES,
   pricePreview,
   type FinishingScope,
   type MepScope,
@@ -25,6 +25,17 @@ import type { Commercials } from '../types'
 
 const aed = (value: number) =>
   new Intl.NumberFormat('en-AE', { maximumFractionDigits: 0 }).format(Math.round(value))
+
+/** Default quotation validity: one week from today (local date). */
+function defaultQuoteValidUntil() {
+  const date = new Date()
+  date.setHours(12, 0, 0, 0)
+  date.setDate(date.getDate() + 7)
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
 
 export interface CreatedEstimate {
   name: string
@@ -81,16 +92,19 @@ export function CreateEstimatePage({
   const [name, setName] = useState(defaultName)
   const [projectType, setProjectType] = useState(initial?.buildingType ?? '')
   const [client, setClient] = useState(initial?.client ?? '')
+  const [clientSuggestions, setClientSuggestions] = useState<string[]>([])
+  const [clientOpen, setClientOpen] = useState(false)
+  const clientBoxRef = useRef<HTMLLabelElement>(null)
   const [location, setLocation] = useState(initial?.location ?? '')
   const [currency, setCurrency] = useState(initial?.currency || 'AED')
   const [unit, setUnit] = useState<'m2' | 'sqft'>(initial?.jobInputs?.measurementUnit ?? 'm2')
-  const [start, setStart] = useState(initial?.jobInputs?.quoteValidUntil ?? '')
-  const [doorHeight, setDoorHeight] = useState<number | ''>(initial?.jobInputs?.doorHeightMm ?? '')
-  const [windowHeight, setWindowHeight] = useState<number | ''>(initial?.jobInputs?.windowHeightMm ?? '')
-  const [plinth, setPlinth] = useState<number | ''>(initial?.jobInputs?.plinthAboveNglMm ?? '')
-  const [soil, setSoil] = useState<number | ''>(initial?.jobInputs?.soilBearingKpa ?? '')
-  const [lineLoad, setLineLoad] = useState<number | ''>(initial?.jobInputs?.lineLoadKnM ?? '')
-  const [cooling, setCooling] = useState<number | ''>(initial?.jobInputs?.coolingWm2 ?? '')
+  const [start, setStart] = useState(initial?.jobInputs?.quoteValidUntil || defaultQuoteValidUntil())
+  const [doorHeight, setDoorHeight] = useState<number | ''>(initial?.jobInputs?.doorHeightMm ?? 2100)
+  const [windowHeight, setWindowHeight] = useState<number | ''>(initial?.jobInputs?.windowHeightMm ?? 1200)
+  const [plinth, setPlinth] = useState<number | ''>(initial?.jobInputs?.plinthAboveNglMm ?? 450)
+  const [soil, setSoil] = useState<number | ''>(initial?.jobInputs?.soilBearingKpa ?? 150)
+  const [lineLoad, setLineLoad] = useState<number | ''>(initial?.jobInputs?.lineLoadKnM ?? 40)
+  const [cooling, setCooling] = useState<number | ''>(initial?.jobInputs?.coolingWm2 ?? 180)
   const [levels, setLevels] = useState<number | ''>(initial?.levels ?? '')
   const [gfa, setGfa] = useState<number | ''>(initial?.gfaM2 && initial.gfaM2 > 0 ? initial.gfaM2 : '')
   const [page, setPage] = useState<'select' | 'details'>('select')
@@ -126,8 +140,6 @@ export function CreateEstimatePage({
   const [external, setExternal] = useState(initial?.commissionPct != null ? initial.commissionPct / 2 : 3.5)
   const [internal, setInternal] = useState(initial?.commissionPct != null ? initial.commissionPct / 2 : 3.5)
   const [files, setFiles] = useState<File[]>([])
-  const [ruleQuery, setRuleQuery] = useState('')
-  const [ruleCategory, setRuleCategory] = useState('ALL')
   const [error, setError] = useState<string | null>(null)
 
   const input: PreviewInput = {
@@ -147,14 +159,32 @@ export function CreateEstimatePage({
   }
   const preview = pricePreview(input)
 
-  const shownRules = useMemo(() => {
-    const q = ruleQuery.trim().toLowerCase()
-    return RULES.filter((rule) => {
-      if (ruleCategory !== 'ALL' && rule.category !== ruleCategory) return false
-      if (!q) return false
-      return rule.name.toLowerCase().includes(q) || rule.id.toLowerCase().includes(q) || rule.unit.toLowerCase().includes(q)
-    }).slice(0, 12)
-  }, [ruleQuery, ruleCategory])
+  const clientMatches = useMemo(() => {
+    const q = client.trim().toLowerCase()
+    const list = q
+      ? clientSuggestions.filter((item) => item.toLowerCase().includes(q) && item.toLowerCase() !== q)
+      : clientSuggestions
+    return list.slice(0, 8)
+  }, [client, clientSuggestions])
+
+  useEffect(() => {
+    let cancelled = false
+    void listKnownClients().then((names) => {
+      if (!cancelled) setClientSuggestions(names)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!clientOpen) return
+    const close = (event: MouseEvent) => {
+      if (!clientBoxRef.current?.contains(event.target as Node)) setClientOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [clientOpen])
 
   const drawingCount = files.length + existingDrawings
   const readiness = Math.round(
@@ -234,9 +264,8 @@ export function CreateEstimatePage({
   const stepped = step != null
 
   return (
-    <div className={stepped ? 'settings-wizard' : 'os-body'}>
+    <div className={stepped ? 'settings-wizard os' : 'os-body'}>
         <main className={stepped ? undefined : 'os-main'}>
-          {stepped && <p className="settings-wizard__count">{SETTINGS_STEPS[step]} · {step + 1} of {SETTINGS_STEPS.length}</p>}
           {stepped && step === 2 ? (
             <DetailsPage
               systems={systems}
@@ -252,8 +281,6 @@ export function CreateEstimatePage({
               setMepMode={setMepMode}
               pickedSet={pickedSet}
               onToggle={(id) => setPicked((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))}
-              onBack={() => onPrev?.()}
-              onNext={() => onNext?.(buildDraft())}
             />
           ) : page === 'details' ? (
             <DetailsPage
@@ -271,6 +298,7 @@ export function CreateEstimatePage({
               pickedSet={pickedSet}
               onToggle={(id) => setPicked((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))}
               onBack={() => setPage('select')}
+              onNext={() => setPage('select')}
             />
           ) : (
           <>
@@ -280,65 +308,128 @@ export function CreateEstimatePage({
             </div>
           )}
           {(!stepped || step === 0) && (
-          <section className="os-card" id="os-1">
+          <section className="os-card settings-card" id="os-1">
             <h2><Building2 size={16} /> Project information</h2>
+            <p className="settings-card__lead">These details flow into agents, BOQ, and the quotation letter.</p>
             <div className="os-grid">
-              <label className={mark('name')} data-field="name">Estimate name<input value={name} placeholder="Estimate name" onChange={(e) => setName(e.target.value)} /></label>
-              <label className={mark('type')} data-field="type">Project type
+              <label className={clsx('os-span-2', mark('name'))} data-field="name">
+                Estimate name
+                <input value={name} placeholder="e.g. Maple Apartments — rough estimate" onChange={(e) => setName(e.target.value)} />
+              </label>
+              <label className={mark('type')} data-field="type">
+                Project type
                 <select value={projectType} onChange={(e) => setProjectType(e.target.value)}>
-                  <option value="">Select</option>
+                  <option value="">Select type</option>
                   <option>Residential</option>
                   <option>Commercial</option>
                   <option>Industrial</option>
                 </select>
               </label>
-              <label className={mark('client')} data-field="client">Client name<input value={client} placeholder="Client company" onChange={(e) => setClient(e.target.value)} /></label>
-              <label className={mark('location')} data-field="location">Location
-                <span className="os-affix"><MapPin size={14} /><input value={location} placeholder="City, plot" onChange={(e) => setLocation(e.target.value)} /></span>
+              <label className={clsx('settings-suggest', mark('client'))} data-field="client" ref={clientBoxRef}>
+                Client name
+                <input
+                  value={client}
+                  placeholder="Client or company"
+                  autoComplete="off"
+                  aria-autocomplete="list"
+                  aria-expanded={clientOpen && clientMatches.length > 0}
+                  onFocus={() => setClientOpen(true)}
+                  onChange={(e) => {
+                    setClient(e.target.value)
+                    setClientOpen(true)
+                  }}
+                />
+                {clientOpen && clientMatches.length > 0 && (
+                  <ul className="settings-suggest__menu" role="listbox" aria-label="Existing clients">
+                    {clientMatches.map((name) => (
+                      <li key={name}>
+                        <button
+                          type="button"
+                          role="option"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => {
+                            setClient(name)
+                            setClientOpen(false)
+                          }}
+                        >
+                          {name}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </label>
-              <label className={mark('currency')} data-field="currency">Currency
+              <label className={clsx('os-span-2', mark('location'))} data-field="location">
+                Location
+                <span className="os-affix">
+                  <MapPin size={15} aria-hidden />
+                  <input value={location} placeholder="City, plot or site reference" onChange={(e) => setLocation(e.target.value)} />
+                </span>
+              </label>
+              <label className={mark('currency')} data-field="currency">
+                Currency
                 <select value={currency} onChange={(e) => setCurrency(e.target.value)}>
-                  <option value="AED">AED</option>
-                  <option value="USD">USD</option>
-                  <option value="INR">INR</option>
-                  <option value="EUR">EUR</option>
-                  <option value="GBP">GBP</option>
+                  <option value="AED">AED — UAE Dirham</option>
+                  <option value="USD">USD — US Dollar</option>
+                  <option value="INR">INR — Indian Rupee</option>
+                  <option value="EUR">EUR — Euro</option>
+                  <option value="GBP">GBP — Pound Sterling</option>
                 </select>
               </label>
-              <label className={mark('unit')} data-field="unit">Measurement unit
+              <label className={mark('unit')} data-field="unit">
+                Measurement unit
                 <select value={unit} onChange={(e) => setUnit(e.target.value === 'sqft' ? 'sqft' : 'm2')}>
-                  <option value="m2">m² (square metres)</option>
-                  <option value="sqft">sqft</option>
+                  <option value="m2">Square metres (m²)</option>
+                  <option value="sqft">Square feet (sqft)</option>
                 </select>
               </label>
-              <label className={mark('validity')} data-field="validity">Validity of quotation
-                <span className="os-affix"><Calendar size={14} /><input type="date" value={start} onChange={(e) => setStart(e.target.value)} /></span>
+              <label className={clsx('os-span-2', mark('validity'))} data-field="validity">
+                Quotation valid until
+                <span className="os-affix">
+                  <Calendar size={15} aria-hidden />
+                  <input type="date" value={start} onChange={(e) => setStart(e.target.value)} />
+                </span>
               </label>
             </div>
           </section>
           )}
 
           {(!stepped || step === 1) && (
-          <section className="os-card" id="os-3">
+          <section className="os-card settings-card" id="os-3">
             <h2><Layers size={16} /> Building parameters</h2>
+            <p className="settings-card__lead">Size the building and mark which scopes the estimate should cover.</p>
             <div className="os-grid">
-              <label className={mark('levels')} data-field="levels">Number of levels
+              <label className={mark('levels')} data-field="levels">
+                Number of levels
                 <select value={levels} onChange={(e) => setLevels(e.target.value === '' ? '' : Number(e.target.value))}>
-                  <option value="">Select</option>
+                  <option value="">Select levels</option>
                   {[0, 1, 2, 3, 4, 5].map((count) => (
                     <option key={count} value={count}>{count}</option>
                   ))}
                 </select>
               </label>
-              <label className={mark('gfa')} data-field="gfa">Gross floor area (m²)<input type="number" min={0} placeholder="m²" value={gfa} onChange={(e) => setGfa(e.target.value === '' ? '' : Number(e.target.value))} /></label>
+              <label className={mark('gfa')} data-field="gfa">
+                Gross floor area (m²)
+                <input type="number" min={0} placeholder="e.g. 2400" value={gfa} onChange={(e) => setGfa(e.target.value === '' ? '' : Number(e.target.value))} />
+              </label>
             </div>
             <h3 className="os-scope">Scope of work</h3>
-            <div className="os-seg">
-              <span>Substructure</span>
-              <Toggle label={includeSub ? 'In scope' : 'Out of scope'} on={includeSub} set={setIncludeSub} />
+            <div className="os-scope-row">
+              <div className="os-seg os-seg--inline">
+                <span>Substructure</span>
+                <Toggle label={includeSub ? 'In scope' : 'Out of scope'} on={includeSub} set={setIncludeSub} />
+              </div>
+              <div className="os-seg os-seg--inline">
+                <span>Finishes</span>
+                <Toggle label={finishOn ? 'In scope' : 'Out of scope'} on={finishOn} set={setFinishOn} />
+              </div>
+              <div className="os-seg os-seg--inline">
+                <span>MEP</span>
+                <Toggle label={mepOn ? 'In scope' : 'Out of scope'} on={mepOn} set={setMepOn} />
+              </div>
             </div>
             <h3 className="os-scope">Superstructure</h3>
-            <div className="os-seg">
+            <div className="os-seg os-chip-panel">
               <div>
                 {(
                   [
@@ -374,28 +465,38 @@ export function CreateEstimatePage({
                 })}
               </div>
             </div>
-            <div className="os-seg">
-              <span>Finishes</span>
-              <Toggle label={finishOn ? 'In scope' : 'Out of scope'} on={finishOn} set={setFinishOn} />
-            </div>
-            <div className="os-seg">
-              <span>MEP</span>
-              <Toggle label={mepOn ? 'In scope' : 'Out of scope'} on={mepOn} set={setMepOn} />
-            </div>
           </section>
           )}
 
           {stepped && step === 3 && (
-          <section className="os-card">
-            <h2>Required inputs</h2>
-            <p className="os-note">These values are shared. The agents read them from here, so they are not asked for again on each page.</p>
+          <section className="os-card settings-card">
+            <h2><FileText size={16} /> Required inputs</h2>
+            <p className="settings-card__lead">Shared values for every agent — set once here, reused across the estimate.</p>
             <div className="os-grid">
-              <label className={mark('doorHeight')} data-field="doorHeight">Door height (mm)<input type="number" min={0} placeholder="2100" value={doorHeight} onChange={(e) => setDoorHeight(e.target.value === '' ? '' : Number(e.target.value))} /></label>
-              <label className={mark('windowHeight')} data-field="windowHeight">Window height (mm)<input type="number" min={0} placeholder="1200" value={windowHeight} onChange={(e) => setWindowHeight(e.target.value === '' ? '' : Number(e.target.value))} /></label>
-              <label className={mark('plinth')} data-field="plinth">Plinth above NGL (mm)<input type="number" min={0} step={50} placeholder="450" value={plinth} onChange={(e) => setPlinth(e.target.value === '' ? '' : Number(e.target.value))} /></label>
-              <label className={mark('soil')} data-field="soil">Soil bearing (kPa)<input type="number" min={0} step={10} placeholder="150" value={soil} onChange={(e) => setSoil(e.target.value === '' ? '' : Number(e.target.value))} /></label>
-              <label className={mark('lineLoad')} data-field="lineLoad">Line load / storey (kN/m)<input type="number" min={0} step={5} placeholder="40" value={lineLoad} onChange={(e) => setLineLoad(e.target.value === '' ? '' : Number(e.target.value))} /></label>
-              <label className={mark('cooling')} data-field="cooling">Cooling (W/m²)<input type="number" min={0} placeholder="e.g. 180" value={cooling} onChange={(e) => setCooling(e.target.value === '' ? '' : Number(e.target.value))} /></label>
+              <label className={mark('doorHeight')} data-field="doorHeight">
+                Door height (mm)
+                <input type="number" min={0} placeholder="2100" value={doorHeight} onChange={(e) => setDoorHeight(e.target.value === '' ? '' : Number(e.target.value))} />
+              </label>
+              <label className={mark('windowHeight')} data-field="windowHeight">
+                Window height (mm)
+                <input type="number" min={0} placeholder="1200" value={windowHeight} onChange={(e) => setWindowHeight(e.target.value === '' ? '' : Number(e.target.value))} />
+              </label>
+              <label className={mark('plinth')} data-field="plinth">
+                Plinth above NGL (mm)
+                <input type="number" min={0} step={50} placeholder="450" value={plinth} onChange={(e) => setPlinth(e.target.value === '' ? '' : Number(e.target.value))} />
+              </label>
+              <label className={mark('soil')} data-field="soil">
+                Soil bearing (kPa)
+                <input type="number" min={0} step={10} placeholder="150" value={soil} onChange={(e) => setSoil(e.target.value === '' ? '' : Number(e.target.value))} />
+              </label>
+              <label className={mark('lineLoad')} data-field="lineLoad">
+                Line load / storey (kN/m)
+                <input type="number" min={0} step={5} placeholder="40" value={lineLoad} onChange={(e) => setLineLoad(e.target.value === '' ? '' : Number(e.target.value))} />
+              </label>
+              <label className={mark('cooling')} data-field="cooling">
+                Cooling (W/m²)
+                <input type="number" min={0} placeholder="e.g. 180" value={cooling} onChange={(e) => setCooling(e.target.value === '' ? '' : Number(e.target.value))} />
+              </label>
             </div>
           </section>
           )}
@@ -427,55 +528,38 @@ export function CreateEstimatePage({
           )}
 
           {(!stepped || step === 4) && (
-          <section className="os-card" id="os-4">
-            <h2>Rules and pricing setup</h2>
-            <div className="os-toggles">
-              <Toggle label="Supply of material" on={wastage} set={setWastage} />
-              <Toggle label="Include logistics" on={logistics} set={setLogistics} />
-              <Toggle label="Include installation" on={installation} set={setInstallation} />
+          <section className="os-card settings-card" id="os-4">
+            <h2><Layers size={16} /> Pricing setup</h2>
+            <p className="settings-card__lead">Commercial defaults and which cost components sit in the quotation.</p>
+            <div className="os-scope-row os-scope-row--rates">
+              <div className="os-seg os-seg--inline">
+                <span>Supply of material</span>
+                <Toggle label={wastage ? 'Included' : 'Excluded'} on={wastage} set={setWastage} />
+              </div>
+              <div className="os-seg os-seg--inline">
+                <span>Logistics</span>
+                <Toggle label={logistics ? 'Included' : 'Excluded'} on={logistics} set={setLogistics} />
+              </div>
+              <div className="os-seg os-seg--inline">
+                <span>Installation</span>
+                <Toggle label={installation ? 'Included' : 'Excluded'} on={installation} set={setInstallation} />
+              </div>
             </div>
-            <div className="os-grid">
-              <label className={mark('margin')} data-field="margin">Target profit margin (%)<input type="number" min={0} max={40} step={0.5} value={margin} onChange={(e) => setMargin(Number(e.target.value) || 0)} /></label>
-              <label className={mark('external')} data-field="external">External commission (%)<input type="number" min={0} max={20} step={0.5} value={external} onChange={(e) => setExternal(Number(e.target.value) || 0)} /></label>
-              <label className={mark('internal')} data-field="internal">Internal commission (%)<input type="number" min={0} max={20} step={0.5} value={internal} onChange={(e) => setInternal(Number(e.target.value) || 0)} /></label>
+            <div className="os-grid os-grid--3">
+              <label className={mark('margin')} data-field="margin">
+                Target profit margin (%)
+                <input type="number" min={0} max={40} step={0.5} value={margin} onChange={(e) => setMargin(Number(e.target.value) || 0)} />
+              </label>
+              <label className={mark('external')} data-field="external">
+                External commission (%)
+                <input type="number" min={0} max={20} step={0.5} value={external} onChange={(e) => setExternal(Number(e.target.value) || 0)} />
+              </label>
+              <label className={mark('internal')} data-field="internal">
+                Internal commission (%)
+                <input type="number" min={0} max={20} step={0.5} value={internal} onChange={(e) => setInternal(Number(e.target.value) || 0)} />
+              </label>
             </div>
-            <div className="os-rulebar">
-              <select value={ruleCategory} onChange={(e) => setRuleCategory(e.target.value)}>
-                <option value="ALL">All 11 categories</option>
-                {RULE_CATEGORIES.map((cat) => (
-                  <option key={cat.code} value={cat.name}>{cat.name} ({cat.rule_count})</option>
-                ))}
-              </select>
-              <input value={ruleQuery} placeholder="Find a rule by name, id, or unit — try wall, kg, or nr" onChange={(e) => setRuleQuery(e.target.value)} />
-            </div>
-            {ruleQuery.trim() ? (
-              <ul className="os-rules">
-                {shownRules.map((rule) => (
-                  <li key={rule.id}>
-                    <b>{rule.id}</b> {rule.name}
-                    <small>{rule.category} · unit {rule.unit} · {rule.status.replaceAll('_', ' ').toLowerCase()}</small>
-                    <span>{rule.logic}</span>
-                  </li>
-                ))}
-                {shownRules.length === 0 && <li>No rule matches.</li>}
-              </ul>
-            ) : null}
           </section>
-          )}
-
-          {stepped && step !== 2 && (
-            <div className="settings-wizard__nav">
-              <button type="button" className="os-btn" disabled={step === 0} onClick={onPrev}>Previous</button>
-              {error && <p className="os-error">{error}</p>}
-              <button
-                type="button"
-                className="os-btn os-btn--primary"
-                disabled={busy}
-                onClick={() => (step === SETTINGS_STEPS.length - 1 ? submit() : onNext?.(buildDraft()))}
-              >
-                {step === SETTINGS_STEPS.length - 1 ? submitLabel : 'Next'}
-              </button>
-            </div>
           )}
 
           {!stepped && (
@@ -491,6 +575,23 @@ export function CreateEstimatePage({
           </>
           )}
         </main>
+
+        {stepped && (
+          <div className="settings-wizard__nav">
+            <button type="button" className="os-btn" disabled={step === 0} onClick={onPrev}>
+              Previous
+            </button>
+            {error && <p className="os-error">{error}</p>}
+            <button
+              type="button"
+              className="os-btn os-btn--primary"
+              disabled={busy}
+              onClick={() => (step === SETTINGS_STEPS.length - 1 ? submit() : onNext?.(buildDraft()))}
+            >
+              {step === SETTINGS_STEPS.length - 1 ? submitLabel : 'Next'}
+            </button>
+          </div>
+        )}
 
         {!stepped && (
         <aside className="os-side">
@@ -618,96 +719,122 @@ function DetailsPage({
   setMepMode: (value: 'first-fix' | 'custom') => void
   pickedSet: ReadonlySet<string>
   onToggle: (id: string) => void
-  onBack: () => void
+  onBack?: () => void
   onNext?: () => void
 }) {
+  const empty =
+    !systems.includes('lgs') &&
+    !systems.includes('roll-formed') &&
+    !includeSub &&
+    !openings.includes('doors') &&
+    !openings.includes('facade') &&
+    !finishOn &&
+    !mepOn
+
   return (
     <>
-      <section className="os-card">
-        <h2>Structure</h2>
-        {systems.includes('lgs') && (
-          <div className="spec-panel">
-            <b>LGS</b>
-            <SpecTree nodes={LGS_SPEC} selected={pickedSet} onToggle={onToggle} />
-          </div>
+      <section className="os-card settings-card">
+        <h2><Layers size={16} /> Systems detail</h2>
+        <p className="settings-card__lead">
+          Refine the systems you marked in Building. Leave blank to keep defaults.
+        </p>
+        {empty && (
+          <p className="os-note">
+            No systems selected yet. Go back to Building and turn on Substructure, Superstructure, Finishes or MEP.
+          </p>
         )}
-        {systems.includes('roll-formed') && (
-          <div className="spec-panel">
-            <b>Roll formed steel</b>
-            <SpecTree nodes={ROLL_SPEC} selected={pickedSet} onToggle={onToggle} />
-          </div>
-        )}
-        {includeSub && (
-          <div className="os-seg">
-            <span>Foundation</span>
-            <div>
-              {FOUNDATIONS.map(([id, text]) => (
-                <button
-                  key={id}
-                  type="button"
-                  className={clsx(foundation.includes(id) && 'is-on')}
-                  aria-pressed={foundation.includes(id)}
-                  onClick={() => setFoundation((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))}
-                >
-                  {text}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-        {(['walls', 'floors', 'roof'] as const).map((id) => (
-          <div className="spec-panel" key={id}>
-            <b>{id === 'walls' ? 'Walls' : id === 'floors' ? 'Floors' : 'Roof'}</b>
-            <SpecTree nodes={PART_SPEC[id]} selected={pickedSet} onToggle={onToggle} />
-          </div>
-        ))}
-      </section>
-      <section className="os-card">
-        <h2>Architecture</h2>
-        {openings.includes('doors') && (
-          <div className="spec-panel">
-            <b>Doors & Windows</b>
-            <SpecTree nodes={PART_SPEC.doors} selected={pickedSet} onToggle={onToggle} />
-          </div>
-        )}
-        {openings.includes('facade') && (
-          <div className="spec-panel">
-            <b>Facade</b>
-            <SpecTree nodes={PART_SPEC.facade} selected={pickedSet} onToggle={onToggle} />
-          </div>
-        )}
-        {finishOn && (
-          <>
-            <ChoiceRow
-              value={finishMode}
-              onChange={setFinishMode}
-              options={[['shell-core', 'Shell & core'], ['custom', 'Customised finishes']]}
-            />
-            {finishMode === 'custom' && (
+        {(systems.includes('lgs') || systems.includes('roll-formed') || includeSub) && (
+          <div className="settings-block">
+            <h3 className="os-scope">Structure</h3>
+            {systems.includes('lgs') && (
               <div className="spec-panel">
-                <b>Finishes</b>
-                <SpecTree nodes={PART_SPEC.finishes} selected={pickedSet} onToggle={onToggle} />
+                <b>LGS</b>
+                <SpecTree nodes={LGS_SPEC} selected={pickedSet} onToggle={onToggle} />
               </div>
             )}
-          </>
+            {systems.includes('roll-formed') && (
+              <div className="spec-panel">
+                <b>Roll formed steel</b>
+                <SpecTree nodes={ROLL_SPEC} selected={pickedSet} onToggle={onToggle} />
+              </div>
+            )}
+            {includeSub && (
+              <div className="os-seg os-chip-panel">
+                <span>Foundation</span>
+                <div>
+                  {FOUNDATIONS.map(([id, text]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      className={clsx(foundation.includes(id) && 'is-on')}
+                      aria-pressed={foundation.includes(id)}
+                      onClick={() => setFoundation((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))}
+                    >
+                      {text}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {(['walls', 'floors', 'roof'] as const).map((id) => (
+              <div className="spec-panel" key={id}>
+                <b>{id === 'walls' ? 'Walls' : id === 'floors' ? 'Floors' : 'Roof'}</b>
+                <SpecTree nodes={PART_SPEC[id]} selected={pickedSet} onToggle={onToggle} />
+              </div>
+            ))}
+          </div>
+        )}
+        {(openings.includes('doors') || openings.includes('facade') || finishOn) && (
+          <div className="settings-block">
+            <h3 className="os-scope">Architecture</h3>
+            {openings.includes('doors') && (
+              <div className="spec-panel">
+                <b>Doors & Windows</b>
+                <SpecTree nodes={PART_SPEC.doors} selected={pickedSet} onToggle={onToggle} />
+              </div>
+            )}
+            {openings.includes('facade') && (
+              <div className="spec-panel">
+                <b>Facade</b>
+                <SpecTree nodes={PART_SPEC.facade} selected={pickedSet} onToggle={onToggle} />
+              </div>
+            )}
+            {finishOn && (
+              <>
+                <ChoiceRow
+                  value={finishMode}
+                  onChange={setFinishMode}
+                  options={[['shell-core', 'Shell & core'], ['custom', 'Customised finishes']]}
+                />
+                {finishMode === 'custom' && (
+                  <div className="spec-panel">
+                    <b>Finishes</b>
+                    <SpecTree nodes={PART_SPEC.finishes} selected={pickedSet} onToggle={onToggle} />
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+        {mepOn && (
+          <div className="settings-block">
+            <h3 className="os-scope">MEP</h3>
+            <ChoiceRow
+              value={mepMode}
+              onChange={setMepMode}
+              options={[['first-fix', 'First fix'], ['custom', 'Customised MEP']]}
+            />
+          </div>
         )}
       </section>
-      {mepOn && (
-        <section className="os-card">
-          <h2>MEP</h2>
-          <ChoiceRow
-            value={mepMode}
-            onChange={setMepMode}
-            options={[['first-fix', 'First fix'], ['custom', 'Customised MEP']]}
-          />
-        </section>
+      {onBack && (
+        <div className="os-nextbar os-backbar">
+          <button type="button" className="os-btn os-back" onClick={onBack}>Previous</button>
+          {onNext && (
+            <button type="button" className="os-btn os-btn--primary" onClick={onNext}>Next</button>
+          )}
+        </div>
       )}
-      <div className="os-nextbar os-backbar">
-        <button type="button" className="os-btn os-back" onClick={onBack}>Previous</button>
-        {onNext && (
-          <button type="button" className="os-btn os-btn--primary" onClick={onNext}>Next</button>
-        )}
-      </div>
     </>
   )
 }
@@ -748,6 +875,7 @@ function applySettings(draft: CreatedEstimate) {
     ...(draft.specSummary ? { scopeNotes: draft.specSummary } : {}),
   })
   store.setCommercials(draft.commercials)
+  rememberClient(draft.client)
 }
 
 /** Settings opens over the page. Next and Previous walk the shared project values. */
@@ -794,12 +922,11 @@ export function SettingsDialogHost() {
 
   return createPortal(
     <div className="pages-backdrop" style={{ zIndex: 4000 }} onMouseDown={() => closeSettings()}>
-      <div className="pages-dialog settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => event.stopPropagation()}>
-        <header className="pages-dialog__head">
-          <div>
-            <h2 id="settings-title">Settings</h2>
-            <p>One place for the project. Every page reads these values.</p>
-          </div>
+      <div className="pages-dialog settings-dialog" role="dialog" aria-modal="true" aria-label="Project settings" onMouseDown={(event) => event.stopPropagation()}>
+        <header className="settings-dialog__bar">
+          <p className="settings-wizard__count">
+            {SETTINGS_STEPS[step]} · {step + 1} of {SETTINGS_STEPS.length}
+          </p>
           <button type="button" className="pages-dialog__close" aria-label="Close settings" onClick={() => closeSettings()}>
             <X size={16} />
           </button>

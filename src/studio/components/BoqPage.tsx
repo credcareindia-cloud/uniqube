@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { FileSpreadsheet } from 'lucide-react'
+import { useAppStore } from '../store'
 import { roundedBoq } from '../lib/foundation/engine'
 import { foundationTypeName } from '../lib/foundation/rules'
 import { loadEngineState, type EngineState } from '../lib/foundation/run'
@@ -9,18 +11,109 @@ import type { MepState } from '../lib/mep/types'
 import { loadArchState } from '../lib/architecture/run'
 import type { ArchState } from '../lib/architecture/types'
 
-function unitLabel(unit: QuantityLine['unit']) {
+function unitLabel(unit: string) {
   if (unit === 'm3') return 'm³'
   if (unit === 'm2') return 'm²'
   return unit
 }
 
-function qty(value: number, unit: QuantityLine['unit']) {
-  if (unit === 'kg') return Math.round(value).toLocaleString('en-US')
+function cleanBasis(text?: string | null) {
+  if (!text?.trim()) return ''
+  if (/\bNaN\b/i.test(text)) return ''
+  return text.trim()
+}
+
+function qtyText(value: number | null | undefined, unit: string) {
+  if (value == null || !Number.isFinite(value)) return '—'
+  if (value === 0) return '—'
+  if (unit === 'kg' || unit === 'nr' || unit === 'no' || unit === 'nos') {
+    return Math.round(value).toLocaleString('en-US')
+  }
   return value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+function wasteText(pct: number | null | undefined) {
+  if (pct == null || !Number.isFinite(pct) || pct <= 0 || pct > 40) return null
+  return `incl. ${pct}% waste`
+}
+
+function StatusPill({ tone, children }: { tone: 'ok' | 'warn' | 'muted'; children: string }) {
+  return <span className={`boq-doc__pill is-${tone}`}>{children}</span>
+}
+
+function SectionBlock({
+  title,
+  meta,
+  status,
+  children,
+  empty,
+}: {
+  title: string
+  meta?: string
+  status?: { tone: 'ok' | 'warn' | 'muted'; label: string }
+  children?: ReactNode
+  empty?: string
+}) {
+  return (
+    <section className="boq-doc__section">
+      <div className="boq-doc__section-head">
+        <div>
+          <h2>{title}</h2>
+          {meta ? <p>{meta}</p> : null}
+        </div>
+        {status ? <StatusPill tone={status.tone}>{status.label}</StatusPill> : null}
+      </div>
+      {children ?? (empty ? <p className="boq-doc__empty">{empty}</p> : null)}
+    </section>
+  )
+}
+
+function BoqTable({
+  caption,
+  columns,
+  rows,
+}: {
+  caption: string
+  columns: Array<{ key: string; label: string; align?: 'left' | 'right'; width?: string }>
+  rows: Array<{ key: string; cells: Record<string, ReactNode>; title?: string }>
+}) {
+  return (
+    <div className="boq-doc__table-wrap">
+      <table className="boq-doc__table">
+        <caption>{caption}</caption>
+        <thead>
+          <tr>
+            <th className="boq-doc__item">Item</th>
+            {columns.map((col) => (
+              <th key={col.key} className={col.align === 'right' ? 'num' : undefined} style={col.width ? { width: col.width } : undefined}>
+                {col.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => (
+            <tr key={row.key} title={row.title}>
+              <td className="boq-doc__item">{String(index + 1).padStart(2, '0')}</td>
+              {columns.map((col) => (
+                <td key={col.key} className={col.align === 'right' ? 'num' : undefined}>
+                  {row.cells[col.key]}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 export function BoqPage({ projectId }: { projectId: string }) {
+  const projectName = useAppStore((s) => s.projectSetup.projectName)
+  const client = useAppStore((s) => s.projectContext.client)
+  const location = useAppStore((s) => s.projectContext.location)
+  const buildingType = useAppStore((s) => s.projectContext.buildingType)
+
   const [engine, setEngine] = useState<EngineState | null>(null)
   const [superState, setSuperState] = useState<SuperState | null>(null)
   const [mep, setMep] = useState<MepState | null>(null)
@@ -90,205 +183,280 @@ export function BoqPage({ projectId }: { projectId: string }) {
   }, [projectId])
 
   const result = engine?.result ?? null
-  const rows = result ? roundedBoq(result) : []
-  const sections = [...new Set(rows.map((row) => row.section))]
+  const rows = useMemo(() => (result ? roundedBoq(result) : []), [result])
+  const sections = useMemo(() => [...new Set(rows.map((row) => row.section))], [rows])
   const superResult = superState?.result ?? null
-  const superGroups = superResult ? [...new Set(superResult.boq.map((row) => row.group))] : []
+  const superGroups = useMemo(() => (superResult ? [...new Set(superResult.boq.map((row) => row.group))] : []), [superResult])
+  const issued = new Date().toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })
+
+  const foundationStatus = !ready
+    ? null
+    : !result
+      ? { tone: 'muted' as const, label: 'Not run' }
+      : !rows.length
+        ? { tone: 'warn' as const, label: 'Blocked' }
+        : result.gateOpen
+          ? { tone: 'ok' as const, label: 'Approved' }
+          : { tone: 'warn' as const, label: 'Provisional' }
 
   return (
-    <div className="doc-page">
-      <header>
-        <h1>BOQ</h1>
-        <p>Quantities only. A missing input stays blank, and nothing is written as zero.</p>
+    <div className="boq-doc">
+      <header className="boq-doc__cover">
+        <div className="boq-doc__brand">
+          <span className="boq-doc__mark">
+            <FileSpreadsheet size={18} />
+          </span>
+          <div>
+            <p className="boq-doc__eyebrow">UNIQUBE · Bill of quantities</p>
+            <h1>{projectName.trim() || 'Project estimate'}</h1>
+          </div>
+        </div>
+        <dl className="boq-doc__meta">
+          <div>
+            <dt>Client</dt>
+            <dd>{client.trim() || '—'}</dd>
+          </div>
+          <div>
+            <dt>Location</dt>
+            <dd>{location.trim() || '—'}</dd>
+          </div>
+          <div>
+            <dt>Building</dt>
+            <dd>{buildingType.trim() || '—'}</dd>
+          </div>
+          <div>
+            <dt>Issued</dt>
+            <dd>{issued}</dd>
+          </div>
+        </dl>
+        <p className="boq-doc__lede">
+          Quantities only. Missing inputs stay blank. Calculation notes sit behind each line as a hover tip — they are not part of the issued sheet.
+        </p>
       </header>
-      <section>
-        <h2>Sub structure</h2>
-        {!ready && <p className="doc-page__note">Loading the foundation quantities…</p>}
-        {ready && !result && <p className="doc-page__note">Run the foundation engine on Agents. The quantities appear here after that run.</p>}
-        {ready && result && !rows.length && <p className="doc-page__note">No foundation quantities. A stop flag or a missing input is blocking the bill.</p>}
-        {result && rows.length > 0 && (
-          <>
-            <p className="doc-page__note">
-              Type {result.foundationType} — {foundationTypeName(result.foundationType)} · band {result.band} · {result.level.drawingNo ?? 'plan'} p{result.level.sourcePage}
-              {result.gateOpen ? ` · approved by ${engine?.overrides.approvedBy ?? '—'}` : ' · provisional until the review gate is approved'}
-            </p>
-            {sections.map((section) => (
-              <table key={section} className="summary__table">
-                <thead>
-                  <tr>
-                    <th colSpan={5}>{section}</th>
-                  </tr>
-                  <tr>
-                    <th>Code</th>
-                    <th>Description</th>
-                    <th className="num">Net</th>
-                    <th className="num">Gross</th>
-                    <th>Unit</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows
-                    .filter((row) => row.section === section)
-                    .map((row) => (
-                      <tr key={row.id} title={row.basis}>
-                        <td>{row.boqCode}</td>
-                        <td>
-                          {row.description}
-                          <div className="muted">{row.basis}</div>
-                        </td>
-                        <td className="num">{qty(row.netQty, row.unit)}</td>
-                        <td className="num">
-                          {qty(row.grossQty, row.unit)}
-                          {row.wastePct ? <div className="muted">+{row.wastePct}%</div> : null}
-                        </td>
-                        <td>{unitLabel(row.unit)}</td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            ))}
-          </>
-        )}
-      </section>
-      <section>
-        <h2>Super structure</h2>
-        {!ready && <p className="doc-page__note">Loading the superstructure quantities…</p>}
-        {ready && !superResult && <p className="doc-page__note">Run the Structure agent on Agents. The LGS quantities appear here after that run.</p>}
-        {superResult && (
-          <>
-            <p className="doc-page__note">
-              LGS at s = {superResult.settings.studSpacingMm} mm · {superResult.levels.length} level{superResult.levels.length === 1 ? '' : 's'} · net {Math.round(superResult.totals.netLgsKg).toLocaleString('en-US')} kg · gross {Math.round(superResult.totals.grossLgsKg).toLocaleString('en-US')} kg
-              {superResult.blocked ? ' · blocked by red flags or missing inputs' : superState?.overrides.approvedBy ? ` · approved by ${superState.overrides.approvedBy}` : ' · provisional until the review gate is approved'}
-            </p>
-            {superGroups.map((group) => (
-              <table key={group} className="summary__table">
-                <thead>
-                  <tr>
-                    <th colSpan={4}>{group}</th>
-                  </tr>
-                  <tr>
-                    <th>Code</th>
-                    <th>Description</th>
-                    <th className="num">Qty</th>
-                    <th>Unit</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {superResult.boq
-                    .filter((row) => row.group === group)
-                    .map((row) => (
-                      <tr key={row.id} title={row.ruleIds.join(' ')}>
-                        <td>{row.code}</td>
-                        <td>
-                          {row.description}
-                          <div className="muted">
-                            {row.lgsSection ? `${row.lgsSection} · ` : ''}
-                            {row.basis}
+
+      <SectionBlock
+        title="1. Sub structure"
+        meta={
+          result
+            ? `Type ${result.foundationType} — ${foundationTypeName(result.foundationType)} · Band ${result.band} · ${result.level.drawingNo ?? 'Plan'} p${result.level.sourcePage}${
+                engine?.overrides.approvedBy ? ` · ${engine.overrides.approvedBy}` : ''
+              }`
+            : undefined
+        }
+        status={foundationStatus ?? undefined}
+        empty={
+          !ready
+            ? 'Loading foundation quantities…'
+            : !result
+              ? 'Run Sub structure to populate this section.'
+              : !rows.length
+                ? 'No foundation quantities yet. Resolve stop flags or missing inputs, then run again.'
+                : undefined
+        }
+      >
+        {result && rows.length
+          ? sections.map((section) => {
+              const sectionRows = rows.filter((row) => row.section === section)
+              return (
+                <BoqTable
+                  key={section}
+                  caption={section}
+                  columns={[
+                    { key: 'code', label: 'Code', width: '88px' },
+                    { key: 'description', label: 'Description' },
+                    { key: 'net', label: 'Net', align: 'right', width: '96px' },
+                    { key: 'gross', label: 'Gross', align: 'right', width: '110px' },
+                    { key: 'unit', label: 'Unit', width: '64px' },
+                  ]}
+                  rows={sectionRows.map((row: QuantityLine) => {
+                    const waste = wasteText(row.wastePct)
+                    const basis = cleanBasis(row.basis)
+                    return {
+                      key: row.id,
+                      title: basis || undefined,
+                      cells: {
+                        code: <span className="boq-doc__code">{row.boqCode}</span>,
+                        description: (
+                          <div className="boq-doc__desc">
+                            <strong>{row.description}</strong>
+                            {waste ? <span>{waste}</span> : null}
                           </div>
-                        </td>
-                        <td className="num">{row.qty == null ? '' : row.unit === 'kg' || row.unit === 'nr' ? Math.round(row.qty).toLocaleString('en-US') : row.qty.toLocaleString('en-US', { maximumFractionDigits: 2 })}</td>
-                        <td>{row.unit}</td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            ))}
-          </>
-        )}
-      </section>
-      <section>
-        <h2>Architecture</h2>
-        {!ready && <p className="doc-page__note">Loading the architectural quantities…</p>}
-        {ready && !arch?.result?.lines.length && <p className="doc-page__note">Run Architecture after the sub structure plan. Wall, opening and finish lines appear here.</p>}
-        {arch?.result?.lines.length ? (
-          <>
-            <p className="doc-page__note">
-              {arch.result.summary.storeys} measured floor{arch.result.summary.storeys === 1 ? '' : 's'}
-              {arch.result.summary.occupiedM2 != null ? ` · ${arch.result.summary.occupiedM2} m² occupied` : ''}
-              {arch.overrides.approvedBy ? ` · approved by ${arch.overrides.approvedBy}` : ' · provisional until architecture is approved'}
-            </p>
-            {(['measured', 'openings', 'finishes'] as const).map((group) => {
+                        ),
+                        net: qtyText(row.netQty, row.unit),
+                        gross: qtyText(row.grossQty, row.unit),
+                        unit: unitLabel(row.unit),
+                      },
+                    }
+                  })}
+                />
+              )
+            })
+          : null}
+      </SectionBlock>
+
+      <SectionBlock
+        title="2. Super structure"
+        meta={
+          superResult
+            ? `LGS studs at ${superResult.settings.studSpacingMm} mm · ${superResult.levels.length} level${superResult.levels.length === 1 ? '' : 's'} · net ${Math.round(
+                superResult.totals.netLgsKg,
+              ).toLocaleString('en-US')} kg`
+            : undefined
+        }
+        status={
+          !ready
+            ? undefined
+            : !superResult
+              ? { tone: 'muted', label: 'Not run' }
+              : superResult.blocked
+                ? { tone: 'warn', label: 'Blocked' }
+                : superState?.overrides.approvedBy
+                  ? { tone: 'ok', label: 'Approved' }
+                  : { tone: 'warn', label: 'Provisional' }
+        }
+        empty={!ready ? 'Loading superstructure quantities…' : !superResult ? 'Run Super structure to populate this section.' : undefined}
+      >
+        {superResult
+          ? superGroups.map((group) => {
+              const groupRows = superResult.boq.filter((row) => row.group === group)
+              return (
+                <BoqTable
+                  key={group}
+                  caption={group}
+                  columns={[
+                    { key: 'code', label: 'Code', width: '88px' },
+                    { key: 'description', label: 'Description' },
+                    { key: 'qty', label: 'Qty', align: 'right', width: '96px' },
+                    { key: 'unit', label: 'Unit', width: '64px' },
+                  ]}
+                  rows={groupRows.map((row) => {
+                    const basis = cleanBasis([row.lgsSection, row.basis].filter(Boolean).join(' · '))
+                    return {
+                      key: row.id,
+                      title: basis || undefined,
+                      cells: {
+                        code: <span className="boq-doc__code">{row.code}</span>,
+                        description: (
+                          <div className="boq-doc__desc">
+                            <strong>{row.description}</strong>
+                            {row.lgsSection ? <span>{row.lgsSection}</span> : null}
+                          </div>
+                        ),
+                        qty: qtyText(row.qty, row.unit),
+                        unit: unitLabel(row.unit),
+                      },
+                    }
+                  })}
+                />
+              )
+            })
+          : null}
+      </SectionBlock>
+
+      <SectionBlock
+        title="3. Architecture"
+        meta={
+          arch?.result?.lines.length
+            ? `${arch.result.summary.storeys} measured floor${arch.result.summary.storeys === 1 ? '' : 's'}${
+                arch.result.summary.occupiedM2 != null ? ` · ${arch.result.summary.occupiedM2} m² occupied` : ''
+              }`
+            : undefined
+        }
+        status={
+          !ready
+            ? undefined
+            : !arch?.result?.lines.length
+              ? { tone: 'muted', label: 'Not run' }
+              : arch.overrides.approvedBy
+                ? { tone: 'ok', label: 'Approved' }
+                : { tone: 'warn', label: 'Provisional' }
+        }
+        empty={!ready ? 'Loading architectural quantities…' : !arch?.result?.lines.length ? 'Run Architecture to populate this section.' : undefined}
+      >
+        {arch?.result?.lines.length
+          ? (['measured', 'openings', 'finishes'] as const).map((group) => {
               const lines = arch.result!.lines.filter((line) => line.group === group)
               if (!lines.length) return null
               return (
-                <table key={group} className="summary__table">
-                  <thead>
-                    <tr>
-                      <th colSpan={4}>{group === 'measured' ? 'Measured' : group === 'openings' ? 'Openings' : 'Finishes'}</th>
-                    </tr>
-                    <tr>
-                      <th>Code</th>
-                      <th>Description</th>
-                      <th className="num">Qty</th>
-                      <th>Unit</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {lines.map((line) => (
-                      <tr key={line.code}>
-                        <td>{line.code}</td>
-                        <td>
-                          {line.description}
-                          <div className="muted">{line.basis}</div>
-                        </td>
-                        <td className="num">{line.qty}</td>
-                        <td>{line.unit === 'm2' ? 'm²' : line.unit}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <BoqTable
+                  key={group}
+                  caption={group === 'measured' ? 'Measured' : group === 'openings' ? 'Openings' : 'Finishes'}
+                  columns={[
+                    { key: 'code', label: 'Code', width: '88px' },
+                    { key: 'description', label: 'Description' },
+                    { key: 'qty', label: 'Qty', align: 'right', width: '96px' },
+                    { key: 'unit', label: 'Unit', width: '64px' },
+                  ]}
+                  rows={lines.map((line) => ({
+                    key: line.code,
+                    title: cleanBasis(line.basis) || undefined,
+                    cells: {
+                      code: <span className="boq-doc__code">{line.code}</span>,
+                      description: (
+                        <div className="boq-doc__desc">
+                          <strong>{line.description}</strong>
+                        </div>
+                      ),
+                      qty: qtyText(line.qty, line.unit),
+                      unit: unitLabel(line.unit),
+                    },
+                  }))}
+                />
               )
-            })}
-          </>
-        ) : null}
-      </section>
-      <section>
-        <h2>MEP</h2>
-        {!ready && <p className="doc-page__note">Loading the MEP quantities…</p>}
-        {ready && !mep?.result?.boq.length && <p className="doc-page__note">Run MEP. Electrical, mechanical, plumbing and fire appear here after the rooms are counted.</p>}
-        {mep?.result?.boq.length ? (
-          <>
-            <p className="doc-page__note">
-              Material extra is {mep.inputs.settings.allowancePct}% of the base, applied once. Fixture counts are unchanged.
-              {mep.overrides.approvedBy ? ` Approved by ${mep.overrides.approvedBy}.` : ' Provisional until MEP is approved.'}
-              {' '}Rates stay in Packages.
-            </p>
-            {[...new Set(mep.result.boq.map((line) => line.module))].map((module) => (
-              <table key={module} className="summary__table">
-                <thead>
-                  <tr>
-                    <th colSpan={7}>{module}</th>
-                  </tr>
-                  <tr>
-                    <th>Code</th>
-                    <th>Description</th>
-                    <th>Basis</th>
-                    <th className="num">Base</th>
-                    <th className="num">Extra</th>
-                    <th className="num">Final</th>
-                    <th>Unit</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {mep.result!.boq
-                    .filter((line) => line.module === module)
-                    .map((line) => (
-                      <tr key={line.code}>
-                        <td>{line.code}</td>
-                        <td>{line.description}</td>
-                        <td>{line.basis}</td>
-                        <td className="num">{line.base}</td>
-                        <td className="num">{line.extra}</td>
-                        <td className="num">{line.final}</td>
-                        <td>{line.unit}</td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            ))}
-          </>
-        ) : null}
-      </section>
+            })
+          : null}
+      </SectionBlock>
+
+      <SectionBlock
+        title="4. MEP"
+        meta={mep?.result?.boq.length ? `Material extra ${mep.inputs.settings.allowancePct}% on base · fixtures unchanged` : undefined}
+        status={
+          !ready
+            ? undefined
+            : !mep?.result?.boq.length
+              ? { tone: 'muted', label: 'Not run' }
+              : mep.overrides.approvedBy
+                ? { tone: 'ok', label: 'Approved' }
+                : { tone: 'warn', label: 'Provisional' }
+        }
+        empty={!ready ? 'Loading MEP quantities…' : !mep?.result?.boq.length ? 'Run MEP to populate this section.' : undefined}
+      >
+        {mep?.result?.boq.length
+          ? [...new Set(mep.result.boq.map((line) => line.module))].map((module) => {
+              const moduleRows = mep.result!.boq.filter((line) => line.module === module)
+              return (
+                <BoqTable
+                  key={module}
+                  caption={module}
+                  columns={[
+                    { key: 'code', label: 'Code', width: '88px' },
+                    { key: 'description', label: 'Description' },
+                    { key: 'base', label: 'Base', align: 'right', width: '84px' },
+                    { key: 'extra', label: 'Extra', align: 'right', width: '84px' },
+                    { key: 'final', label: 'Final', align: 'right', width: '84px' },
+                    { key: 'unit', label: 'Unit', width: '64px' },
+                  ]}
+                  rows={moduleRows.map((line) => ({
+                    key: line.code,
+                    title: cleanBasis(line.basis) || undefined,
+                    cells: {
+                      code: <span className="boq-doc__code">{line.code}</span>,
+                      description: (
+                        <div className="boq-doc__desc">
+                          <strong>{line.description}</strong>
+                        </div>
+                      ),
+                      base: qtyText(line.base, line.unit),
+                      extra: qtyText(line.extra, line.unit),
+                      final: qtyText(line.final, line.unit),
+                      unit: unitLabel(line.unit),
+                    },
+                  }))}
+                />
+              )
+            })
+          : null}
+      </SectionBlock>
     </div>
   )
 }

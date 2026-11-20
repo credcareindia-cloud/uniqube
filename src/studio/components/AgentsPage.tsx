@@ -32,12 +32,20 @@ function RulesView({ title, subtitle, rules }: { title: string; subtitle: string
         {groups.map((group) => (
           <section key={group.module}>
             <h3>{group.module}</h3>
-            <ul className="agents-rules__list">
+            <ul className="os-list agents-rules__list">
               {group.rules.map((rule) => (
                 <li key={rule.id}>
-                  <b>{rule.id}</b>
-                  <strong>{rule.name}</strong>
-                  <span>{rule.logic}</span>
+                  <div className="os-list__row">
+                    <div className="os-list__main">
+                      <span className="os-list__body">
+                        <span className="os-list__title">{rule.name}</span>
+                        <span className="os-list__meta">
+                          <span className="os-list__chip os-list__chip--id">{rule.id}</span>
+                        </span>
+                        <span className="os-list__note">{rule.logic}</span>
+                      </span>
+                    </div>
+                  </div>
                 </li>
               ))}
             </ul>

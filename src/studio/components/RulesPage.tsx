@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { RULES, RULE_CATEGORIES } from '../lib/rulesPreview'
+import { BookMarked } from 'lucide-react'
+import { RULES } from '../lib/rulesPreview'
 import { SCOPE_AGENTS, rulesForAgent, type ScopeAgentId } from '../lib/agentScopes'
 
 export function RulesPage() {
@@ -20,49 +21,63 @@ export function RulesPage() {
 
   return (
     <div className="rules-page">
-      <header className="rules-page__head">
-        <div>
-          <h1>Rules</h1>
-          <p>
-            Unified estimation registry ({RULES.length} rules · {RULE_CATEGORIES.length} categories). Sub structure uses
-            SUBSTRUCTURE.
-          </p>
-        </div>
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Find a rule by id, name, or logic"
-        />
-      </header>
-      <div className="rules-page__filters">
-        <button type="button" className={agent === 'all' ? 'is-on' : undefined} onClick={() => setAgent('all')}>
-          All
-        </button>
-        {SCOPE_AGENTS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className={agent === item.id ? 'is-on' : undefined}
-            onClick={() => setAgent(item.id)}
-          >
-            {item.label}
+      <div className="rules-page__toolbar">
+        <div className="rules-page__filters" role="tablist" aria-label="Rule scope">
+          <button type="button" className={agent === 'all' ? 'is-on' : undefined} onClick={() => setAgent('all')}>
+            All
           </button>
-        ))}
+          {SCOPE_AGENTS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={agent === item.id ? 'is-on' : undefined}
+              onClick={() => setAgent(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+        <label className="rules-page__search">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search rules"
+            aria-label="Search rules"
+          />
+        </label>
       </div>
       <p className="rules-page__count">{rows.length} shown</p>
-      <ul className="rules-page__list">
-        {rows.map((rule) => (
-          <li key={rule.id}>
-            <b>{rule.id}</b>
-            <strong>{rule.name}</strong>
-            <small>
-              {rule.category} · unit {rule.unit} · {rule.status.replaceAll('_', ' ').toLowerCase()}
-            </small>
-            <span>{rule.logic}</span>
-          </li>
-        ))}
-        {rows.length === 0 && <li className="rules-page__empty">No rule matches.</li>}
-      </ul>
+      {rows.length === 0 ? (
+        <p className="os-list__empty">No rule matches.</p>
+      ) : (
+        <ul className="os-list">
+          {rows.map((rule) => {
+            const status = rule.status.replaceAll('_', ' ').toLowerCase()
+            const statusClass = status.includes('draft') ? 'is-draft' : status.includes('error') ? 'is-error' : 'is-ready'
+            return (
+              <li key={rule.id}>
+                <div className="os-list__row">
+                  <div className="os-list__main">
+                    <span className="os-list__icon" aria-hidden>
+                      <BookMarked size={18} strokeWidth={1.75} />
+                    </span>
+                    <span className="os-list__body">
+                      <span className="os-list__title">{rule.name}</span>
+                      <span className="os-list__meta">
+                        <span className="os-list__chip os-list__chip--id">{rule.id}</span>
+                        <span className="os-list__chip">{rule.category}</span>
+                        <span className="os-list__mute">unit {rule.unit}</span>
+                        <span className={`os-list__status ${statusClass}`}>{status}</span>
+                      </span>
+                      <span className="os-list__note">{rule.logic}</span>
+                    </span>
+                  </div>
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+      )}
     </div>
   )
 }

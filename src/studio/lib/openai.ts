@@ -42,7 +42,7 @@ export async function uploadOpenAiFile(
   file: File,
   progress?: TextProgress,
 ): Promise<string> {
-  progress?.onStatus?.(`Uploading ${file.name} to OpenAI…`)
+  progress?.onStatus?.(`Uploading ${file.name} to the model…`)
   const form = new FormData()
   form.append('purpose', 'user_data')
   form.append('file', file, file.name)
