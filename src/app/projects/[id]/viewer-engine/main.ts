@@ -117,7 +117,14 @@ export async function initializeViewer(containerId: string = "container") {
   if (!workerRes.ok) {
     throw new Error(`Fragments 3.2.0 worker missing (${workerRes.status})`);
   }
-  const workerBlob = await workerRes.blob();
+  // LOD tuning: the stock worker draws any element whose cross-section is under 4 px on screen as a
+  // 2 px line, so pipes, conduits and studs turn into hairlines unless you zoom right in. Drop that
+  // threshold to 1.5 px so services keep their real diameter and colour at building-scale zoom.
+  const workerSource = (await workerRes.text()).replace(
+    "smallScreenSize:2,mediumScreenSize:4,",
+    "smallScreenSize:1,mediumScreenSize:1.5,"
+  );
+  const workerBlob = new Blob([workerSource], { type: "text/javascript" });
   const workerFile = new File([workerBlob], "worker-3.2.0.mjs", {
     type: "text/javascript",
   });

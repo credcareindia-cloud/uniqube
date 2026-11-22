@@ -59,6 +59,18 @@ body {
   backface-visibility: hidden;
 }
 
+/* Soft vignette: darkens the edges a touch so the model sits in a lit centre (presentation look).
+   Pure CSS overlay on top of the canvas; it never blocks clicks or orbiting. */
+#container::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background:
+    radial-gradient(ellipse 75% 70% at 50% 48%, rgba(255, 255, 255, 0) 55%, rgba(30, 41, 59, 0.10) 80%, rgba(15, 23, 42, 0.26) 100%);
+}
+
 /* 3D | 2D CAD side-by-side — shrink the Fragments canvas to the left half */
 .viewer-container.cad-split-active #container {
   position: absolute;
