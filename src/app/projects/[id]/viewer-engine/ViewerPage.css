@@ -3474,7 +3474,7 @@ body.mode-install .version-option-name {
   position: absolute;
   top: 64px;
   right: 0;
-  bottom: 108px;
+  bottom: 132px;
   width: min(300px, 88vw);
   z-index: 420;
   display: flex;
@@ -3891,7 +3891,10 @@ body.mode-install .version-option-name {
 }
 
 .install-seq-center {
-  text-align: center;
+  display: grid;
+  grid-template-columns: minmax(72px, 1fr) minmax(140px, 1.6fr) minmax(72px, 1fr);
+  align-items: center;
+  gap: 10px 14px;
   color: #f5f5f4;
   min-width: 0;
   padding: 8px 14px 10px;
@@ -3900,6 +3903,47 @@ body.mode-install .version-option-name {
   clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
+}
+
+.install-seq-now {
+  min-width: 0;
+  text-align: center;
+}
+
+.install-seq-side {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.install-seq-side.is-prev {
+  align-items: flex-end;
+  text-align: right;
+}
+
+.install-seq-side.is-next {
+  align-items: flex-start;
+  text-align: left;
+}
+
+.install-seq-side-tag {
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(232, 160, 74, 0.85);
+}
+
+.install-seq-side-mark {
+  max-width: 100%;
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: rgba(248, 250, 252, 0.72);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .install-seq-label {
@@ -3998,6 +4042,170 @@ body.mode-install .version-option-name {
   cursor: not-allowed;
 }
 
+.seq-skel-overlay {
+  position: absolute;
+  inset: 56px 0 0 0;
+  z-index: 415;
+  pointer-events: none;
+  background: rgba(8, 8, 14, 0.28);
+}
+
+.seq-skel-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.seq-skel-bone {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.06) 0%,
+    rgba(253, 170, 72, 0.18) 45%,
+    rgba(255, 255, 255, 0.06) 100%
+  );
+  background-size: 200% 100%;
+  animation: seq-skel 1.15s ease-in-out infinite;
+  border-radius: 6px;
+}
+
+@keyframes seq-skel {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+.seq-skel-hud {
+  position: absolute;
+  top: 50%;
+  left: 18px;
+  transform: translateY(-52%);
+  width: 188px;
+  padding: 16px;
+  background: linear-gradient(135deg, rgba(28, 28, 28, 0.92) 0%, rgba(20, 20, 20, 0.88) 100%);
+  border: 1px solid rgba(232, 160, 74, 0.35);
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.seq-skel-hud-tag {
+  width: 72px;
+  height: 12px;
+}
+
+.seq-skel-hud-num {
+  width: 88px;
+  height: 36px;
+}
+
+.seq-skel-hud-line {
+  width: 100%;
+  height: 10px;
+}
+
+.seq-skel-hud-line.is-short,
+.seq-skel-detail-line.is-short {
+  width: 58%;
+}
+
+.seq-skel-stage {
+  position: absolute;
+  inset: 72px 320px 120px 228px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.seq-skel-model {
+  width: min(42%, 280px);
+  height: min(58%, 320px);
+  border-radius: 18px;
+  opacity: 0.85;
+}
+
+.seq-skel-detail {
+  position: absolute;
+  top: 8px;
+  right: 0;
+  bottom: 108px;
+  width: min(300px, 88vw);
+  padding: 18px 16px;
+  background: linear-gradient(160deg, rgba(28, 28, 28, 0.95) 0%, rgba(18, 18, 18, 0.9) 100%);
+  border: 1px solid rgba(232, 160, 74, 0.32);
+  border-top: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.seq-skel-detail-head {
+  width: 64px;
+  height: 10px;
+}
+
+.seq-skel-detail-title {
+  width: 78%;
+  height: 22px;
+}
+
+.seq-skel-chips {
+  display: flex;
+  gap: 8px;
+}
+
+.seq-skel-chip {
+  width: 52px;
+  height: 22px;
+  border-radius: 999px;
+}
+
+.seq-skel-detail-line {
+  width: 100%;
+  height: 12px;
+}
+
+.seq-skel-detail-block {
+  margin-top: 8px;
+  width: 100%;
+  height: 88px;
+  border-radius: 10px;
+}
+
+.seq-skel-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: grid;
+  grid-template-columns: auto auto minmax(160px, 1.4fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px 20px;
+}
+
+.seq-skel-btn {
+  width: 92px;
+  height: 48px;
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+  border-radius: 0;
+}
+
+.seq-skel-btn.is-play {
+  width: 112px;
+}
+
+.seq-skel-center {
+  height: 64px;
+  clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px);
+  border-radius: 0;
+}
+
 /* Tablet */
 @media (max-width: 960px) {
   .seq-detail-panel {
@@ -4013,6 +4221,19 @@ body.mode-install .version-option-name {
     max-width: 180px;
   }
 
+  .seq-skel-detail {
+    width: min(280px, 42vw);
+  }
+
+  .seq-skel-stage {
+    inset: 72px min(280px, 42vw) 120px 200px;
+  }
+
+  .seq-skel-hud {
+    left: 12px;
+    width: 160px;
+  }
+
   body.mode-install .seq-header-mode-badge {
     display: none;
   }
@@ -4020,6 +4241,70 @@ body.mode-install .version-option-name {
 
 /* Phone / compact */
 @media (max-width: 720px) {
+  .seq-skel-hud {
+    top: calc(8px);
+    left: 12px;
+    transform: none;
+    width: calc(100% - 24px);
+    max-width: 280px;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    padding: 10px 12px;
+  }
+
+  .seq-skel-hud-num {
+    width: 56px;
+    height: 20px;
+  }
+
+  .seq-skel-hud-line {
+    display: none;
+  }
+
+  .seq-skel-stage {
+    inset: 64px 12px 168px 12px;
+  }
+
+  .seq-skel-detail {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 92px;
+    width: 100%;
+    height: 56px;
+    flex-direction: row;
+    align-items: center;
+    padding: 10px 14px;
+    gap: 10px;
+  }
+
+  .seq-skel-detail-title {
+    width: 42%;
+    height: 16px;
+  }
+
+  .seq-skel-chips,
+  .seq-skel-detail-line,
+  .seq-skel-detail-block {
+    display: none;
+  }
+
+  .seq-skel-bar {
+    grid-template-columns: 1fr 1fr 1fr;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .seq-skel-center {
+    display: none;
+  }
+
+  .seq-skel-btn {
+    width: 100%;
+    height: 42px;
+  }
+
   .install-seq-exit {
     top: calc(64px + 8px);
     left: 8px;
@@ -4199,7 +4484,17 @@ body.mode-install .version-option-name {
 
   .install-seq-center {
     grid-area: center;
+    grid-template-columns: minmax(56px, 1fr) minmax(0, 1.8fr) minmax(56px, 1fr);
+    gap: 6px 8px;
     padding: 6px 10px 8px;
+  }
+
+  .install-seq-side-tag {
+    font-size: 0.52rem;
+  }
+
+  .install-seq-side-mark {
+    font-size: 0.68rem;
   }
 
   .install-seq-label {

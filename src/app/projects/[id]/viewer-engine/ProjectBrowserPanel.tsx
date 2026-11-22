@@ -45,7 +45,7 @@ export type BrowserSelection =
   | { kind: 'detail'; title: string; data: Record<string, any> }
   | null;
 
-export type TabId = '2d' | 'tree' | 'views' | 'sheets' | 'schedules' | 'links' | 'info';
+export type TabId = '2d' | 'tree';
 
 type Props = {
   open: boolean;
@@ -92,13 +92,8 @@ const TWO_D_VIEW_TYPES = new Set([
 ]);
 
 const TABS: Array<{ id: TabId; label: string; icon: string }> = [
-  { id: '2d', label: '2D', icon: 'fa-map' },
   { id: 'tree', label: 'Tree', icon: 'fa-sitemap' },
-  { id: 'views', label: 'Views', icon: 'fa-eye' },
-  { id: 'sheets', label: 'Sheets', icon: 'fa-file-alt' },
-  { id: 'schedules', label: 'Schedules', icon: 'fa-table' },
-  { id: 'links', label: 'Links', icon: 'fa-link' },
-  { id: 'info', label: 'Info', icon: 'fa-info-circle' },
+  { id: '2d', label: '2D', icon: 'fa-map' },
 ];
 
 /** Project Browser tree: discipline → view kinds (A → M → S) */
@@ -253,20 +248,12 @@ function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-function shortPath(p: string) {
-  if (!p) return '—';
-  const parts = p.replace(/\//g, '\\').split('\\');
-  if (parts.length <= 2) return p;
-  return `…\\${parts.slice(-2).join('\\')}`;
-}
-
 export function ProjectBrowserPanel({
   open,
   onClose,
   projectId,
   revisionId,
   onOpenDrawing,
-  onOpenSchedule,
   onOpenDetail,
   onSelectPanel,
   activeTab,
@@ -292,6 +279,18 @@ export function ProjectBrowserPanel({
   useEffect(() => {
     if (activeTab && activeTab !== tab) setTab(activeTab);
   }, [activeTab]);
+
+  useEffect(() => {
+    const onViewReset = () => {
+      setBimsfChecked({});
+      setBimsfNeighborFocus(null);
+      setBimsfConnectorFocus({});
+      setSelectedKey('');
+      setSelection(null);
+    };
+    window.addEventListener('uniqube-view-reset', onViewReset);
+    return () => window.removeEventListener('uniqube-view-reset', onViewReset);
+  }, []);
 
   const selectTab = (next: TabId) => {
     setTab(next);
@@ -701,20 +700,6 @@ export function ProjectBrowserPanel({
     }
   };
 
-  const viewsByType = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    const groups: Record<string, NonNullable<BrowserSnapshot['views']>> = {};
-    for (const v of snapshot?.views || []) {
-      if (q && !v.name.toLowerCase().includes(q) && !(v.viewType || '').toLowerCase().includes(q)) {
-        continue;
-      }
-      const folder = VIEW_TYPE_FOLDERS[v.viewType] || v.viewType || 'Other';
-      if (!groups[folder]) groups[folder] = [];
-      groups[folder].push(v);
-    }
-    return groups;
-  }, [snapshot, search]);
-
   const plans2dByType = useMemo(() => {
     const q = search.trim().toLowerCase();
     const groups: Record<string, NonNullable<BrowserSnapshot['views']>> = {};
@@ -736,33 +721,9 @@ export function ProjectBrowserPanel({
     [snapshot]
   );
 
-  const filteredSheets = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return (snapshot?.sheets || []).filter((s) => {
-      if (!q) return true;
-      return (
-        s.name.toLowerCase().includes(q) ||
-        (s.number || '').toLowerCase().includes(q)
-      );
-    });
-  }, [snapshot, search]);
-
-  const filteredSchedules = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return (snapshot?.schedules || []).filter((s) => {
-      if (s.name.startsWith('<Revision Schedule')) return false;
-      if (!q) return true;
-      return s.name.toLowerCase().includes(q);
-    });
-  }, [snapshot, search]);
-
   const counts = {
+    tree: bimsfPanels.length || treePanels.length,
     '2d': plans2dCount,
-    views: snapshot?.views?.length || 0,
-    sheets: snapshot?.sheets?.length || 0,
-    schedules: (snapshot?.schedules || []).filter((s) => !s.name.startsWith('<Revision Schedule'))
-      .length,
-    links: snapshot?.links?.length || 0,
   };
 
   const toggleGroup = (key: string, defaultOpen = true) =>
@@ -811,18 +772,7 @@ export function ProjectBrowserPanel({
 
       <nav className="pb-tabs" role="tablist" aria-label="Browser sections">
         {TABS.map((t) => {
-          const count =
-            t.id === '2d'
-              ? counts['2d']
-              : t.id === 'views'
-              ? counts.views
-              : t.id === 'sheets'
-                ? counts.sheets
-                : t.id === 'schedules'
-                  ? counts.schedules
-                  : t.id === 'links'
-                    ? counts.links
-                    : undefined;
+          const count = t.id === 'tree' ? counts.tree : counts['2d'];
           return (
             <button
               key={t.id}
@@ -831,23 +781,23 @@ export function ProjectBrowserPanel({
               aria-selected={tab === t.id}
               className={`pb-tab ${tab === t.id ? 'active' : ''}`}
               onClick={() => selectTab(t.id)}
-              title={t.id === '2d' ? '2D Plan Mode' : t.label}
+              title={t.id === '2d' ? '2D plans' : 'Model tree'}
             >
               <i className={`fas ${t.icon}`} />
               <span className="pb-tab-label">{t.label}</span>
-              {count !== undefined && <span className="pb-tab-count">{count}</span>}
+              <span className="pb-tab-count">{count}</span>
             </button>
           );
         })}
       </nav>
 
-      {tab !== 'info' && tab !== 'tree' && (
+      {tab !== 'tree' && (
         <div className="pb-search-wrap">
           <i className="fas fa-search" />
           <input
             type="search"
             className="pb-search"
-            placeholder={`Search ${tab}…`}
+            placeholder="Search 2D plans…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -855,16 +805,19 @@ export function ProjectBrowserPanel({
       )}
 
       <div className="pb-body" role="tabpanel">
-        {loading && <div className="pb-status">Loading…</div>}
-        {error && <div className="pb-error">{error}</div>}
-        {!loading && !error && !snapshot && drawings.length === 0 && tab !== 'tree' && tab !== '2d' && (
-          <div className="pb-empty">
-            <i className="fas fa-folder-open" />
-            <p>No browser data for this revision.</p>
-            <span>Republish from Revit to capture views and sheets.</span>
+        {loading && (
+          <div className="pb-skel" aria-hidden>
+            <div className="pb-skel-row is-head" />
+            <div className="pb-skel-row" />
+            <div className="pb-skel-row" />
+            <div className="pb-skel-row is-head" />
+            <div className="pb-skel-row" />
+            <div className="pb-skel-row" />
+            <div className="pb-skel-row is-head" />
+            <div className="pb-skel-row" />
           </div>
         )}
-
+        {error && <div className="pb-error">{error}</div>}
         {!loading && !error && tab === '2d' && (
           <div className="pb-list">
             {Object.keys(plans2dByType).length === 0 && (
@@ -1141,209 +1094,13 @@ export function ProjectBrowserPanel({
             })}
           </div>
         )}
-
-        {!loading && !error && tab === 'views' && (
-          <div className="pb-list">
-            {Object.keys(viewsByType).length === 0 && (
-              <div className="pb-empty-inline">No views match</div>
-            )}
-            {Object.entries(viewsByType).map(([folder, list]) => (
-              <div key={folder} className="pb-group">
-                <button
-                  type="button"
-                  className="pb-group-btn"
-                  onClick={() => toggleGroup(`v:${folder}`)}
-                >
-                  <i className={`fas fa-chevron-${isGroupOpen(`v:${folder}`) ? 'down' : 'right'}`} />
-                  <span>{folder}</span>
-                  <span className="pb-group-count">{list.length}</span>
-                </button>
-                {isGroupOpen(`v:${folder}`) && (
-                  <div className="pb-group-items">
-                    {list.map((v) => {
-                      const drawing = drawingByRevitId.get(v.id);
-                      return (
-                        <button
-                          key={v.id}
-                          type="button"
-                          className={`pb-item ${selectedKey === `view:${v.id}` ? 'active' : ''}`}
-                          onClick={() => {
-                            if (drawing) selectDrawing(drawing, v);
-                            else {
-                              selectDetail(v.name, { ...v, hasDrawing: false }, `view:${v.id}`);
-                            }
-                          }}
-                        >
-                          <span className="pb-item-main">
-                            <span className="pb-item-title">{v.name}</span>
-                            {v.discipline && (
-                              <span className="pb-item-meta">{v.discipline}</span>
-                            )}
-                          </span>
-                          {drawing?.hasDxf ? (
-                            <span className="pb-chip cad">CAD</span>
-                          ) : (
-                            <span className="pb-chip muted">Info</span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {!loading && !error && tab === 'sheets' && (
-          <div className="pb-list">
-            {filteredSheets.length === 0 && (
-              <div className="pb-empty-inline">No sheets match</div>
-            )}
-            {filteredSheets.map((s) => {
-              const drawing = drawingByRevitId.get(s.id);
-              return (
-                <button
-                  key={s.id}
-                  type="button"
-                  className={`pb-item sheet ${selectedKey === `sheet:${s.id}` ? 'active' : ''}`}
-                  onClick={() => {
-                    if (drawing) selectDrawing(drawing, s);
-                    else {
-                      selectDetail(`${s.number} ${s.name}`, s, `sheet:${s.id}`);
-                    }
-                  }}
-                >
-                  <span className="pb-sheet-no">{s.number || '—'}</span>
-                  <span className="pb-item-main">
-                    <span className="pb-item-title">{s.name}</span>
-                    <span className="pb-item-meta">
-                      {(s.viewports || []).length} viewport
-                      {(s.viewports || []).length === 1 ? '' : 's'}
-                    </span>
-                  </span>
-                  {drawing?.hasDxf ? (
-                    <span className="pb-chip cad">CAD</span>
-                  ) : (
-                    <span className="pb-chip muted">Info</span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {!loading && !error && tab === 'schedules' && (
-          <div className="pb-list">
-            {filteredSchedules.length === 0 && (
-              <div className="pb-empty-inline">No schedules match</div>
-            )}
-            {filteredSchedules.map((sch) => (
-              <button
-                key={sch.id}
-                type="button"
-                className={`pb-item ${selectedKey === `schedule:${sch.id}` ? 'active' : ''}`}
-                onClick={() => {
-                  setSelectedKey(`schedule:${sch.id}`);
-                  setSelection({ kind: 'schedule', schedule: sch });
-                  onOpenSchedule(sch);
-                }}
-              >
-                <span className="pb-item-main">
-                  <span className="pb-item-title">{sch.name}</span>
-                  <span className="pb-item-meta">
-                    {(sch.table?.rows || []).length} rows
-                  </span>
-                </span>
-                {(sch.table?.rows || []).length > 0 && (
-                  <span className="pb-chip data">Table</span>
-                )}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {!loading && !error && tab === 'links' && (
-          <div className="pb-list">
-            {(snapshot?.links || []).length === 0 && (
-              <div className="pb-empty-inline">No RVT links</div>
-            )}
-            {(snapshot?.links || []).map((link) => {
-              const loaded = (link.status || '').toLowerCase().includes('load');
-              return (
-                <button
-                  key={link.id}
-                  type="button"
-                  className={`pb-item ${selectedKey === `link:${link.id}` ? 'active' : ''}`}
-                  onClick={() => {
-                    selectDetail(link.name, link, `link:${link.id}`);
-                  }}
-                >
-                  <span className="pb-item-main">
-                    <span className="pb-item-title">{link.name}</span>
-                    <span className="pb-item-meta" title={link.path}>
-                      {shortPath(link.path)}
-                    </span>
-                  </span>
-                  <span className={`pb-chip ${loaded ? 'ok' : 'warn'}`}>
-                    {link.status || 'Unknown'}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {!loading && !error && tab === 'info' && (
-          <div className="pb-info">
-            <section className="pb-info-card">
-              <h4>Project</h4>
-              <dl className="pb-dl">
-                {Object.entries(snapshot?.projectInfo || {}).map(([k, v]) => (
-                  <div key={k} className="pb-dl-row">
-                    <dt>{INFO_LABELS[k] || k}</dt>
-                    <dd title={String(v || '')}>
-                      {k === 'path' ? shortPath(String(v || '')) : String(v || '—')}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            </section>
-
-            <section className="pb-info-card">
-              <h4>Levels</h4>
-              {(snapshot?.levels || []).length === 0 && (
-                <p className="pb-muted">No levels</p>
-              )}
-              <ul className="pb-level-list">
-                {(snapshot?.levels || []).map((lvl) => (
-                  <li key={lvl.id}>
-                    <span>{lvl.name}</span>
-                    <span className="pb-level-elev">{lvl.elevation}</span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-
-            {(snapshot?.phases || []).length > 0 && (
-              <section className="pb-info-card">
-                <h4>Phases</h4>
-                <div className="pb-chips">
-                  {(snapshot?.phases || []).map((ph) => (
-                    <span key={ph.id} className="pb-chip muted">
-                      {ph.name}
-                    </span>
-                  ))}
-                </div>
-              </section>
-            )}
-          </div>
-        )}
       </div>
 
       <footer className="pb-footer">
         {!selection && (
-          <p className="pb-muted">Select a view or sheet with CAD to open the drawing.</p>
+          <p className="pb-muted">
+            {tab === 'tree' ? 'Select a panel to highlight it in 3D.' : 'Select a plan with CAD to open the drawing.'}
+          </p>
         )}
         {selection?.kind === 'drawing' && (
           <div className="pb-footer-sel">

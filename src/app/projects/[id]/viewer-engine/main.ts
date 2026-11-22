@@ -6060,11 +6060,26 @@ export async function initializeViewer(containerId: string = "container") {
     updateHideLayersButtonUi();
   });
 
-  // Reset button - clears all highlights and shows everything normally
+  // Reset button - clears sequence, highlights, layers, and camera
   if (treeResetBtn) {
     treeResetBtn.addEventListener("click", async () => {
       try {
+        if (installSequenceActive) {
+          pauseInstallSequence();
+          await exitInstallSequence();
+        }
+
         await clearPanelSelection();
+        bimsfChecked.clear();
+        bimsfNeighborFocusKey = null;
+        bimsfConnectorFocusKeys.clear();
+        lastFragmentHighlight = [];
+        try {
+          syncBimsfCheckboxUi();
+        } catch {
+          /* ignore */
+        }
+
         // Reset all highlights and visibility for all models
         for (const [_, model] of models.entries()) {
           await model.resetHighlight(undefined);
@@ -6132,7 +6147,22 @@ export async function initializeViewer(containerId: string = "container") {
           world.camera.controls.setLookAt(50, 30, 50, 0, 0, 0, true);
         }
 
+        if (document.body.classList.contains('mode-2d')) {
+          try {
+            await views2d?.close3DMode();
+          } catch (e) {
+            console.warn('close 2D on reset:', e);
+          }
+          document.body.classList.remove('mode-2d');
+        }
+
         await fragments.update(true);
+
+        try {
+          window.dispatchEvent(new CustomEvent('uniqube-view-reset'));
+        } catch {
+          /* ignore */
+        }
 
         console.log("View reset successfully");
       } catch (error) {

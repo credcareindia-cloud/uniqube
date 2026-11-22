@@ -356,6 +356,15 @@ export default function ViewerPage() {
       setHideDoorsWindows(false);
     };
     window.addEventListener('uniqube-hide-layers-reset', onReset);
+    const onViewReset = () => {
+      setInstallBusy(false);
+      setInstallMode(false);
+      setInstallStep(null);
+      setSeqDetailsExpanded(false);
+      document.body.classList.remove('mode-install');
+      setHideMenuOpen(false);
+    };
+    window.addEventListener('uniqube-view-reset', onViewReset);
     const onSync = (e: Event) => {
       const detail = (e as CustomEvent).detail || {};
       setHideSheathing(!!detail.sheathing);
@@ -367,6 +376,7 @@ export default function ViewerPage() {
     window.addEventListener('uniqube-hide-layers-sync', onSync as EventListener);
     return () => {
       window.removeEventListener('uniqube-hide-layers-reset', onReset);
+      window.removeEventListener('uniqube-view-reset', onViewReset);
       window.removeEventListener('uniqube-hide-layers-sync', onSync as EventListener);
     };
   }, []);
@@ -435,6 +445,7 @@ export default function ViewerPage() {
       console.warn('Install sequence API not ready');
       return;
     }
+    document.body.classList.add('mode-install');
     setInstallBusy(true);
     try {
       // Close side panels for a focused “game” view
@@ -442,12 +453,14 @@ export default function ViewerPage() {
       setCadOpen(false);
       const result = await api.enterInstallSequence();
       if (!result?.ok) {
+        document.body.classList.remove('mode-install');
         alert(result?.error || 'No panels available for install sequence');
         return;
       }
       applyInstallState(result);
     } catch (e) {
       console.error('Failed to enter install sequence:', e);
+      document.body.classList.remove('mode-install');
     } finally {
       setInstallBusy(false);
     }
@@ -951,6 +964,30 @@ export default function ViewerPage() {
     console.log('🔄 View mode:', is2D ? '2D' : '3D');
   };
 
+  useEffect(() => {
+    const onViewReset = () => {
+      if (!is2DMode) return;
+      setIs2DMode(false);
+      setCurrentFloor(null);
+      setFloorPanelVisible(false);
+      document.body.classList.remove('mode-2d');
+      ['status-toggle-btn', 'groups-toggle-btn', 'selection-tool-btn'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.classList.remove('disabled-in-2d');
+        el.removeAttribute('disabled');
+      });
+      ['statusPanel', 'groupsPanel', 'infoPanel'].forEach((id) => {
+        const panel = document.getElementById(id) as HTMLElement | null;
+        if (!panel) return;
+        panel.style.transform = '';
+        panel.style.pointerEvents = '';
+      });
+    };
+    window.addEventListener('uniqube-view-reset', onViewReset);
+    return () => window.removeEventListener('uniqube-view-reset', onViewReset);
+  }, [is2DMode]);
+
 
 
   // Keep 3D + DXF canvases sized when entering/leaving side-by-side View
@@ -1134,10 +1171,10 @@ export default function ViewerPage() {
               <img src="/uniQube.png" alt="" className="toolbar-brand-logo" />
             </div>
             <h1 className="toolbar-brand-title">
-              UNIQUBE<span className="toolbar-brand-accent">-3D</span>
+              UNIQUBE<span className="toolbar-brand-accent">3D</span>
             </h1>
           </div>
-          {installMode && (
+          {(installMode || (installBusy && !installStep)) && (
             <span className="seq-header-mode-badge" aria-live="polite">
               Sequence
             </span>
@@ -1679,6 +1716,40 @@ export default function ViewerPage() {
         </div>
       </div>
 
+      {installBusy && !installStep && (
+        <div className="seq-skel-overlay" aria-busy="true" aria-live="polite">
+          <span className="seq-skel-live">Preparing install sequence</span>
+          <aside className="seq-skel-hud" aria-hidden="true">
+            <div className="seq-skel-bone seq-skel-hud-tag" />
+            <div className="seq-skel-bone seq-skel-hud-num" />
+            <div className="seq-skel-bone seq-skel-hud-line" />
+            <div className="seq-skel-bone seq-skel-hud-line is-short" />
+          </aside>
+          <div className="seq-skel-stage" aria-hidden="true">
+            <div className="seq-skel-bone seq-skel-model" />
+          </div>
+          <aside className="seq-skel-detail" aria-hidden="true">
+            <div className="seq-skel-bone seq-skel-detail-head" />
+            <div className="seq-skel-bone seq-skel-detail-title" />
+            <div className="seq-skel-chips">
+              <div className="seq-skel-bone seq-skel-chip" />
+              <div className="seq-skel-bone seq-skel-chip" />
+              <div className="seq-skel-bone seq-skel-chip" />
+            </div>
+            <div className="seq-skel-bone seq-skel-detail-line" />
+            <div className="seq-skel-bone seq-skel-detail-line" />
+            <div className="seq-skel-bone seq-skel-detail-line is-short" />
+            <div className="seq-skel-bone seq-skel-detail-block" />
+          </aside>
+          <div className="seq-skel-bar" aria-hidden="true">
+            <div className="seq-skel-bone seq-skel-btn" />
+            <div className="seq-skel-bone seq-skel-btn is-play" />
+            <div className="seq-skel-bone seq-skel-center" />
+            <div className="seq-skel-bone seq-skel-btn" />
+          </div>
+        </div>
+      )}
+
       {/* Install sequence HUD */}
       {installMode && installStep && (
         <>
@@ -1765,21 +1836,6 @@ export default function ViewerPage() {
               </span>
             </button>
             <div className="seq-detail-stack">
-              {/* Previous (up to 3) */}
-              <div className="seq-detail-context seq-detail-previous">
-                <div className="seq-section-tag">Prev</div>
-                {installStep.previous.length === 0 ? (
-                  <div className="seq-context-empty">Start of sequence</div>
-                ) : (
-                  installStep.previous.map((item) => (
-                    <div key={item.key} className="seq-context-row">
-                      <span className="seq-context-mark">{item.display}</span>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              {/* Current panel details */}
               <div className="seq-detail-current">
                 <div className="seq-detail-top">
                   <span className="seq-detail-tag">{installStep.isComplete ? 'Final' : 'Target'}</span>
@@ -1919,22 +1975,6 @@ export default function ViewerPage() {
                 </dl>
                 )}
               </div>
-
-              {/* Upcoming (up to 3) */}
-              <div className="seq-detail-context seq-detail-upcoming">
-                <div className="seq-section-tag">Next</div>
-                {installStep.upcoming.length === 0 ? (
-                  <div className="seq-context-empty">
-                    {installStep.isComplete ? 'Build complete' : 'End of sequence'}
-                  </div>
-                ) : (
-                  installStep.upcoming.map((item) => (
-                    <div key={item.key} className="seq-context-row">
-                      <span className="seq-context-mark">{item.display}</span>
-                    </div>
-                  ))
-                )}
-              </div>
             </div>
           </aside>
 
@@ -1966,30 +2006,44 @@ export default function ViewerPage() {
             </button>
 
             <div className="install-seq-center">
-              <div className="install-seq-label">
-                <span className="install-seq-mode-tag">Mode</span>
-                Install sequence
-              </div>
-              <div className="install-seq-panel">
-                {installStep.isComplete ? 'Complete building' : installStep.display || 'Panel'}
-              </div>
-              <div className="install-seq-progress">
-                <span>
-                  {String(installStep.index + 1).padStart(2, '0')} /{' '}
-                  {String(installStep.total).padStart(2, '0')}
+              <div className="install-seq-side is-prev">
+                <span className="install-seq-side-tag">Prev</span>
+                <span className="install-seq-side-mark">
+                  {installStep.previous.at(-1)?.display || 'Start'}
                 </span>
-                <div className="install-seq-track" aria-hidden="true">
-                  <div
-                    className="install-seq-fill"
-                    style={{
-                      width: `${
-                        installStep.total
-                          ? ((installStep.index + 1) / installStep.total) * 100
-                          : 0
-                      }%`,
-                    }}
-                  />
+              </div>
+              <div className="install-seq-now">
+                <div className="install-seq-label">
+                  <span className="install-seq-mode-tag">Mode</span>
+                  Install sequence
                 </div>
+                <div className="install-seq-panel">
+                  {installStep.isComplete ? 'Complete building' : installStep.display || 'Panel'}
+                </div>
+                <div className="install-seq-progress">
+                  <span>
+                    {String(installStep.index + 1).padStart(2, '0')} /{' '}
+                    {String(installStep.total).padStart(2, '0')}
+                  </span>
+                  <div className="install-seq-track" aria-hidden="true">
+                    <div
+                      className="install-seq-fill"
+                      style={{
+                        width: `${
+                          installStep.total
+                            ? ((installStep.index + 1) / installStep.total) * 100
+                            : 0
+                        }%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="install-seq-side is-next">
+                <span className="install-seq-side-tag">Next</span>
+                <span className="install-seq-side-mark">
+                  {installStep.upcoming[0]?.display || (installStep.isComplete ? 'Done' : 'End')}
+                </span>
               </div>
             </div>
 
