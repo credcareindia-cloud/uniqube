@@ -1,0 +1,3 @@
+# UniQube OS is private, login-only software. The public site is https://www.uniqube.co
+User-agent: *
+Disallow: /api/
